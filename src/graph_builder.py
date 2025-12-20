@@ -12,13 +12,13 @@ from src.nodes.filter import filter_node
 from src.nodes.metrics import metrics_node
 from src.nodes.packaging import packaging_node
 from src.nodes.investigation import (
-    node_tracking,
-    node_short_circuit,
-    node_severed,
     node_contact,
-    node_overcurrent,
-    node_chief_investigator
+    node_dielectric,
+    node_mechanical,
+    node_tracking,
+    node_strand_fracture
 )
+from src.nodes.experts.arbiter import node_arbiter
 
 
 def build_graph() -> StateGraph:
@@ -66,10 +66,10 @@ def build_graph() -> StateGraph:
 
 def build_investigation_graph() -> StateGraph:
     """
-    화재조사 멀티 에이전트 그래프 빌드
+    화재조사 멀티 에이전트 그래프 빌드 (구조화된 다단계 분석 방식)
     
     그래프 구조:
-    START → [tracking, short_circuit, severed, contact, overcurrent] (병렬)
+    START → [전문가1, 전문가2, 전문가3, 전문가4, 전문가5] (병렬)
          → chief_investigator → END
     
     Returns:
@@ -77,27 +77,29 @@ def build_investigation_graph() -> StateGraph:
     """
     builder = StateGraph(InvestigationState)
     
-    # 노드 추가
-    builder.add_node("tracking", node_tracking)
-    builder.add_node("short_circuit", node_short_circuit)
-    builder.add_node("severed", node_severed)
+    # 새로운 전문가 노드 추가
     builder.add_node("contact", node_contact)
-    builder.add_node("overcurrent", node_overcurrent)
-    builder.add_node("chief_investigator", node_chief_investigator)
+    builder.add_node("dielectric", node_dielectric)
+    builder.add_node("mechanical", node_mechanical)
+    builder.add_node("tracking", node_tracking)
+    builder.add_node("strand_fracture", node_strand_fracture)
     
-    # Fan-out: START → 모든 전문가 노드 (병렬 실행)
-    builder.add_edge(START, "tracking")
-    builder.add_edge(START, "short_circuit")
-    builder.add_edge(START, "severed")
+    # Arbiter Agent 노드 추가
+    builder.add_node("chief_investigator", node_arbiter)
+    
+    # Fan-out: START → 모든 전문가 (병렬 실행)
     builder.add_edge(START, "contact")
-    builder.add_edge(START, "overcurrent")
+    builder.add_edge(START, "dielectric")
+    builder.add_edge(START, "mechanical")
+    builder.add_edge(START, "tracking")
+    builder.add_edge(START, "strand_fracture")
     
-    # Fan-in: 모든 전문가 노드 → Chief
-    builder.add_edge("tracking", "chief_investigator")
-    builder.add_edge("short_circuit", "chief_investigator")
-    builder.add_edge("severed", "chief_investigator")
+    # Fan-in: 모든 전문가 → 수석 조사관
     builder.add_edge("contact", "chief_investigator")
-    builder.add_edge("overcurrent", "chief_investigator")
+    builder.add_edge("dielectric", "chief_investigator")
+    builder.add_edge("mechanical", "chief_investigator")
+    builder.add_edge("tracking", "chief_investigator")
+    builder.add_edge("strand_fracture", "chief_investigator")
     
     # 종료
     builder.add_edge("chief_investigator", END)
@@ -124,6 +126,9 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     initial_state = {
         "payload": payload_data,
         "expert_reports": [],
+        "expert_analysis_results": {},  # Annotated[dict, merge_dicts]이므로 빈 dict로 초기화
+        "expert_confidence_scores": {},  # Annotated[dict, merge_dicts]이므로 빈 dict로 초기화
+        "expert_evidence": {},  # Annotated[dict, merge_dicts]이므로 빈 dict로 초기화
         "final_verdict": None,
         "errors": []
     }

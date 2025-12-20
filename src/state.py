@@ -3,9 +3,30 @@ LangGraph 상태 정의
 TypedDict를 사용하여 그래프 상태 스키마를 정의합니다.
 """
 import operator
-from typing import Annotated, Optional, List, Any
+from typing import Annotated, Optional, List, Any, Callable
 from typing_extensions import TypedDict
 import numpy as np
+
+
+def merge_dicts(left: dict, right: dict) -> dict:
+    """
+    두 딕셔너리를 병합하는 reducer 함수
+    병렬 실행 시 여러 노드에서 동시에 dict를 업데이트할 때 사용
+    
+    Args:
+        left: 기존 딕셔너리
+        right: 새로 추가할 딕셔너리
+    
+    Returns:
+        병합된 딕셔너리
+    """
+    if left is None:
+        left = {}
+    if right is None:
+        right = {}
+    result = left.copy()
+    result.update(right)
+    return result
 
 
 class GraphState(TypedDict):
@@ -34,14 +55,23 @@ class GraphState(TypedDict):
 
 class InvestigationState(TypedDict):
     """
-    화재조사 멀티 에이전트 상태 스키마
+    화재조사 멀티 에이전트 상태 스키마 (구조화된 다단계 분석 방식)
     
     기존 GraphState와 별도로 정의하여 독립적인 그래프로 사용
     """
     payload: List[Any]  # LLM 입력 데이터 (이미지 + 텍스트)
     
-    # 전문가 리포트 수집 (Reducer 패턴: 병렬 실행 시 덮어쓰기 방지)
+    # 최종 전문가 리포트
     expert_reports: Annotated[List[str], operator.add]
+    
+    # 각 전문가의 구조화된 분석 결과 (단계별 결과)
+    expert_analysis_results: Annotated[dict, merge_dicts]  # {"contact": {"step1": {...}, "step2": {...}, ...}, ...}
+    
+    # 각 전문가의 신뢰도 점수
+    expert_confidence_scores: Annotated[dict, merge_dicts]  # {"contact": 85, "tracking": 72, ...}
+    
+    # 각 전문가의 증거
+    expert_evidence: Annotated[dict, merge_dicts]  # {"contact": [...], "tracking": [...], ...}
     
     # 최종 결론
     final_verdict: Optional[str]
