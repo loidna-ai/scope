@@ -45,7 +45,13 @@ STEP1_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이�
     "reasoning": "판단 근거"
 }"""
 
-STEP2_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이미지에서 아산화동(Cu₂O) 증식의 증거를 찾으세요.
+STEP2_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이미지에서 아산화동(Cu₂O)을 의심할 수 있는 색상 패턴을 관찰하세요.
+
+[중요 제약 조건]
+- 일반 RGB 카메라 이미지로는 화학적 성분을 확정할 수 없습니다.
+- 색상만으로는 아산화동, 산화동(CuO), 다른 산화물, 열변색 등을 구별할 수 없습니다.
+- 따라서 "아산화동 탐지"가 아닌 "아산화동을 의심할 수 있는 색상 패턴 관찰"만 수행하세요.
+- 화학적 성분 분석은 육안 관찰로 불가능하므로, 색상적 특징만 기술하고 확정하지 말 것.
 
 [중요] 먼저 분석 과정을 단계별로 자세히 설명한 후, 마지막에 JSON 형식으로 응답하세요. 각 단계에서 무엇을 관찰하고 어떻게 판단하는지 명확히 서술하세요.
 
@@ -65,24 +71,26 @@ STEP2_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이�
 - 녹색 녹(Green rust)이 있는 경우, 그 위치와 색상 특성(채도, 명도)을 구별하여 서술하세요.
 
 3단계: 논리적 추론
-- 붉은/주황/적갈색 산화물이 금속 접속부에 집중되어 있다면, 이는 고온에서 구리가 산화되어 형성된 아산화동(Cu₂O)일 가능성이 높습니다.
-- 아산화동은 접촉불량으로 인한 국부적 과열의 강력한 지표입니다.
+- 붉은/주황/적갈색 산화물이 금속 접속부에 집중되어 있다면, 이는 아산화동(Cu₂O)을 의심할 수 있는 색상 패턴일 수 있습니다.
+- 다만, 화학적 성분 확정은 불가능하므로 "의심 가능성"으로만 기술하세요.
+- 이러한 색상 패턴은 접촉불량으로 인한 국부적 과열의 가능한 지표일 수 있습니다.
 - 녹색 녹은 화재 진압 시 물에 의한 2차 부식으로, 아산화동과는 다른 메커니즘입니다.
-- 색상의 위치, 분포, 톤을 종합하여 아산화동 증식 여부를 논리적으로 판단하세요.
+- 색상의 위치, 분포, 톤을 종합하여 아산화동을 의심할 수 있는 색상 패턴의 존재 여부를 논리적으로 판단하세요.
 
 [출력 형식]
 다음 JSON 형식으로 응답하세요:
 {
-    "cuprous_oxide_detected": true/false,
+    "suspicious_color_pattern_detected": true/false,
     "color_analysis": {
         "red_tone_present": true/false,
         "orange_tone_present": true/false,
         "russet_tone_present": true/false,
         "dominant_colors": ["색상1", "색상2", ...]
     },
-    "location_of_oxidation": "산화물이 발견된 위치 설명",
+    "location_of_coloration": "색상이 발견된 위치 설명",
+    "cuprous_oxide_suspicion_level": "high" | "medium" | "low" | "none",
     "confidence": 0-100,
-    "reasoning": "판단 근거 및 녹색 녹과의 구별 방법"
+    "reasoning": "판단 근거 및 화학적 성분 확정 불가능성 명시"
 }"""
 
 STEP3_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이미지에서 열적 구배(Thermal Gradient) 패턴을 분석하세요.
@@ -178,7 +186,7 @@ def step1_location_context(image_part: Part, verbose: bool = False) -> Dict[str,
 
 
 def step2_spectral_analysis(image_part: Part, verbose: bool = False) -> Dict[str, Any]:
-    """Step 2: 색채 스펙트럼 분석"""
+    """Step 2: 색채 스펙트럼 분석 (아산화동 의심 색상 패턴 관찰)"""
     if verbose:
         print("\n🎨 [Step 2] 색채 스펙트럼 분석 시작...")
     
@@ -189,8 +197,10 @@ def step2_spectral_analysis(image_part: Part, verbose: bool = False) -> Dict[str
         result["thinking_process"] = thinking_info
     
     if verbose:
-        detected = result.get("cuprous_oxide_detected", False)
-        print(f"✅ [Step 2] 완료: 아산화동 탐지 {'성공' if detected else '실패'}")
+        # 하위 호환성을 위해 두 필드 모두 확인
+        detected = result.get("suspicious_color_pattern_detected", False) or result.get("cuprous_oxide_detected", False)
+        suspicion_level = result.get("cuprous_oxide_suspicion_level", "none")
+        print(f"✅ [Step 2] 완료: 아산화동 의심 색상 패턴 {'관찰됨' if detected else '미관찰'} (의심도: {suspicion_level})")
     
     return result
 
@@ -257,7 +267,9 @@ def calculate_confidence_score(
     
     # 핵심 지표 확인
     is_connection_point = step1_result.get("is_connection_point", False)
-    cuprous_oxide_detected = step2_result.get("cuprous_oxide_detected", False)
+    # 하위 호환성: 새로운 필드명과 기존 필드명 모두 확인
+    cuprous_oxide_detected = step2_result.get("suspicious_color_pattern_detected", False) or \
+                             step2_result.get("cuprous_oxide_detected", False)
     thermal_gradient_detected = step3_result.get("thermal_gradient_detected", False)
     electrical_erosion_detected = step4_result.get("electrical_erosion_detected", False)
     
@@ -306,7 +318,9 @@ def collect_evidence(
     evidence = []
     
     is_connection_point = step1_result.get("is_connection_point", False)
-    cuprous_oxide_detected = step2_result.get("cuprous_oxide_detected", False)
+    # 하위 호환성: 새로운 필드명과 기존 필드명 모두 확인
+    cuprous_oxide_detected = step2_result.get("suspicious_color_pattern_detected", False) or \
+                             step2_result.get("cuprous_oxide_detected", False)
     thermal_gradient_detected = step3_result.get("thermal_gradient_detected", False)
     electrical_erosion_detected = step4_result.get("electrical_erosion_detected", False)
     
@@ -317,10 +331,13 @@ def collect_evidence(
             "details": step1_result.get("location_description", "")
         })
     if cuprous_oxide_detected:
+        suspicion_level = step2_result.get("cuprous_oxide_suspicion_level", "unknown")
+        location = step2_result.get("location_of_coloration", "") or \
+                   step2_result.get("location_of_oxidation", "")
         evidence.append({
             "step": 2,
-            "evidence": "아산화동 탐지",
-            "details": step2_result.get("location_of_oxidation", "")
+            "evidence": f"아산화동 의심 색상 패턴 관찰 (의심도: {suspicion_level})",
+            "details": location
         })
     if thermal_gradient_detected:
         evidence.append({
@@ -361,9 +378,16 @@ def generate_report(
         리포트 텍스트
     """
     is_connection_point = step1_result.get("is_connection_point", False)
-    cuprous_oxide_detected = step2_result.get("cuprous_oxide_detected", False)
+    # 하위 호환성: 새로운 필드명과 기존 필드명 모두 확인
+    cuprous_oxide_detected = step2_result.get("suspicious_color_pattern_detected", False) or \
+                             step2_result.get("cuprous_oxide_detected", False)
     thermal_gradient_detected = step3_result.get("thermal_gradient_detected", False)
     electrical_erosion_detected = step4_result.get("electrical_erosion_detected", False)
+    
+    # Step 2 결과에서 의심도와 위치 정보 추출 (하위 호환성 고려)
+    suspicion_level = step2_result.get("cuprous_oxide_suspicion_level", "unknown")
+    location = step2_result.get("location_of_coloration", "") or \
+               step2_result.get("location_of_oxidation", "N/A")
     
     report_lines = [
         "[Contact 전문가 리포트]",
@@ -382,10 +406,14 @@ def generate_report(
         f"- 설명: {step1_result.get('location_description', 'N/A')}",
         f"- 신뢰도: {step1_result.get('confidence', 0)}%",
         "",
-        "**2. 색채 스펙트럼 분석 (아산화동 탐지):**",
-        f"- 아산화동(Cu₂O) 탐지: {'✓ 탐지됨' if cuprous_oxide_detected else '✗ 미탐지'}",
-        f"- 산화물 위치: {step2_result.get('location_of_oxidation', 'N/A')}",
+        "**2. 색채 스펙트럼 분석 (아산화동 의심 색상 패턴 관찰):**",
+        f"- 아산화동 의심 색상 패턴: {'✓ 관찰됨' if cuprous_oxide_detected else '✗ 미관찰'}",
+        f"- 의심도: {suspicion_level}",
+        f"- 색상 위치: {location}",
         f"- 신뢰도: {step2_result.get('confidence', 0)}%",
+        "",
+        "[주의] 일반 RGB 카메라 이미지로는 화학적 성분을 확정할 수 없습니다. ",
+        "위 관찰은 아산화동을 의심할 수 있는 색상 패턴일 뿐이며, 화학 분석 없이는 확정 불가능합니다.",
         "",
         "**3. 열적 구배 분석:**",
         f"- 열적 구배 탐지: {'✓ 탐지됨' if thermal_gradient_detected else '✗ 미탐지'}",
@@ -457,9 +485,13 @@ def analyze_connection_failure(payload: List[Any], verbose: bool = False) -> Dic
     
     # 분석 요약 생성
     is_connection_point = step1_result.get("is_connection_point", False)
-    cuprous_oxide_detected = step2_result.get("cuprous_oxide_detected", False)
+    # 하위 호환성: 새로운 필드명과 기존 필드명 모두 확인
+    cuprous_oxide_detected = step2_result.get("suspicious_color_pattern_detected", False) or \
+                             step2_result.get("cuprous_oxide_detected", False)
     thermal_gradient_detected = step3_result.get("thermal_gradient_detected", False)
     electrical_erosion_detected = step4_result.get("electrical_erosion_detected", False)
+    
+    suspicion_level = step2_result.get("cuprous_oxide_suspicion_level", "none")
     
     summary_parts = [f"접촉불량 판정 신뢰도: {confidence_score}%"]
     summary_parts.append(
@@ -467,7 +499,7 @@ def analyze_connection_failure(payload: List[Any], verbose: bool = False) -> Dic
         if is_connection_point else "✗ 접속점 위치 미확인"
     )
     summary_parts.append(
-        "✓ 아산화동(Cu₂O) 탐지됨" if cuprous_oxide_detected else "✗ 아산화동 미탐지"
+        f"✓ 아산화동 의심 색상 패턴 관찰됨 (의심도: {suspicion_level})" if cuprous_oxide_detected else "✗ 아산화동 의심 색상 패턴 미관찰"
     )
     summary_parts.append(
         f"✓ 열적 구배 패턴 확인: {step3_result.get('gradient_pattern', 'unknown')}"
