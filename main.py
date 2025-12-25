@@ -5,13 +5,11 @@
 import sys
 import json
 import argparse
-import cv2
-import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # GUI 백엔드 없이 사용
-import matplotlib.pyplot as plt
+import warnings
+# torchvision 경고 메시지 억제 (basicsr/realesrgan에서 사용)
+warnings.filterwarnings('ignore', category=UserWarning, module='torchvision.transforms.functional_tensor')
 from pathlib import Path
-from src.graph_builder import build_graph, analyze_fire_evidence
+from src.agent import build_investigation_graph_with_react, analyze_fire_evidence
 from src.utils import find_data_directory
 from src.nodes.packaging import to_gemini_vertex_ai_format
 import config
@@ -31,11 +29,17 @@ def select_image_file():
         print(f"오류: {e}")
         return None
     
-    # 이미지 파일 목록 가져오기
-    image_files = sorted(Path(data_dir).glob("*.png"))
+    # 이미지 파일 목록 가져오기 (여러 형식 지원)
+    image_extensions = ["*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG", "*.heic", "*.HEIC"]
+    image_files = []
+    for ext in image_extensions:
+        image_files.extend(Path(data_dir).glob(ext))
+    
+    # 중복 제거 및 정렬
+    image_files = sorted(set(image_files))
     
     if not image_files:
-        print(f"오류: {data_dir} 디렉토리에 PNG 이미지 파일이 없습니다.")
+        print(f"오류: {data_dir} 디렉토리에 이미지 파일이 없습니다.")
         return None
     
     # 이미지 파일 목록 출력
@@ -71,143 +75,7 @@ def select_image_file():
             return None
 
 
-def run_preprocessing_pipeline(input_image_path: str):
-    """
-    이미지 전처리 파이프라인 실행
-    
-    Args:
-        input_image_path: 입력 이미지 경로
-    
-    Returns:
-        전처리 결과 딕셔너리 (result, analysis_data)
-    """
-    print("\n" + "=" * 60)
-    print("화재조사 AI 멀티 에이전트 시스템")
-    print("=" * 60)
-    print(f"입력 이미지: {input_image_path}")
-    print("\n[1단계] 이미지 전처리 파이프라인 실행 중...")
-    
-    # 그래프 빌드 및 실행
-    graph = build_graph()
-    
-    initial_state = {
-        "input_image_path": input_image_path,
-        "errors": []
-    }
-    
-    result = graph.invoke(initial_state)
-    
-    # 에러 확인
-    if result.get("errors"):
-        print(f"\n경고: {len(result['errors'])}개의 오류가 발생했습니다:")
-        for error in result["errors"]:
-            print(f"  - {error}")
-    
-    # analysis_data 확인
-    if not result.get("analysis_data"):
-        raise ValueError("이미지 전처리 파이프라인에서 analysis_data를 생성하지 못했습니다.")
-    
-    analysis_data = result["analysis_data"]
-    print("✓ 이미지 전처리 완료")
-    
-    return result, analysis_data
-
-
-def save_preprocessing_results(result: dict, output_dir: Path):
-    """
-    전처리 결과 저장 (JSON, 이미지 시각화 등)
-    
-    Args:
-        result: 그래프 실행 결과
-        output_dir: 출력 디렉토리 경로
-    """
-    print(f"\n결과 저장 중... (저장 위치: {output_dir})")
-    
-    # JSON 데이터 저장 (Format 2만 사용)
-    if result.get("analysis_data"):
-        analysis_data = result["analysis_data"]
-        
-        # Format 2: Vertex AI Gemini 형식 (텍스트와 이미지 분리)
-        gemini_format = to_gemini_vertex_ai_format(analysis_data)
-        gemini_format_path = output_dir / "llm_gemini_format.json"
-        with open(gemini_format_path, 'w', encoding='utf-8') as f:
-            json.dump(gemini_format, f, indent=2, ensure_ascii=False)
-        print(f"  ✅ Gemini 형식 저장 (Format 2): {gemini_format_path}")
-        
-        # 메트릭스 출력
-        if result.get("metrics"):
-            print(f"\n📊 형태학적 메트릭스:")
-            print(f"  - Circularity (원형도): {result['metrics']['circularity']}")
-            print(f"  - Solidity (고형도): {result['metrics']['solidity']}")
-            print(f"  - Area (면적): {result['metrics']['area']:,} 픽셀")
-    
-    # 전체 파이프라인 시각화 (1x5 레이아웃)
-    if (result.get("original_image") is not None and 
-        result.get("cropped_image") is not None and
-        result.get("enhanced_image") is not None and
-        result.get("filtered_image") is not None and
-        result.get("binary_mask") is not None and
-        result.get("metrics") is not None):
-        
-        print("\n전체 파이프라인 이미지 생성 중...")
-        
-        # 1x5 레이아웃으로 순차 처리 구조 시각화
-        fig, axes = plt.subplots(1, 5, figsize=(30, 6))
-        
-        # 원본 이미지
-        axes[0].imshow(cv2.cvtColor(result["original_image"], cv2.COLOR_BGR2RGB))
-        axes[0].set_title(
-            f'1. 원본 이미지\n크기: {result["original_image"].shape[1]}x{result["original_image"].shape[0]}',
-            fontsize=10, fontweight='bold'
-        )
-        axes[0].axis('off')
-        
-        # 크롭된 이미지
-        axes[1].imshow(cv2.cvtColor(result["cropped_image"], cv2.COLOR_BGR2RGB))
-        axes[1].set_title(
-            f'2. 크롭된 이미지\n크기: {result["cropped_image"].shape[1]}x{result["cropped_image"].shape[0]}',
-            fontsize=10, fontweight='bold'
-        )
-        axes[1].axis('off')
-        
-        # Enhancer 결과
-        axes[2].imshow(cv2.cvtColor(result["enhanced_image"], cv2.COLOR_BGR2RGB))
-        axes[2].set_title(
-            f'3. Enhancer (4x 확대)\n크기: {result["enhanced_image"].shape[1]}x{result["enhanced_image"].shape[0]}',
-            fontsize=10, fontweight='bold'
-        )
-        axes[2].axis('off')
-        
-        # Filter 결과
-        axes[3].imshow(cv2.cvtColor(result["filtered_image"], cv2.COLOR_BGR2RGB))
-        axes[3].set_title(
-            f'4. Filter (CLAHE)\n크기: {result["filtered_image"].shape[1]}x{result["filtered_image"].shape[0]}',
-            fontsize=10, fontweight='bold'
-        )
-        axes[3].axis('off')
-        
-        # Metrics 분석 결과 (마스크 오버레이)
-        overlay = result["enhanced_image"].copy()
-        overlay[result["binary_mask"] == 255] = [0, 0, 255]  # BGR에서 빨간색
-        metrics_overlay = cv2.addWeighted(result["enhanced_image"], 0.7, overlay, 0.3, 0)
-        
-        axes[4].imshow(cv2.cvtColor(metrics_overlay, cv2.COLOR_BGR2RGB))
-        metrics = result["metrics"]
-        axes[4].set_title(
-            f'5. Metrics 분석\nCircularity: {metrics["circularity"]}\nSolidity: {metrics["solidity"]}\nArea: {metrics["area"]:,}px',
-            fontsize=10, fontweight='bold'
-        )
-        axes[4].axis('off')
-        
-        plt.tight_layout()
-        pipeline_path = output_dir / "full_pipeline.png"
-        plt.savefig(str(pipeline_path), dpi=150, bbox_inches='tight')
-        plt.close()  # 메모리 해제
-        
-        print(f"  ✅ 전체 파이프라인 이미지 저장: {pipeline_path}")
-
-
-def run_investigation_pipeline(analysis_data: dict, input_image_path: str, output_dir: Path):
+def run_investigation_pipeline(analysis_data: dict, input_image_path: str, output_dir: Path, payload_parts: list = None):
     """
     멀티 에이전트 분석 파이프라인 실행
     
@@ -215,24 +83,77 @@ def run_investigation_pipeline(analysis_data: dict, input_image_path: str, outpu
         analysis_data: 전처리된 분석 데이터
         input_image_path: 입력 이미지 경로
         output_dir: 출력 디렉토리 경로
+        payload_parts: 이미 변환된 payload (선택사항, 있으면 재사용)
     """
-    # Format 2 형식으로 변환 (payload 생성)
-    print("\n[2단계] LLM 입력 데이터 변환 중...")
+    # #region agent log
+    import json
+    import time
+    import sys
     try:
-        payload_parts = to_gemini_vertex_ai_format(analysis_data)
-        print(f"✓ Payload 생성 완료 ({len(payload_parts)} parts)")
-    except Exception as e:
-        raise Exception(f"Payload 변환 중 오류 발생: {e}")
+        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"A","location":"main.py:run_investigation_pipeline","message":"Investigation pipeline start","data":{"analysis_data_keys":list(analysis_data.keys()) if analysis_data else None,"has_images":bool(analysis_data.get("images")) if analysis_data else False,"has_payload_parts":payload_parts is not None},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    # Format 2 형식으로 변환 (payload 생성) - 이미 있으면 재사용
+    if payload_parts is None:
+        print("\n[2단계] LLM 입력 데이터 변환 중...")
+        try:
+            # #region agent log
+            try:
+                import psutil
+                mem_before = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+            except:
+                mem_before = None
+            # #endregion
+            payload_parts = to_gemini_vertex_ai_format(analysis_data)
+            # #region agent log
+            try:
+                mem_after = psutil.Process().memory_info().rss / 1024 / 1024 if 'psutil' in sys.modules else None
+                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"C","location":"main.py:run_investigation_pipeline","message":"Payload conversion complete","data":{"payload_parts_count":len(payload_parts),"mem_before_mb":mem_before,"mem_after_mb":mem_after,"mem_diff_mb":mem_after-mem_before if mem_before and mem_after else None,"payload_types":[type(p).__name__ for p in payload_parts]},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            print(f"✓ Payload 생성 완료 ({len(payload_parts)} parts)")
+        except Exception as e:
+            # #region agent log
+            try:
+                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"B","location":"main.py:run_investigation_pipeline","message":"Payload conversion error","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            raise Exception(f"Payload 변환 중 오류 발생: {e}")
+    else:
+        print("\n[3단계] 멀티 에이전트 분석 실행 중... (이미 변환된 payload 재사용)")
     
     # 멀티 에이전트 분석 실행
-    print("\n[3단계] 멀티 에이전트 분석 실행 중...")
+    if payload_parts is None:
+        print("\n[3단계] 멀티 에이전트 분석 실행 중...")
     print("  - 5명의 전문가가 병렬로 분석 중...")
     print("  - 수석 조사관이 리포트를 종합 중...")
     
     try:
+        # #region agent log
+        try:
+            mem_before_inv = psutil.Process().memory_info().rss / 1024 / 1024 if 'psutil' in sys.modules else None
+        except:
+            mem_before_inv = None
+        # #endregion
         investigation_result = analyze_fire_evidence(payload_parts)
+        # #region agent log
+        try:
+            mem_after_inv = psutil.Process().memory_info().rss / 1024 / 1024 if 'psutil' in sys.modules else None
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"E","location":"main.py:run_investigation_pipeline","message":"Investigation complete","data":{"has_final_verdict":bool(investigation_result.get("final_verdict")),"expert_reports_count":len(investigation_result.get("expert_reports",[])),"errors_count":len(investigation_result.get("errors",[])),"mem_before_mb":mem_before_inv,"mem_after_mb":mem_after_inv,"mem_diff_mb":mem_after_inv-mem_before_inv if mem_before_inv and mem_after_inv else None},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         print("✓ 멀티 에이전트 분석 완료")
     except Exception as e:
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"D","location":"main.py:run_investigation_pipeline","message":"Investigation error","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         raise Exception(f"멀티 에이전트 분석 중 오류 발생: {e}")
     
     # 에러 확인
@@ -299,6 +220,222 @@ def run_investigation_pipeline(analysis_data: dict, input_image_path: str, outpu
         print(f"\n경고: 결과 파일 저장 실패: {e}")
 
 
+def create_payload_from_image(image_path: str) -> list:
+    """
+    이미지 경로에서 직접 payload 생성 (전처리 없이)
+    
+    Args:
+        image_path: 이미지 파일 경로
+    
+    Returns:
+        Gemini Vertex AI 형식 payload 리스트
+    """
+    import base64
+    from pathlib import Path
+    
+    # 이미지 파일 읽기
+    with open(image_path, 'rb') as f:
+        image_data = f.read()
+    
+    # MIME 타입 결정
+    ext = Path(image_path).suffix.lower()
+    if ext == '.png':
+        mime_type = 'image/png'
+    elif ext in ['.jpg', '.jpeg']:
+        mime_type = 'image/jpeg'
+    else:
+        mime_type = 'image/jpeg'  # 기본값
+    
+    # Base64 인코딩
+    image_base64 = base64.b64encode(image_data).decode('utf-8')
+    
+    # Gemini Vertex AI 형식으로 변환
+    payload = [
+        {
+            "text": "이미지를 분석하고 화재 원인을 조사하세요."
+        },
+        {
+            "inline_data": {
+                "mime_type": mime_type,
+                "data": image_base64
+            }
+        }
+    ]
+    
+    return payload
+
+
+def run_react_agent_parallel_mode(
+    input_image_path: str,
+    output_dir: Path,
+    user_query: str = "",
+    payload_parts: list = None
+):
+    """
+    병렬 모드 실행 (5명 전문가 병렬 실행)
+    
+    Args:
+        input_image_path: 입력 이미지 경로
+        output_dir: 출력 디렉토리 경로
+        user_query: 사용자 질문 (선택적, 현재 미사용)
+        payload_parts: 이미 변환된 payload (선택적)
+    """
+    print("\n" + "=" * 60)
+    print("병렬 멀티 에이전트 모드 실행")
+    print("=" * 60)
+    print("  - 5명의 전문가가 병렬로 분석 중...")
+    print("  - 수석 조사관이 리포트를 종합 중...")
+    
+    # Payload 생성 - 이미 있으면 재사용
+    if payload_parts is None:
+        print("\n[1단계] LLM 입력 데이터 생성 중...")
+        try:
+            payload_parts = create_payload_from_image(input_image_path)
+            print(f"✓ Payload 생성 완료 ({len(payload_parts)} parts)")
+        except Exception as e:
+            raise Exception(f"Payload 생성 중 오류 발생: {e}")
+    
+    try:
+        # #region agent log
+        import json
+        import time
+        import sys
+        try:
+            import psutil
+            mem_before = psutil.Process().memory_info().rss / 1024 / 1024
+        except ImportError:
+            mem_before = None
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"react-parallel","runId":"run1","hypothesisId":"A","location":"main.py:run_react_agent_parallel_mode","message":"병렬 그래프 빌드 시작","data":{"payload_parts_count":len(payload_parts) if payload_parts else 0},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        # ReAct 에이전트를 포함한 병렬 그래프 빌드
+        graph = build_investigation_graph_with_react()
+        
+        initial_state = {
+            "payload": payload_parts,
+            "expert_reports": [],
+            "expert_analysis_results": {},
+            "expert_confidence_scores": {},
+            "expert_evidence": {},
+            "final_verdict": None,
+            "errors": [],
+            # 각 서브그래프별 독립 캐시 초기화
+            "contact_cached_image_data": None,
+            "dielectric_cached_image_data": None,
+            "mechanical_cached_image_data": None,
+            "tracking_cached_image_data": None,
+            "strand_fracture_cached_image_data": None
+        }
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"react-parallel","runId":"run1","hypothesisId":"D","location":"main.py:run_react_agent_parallel_mode","message":"initial_state 생성","data":{"image_path":input_image_path,"payload_parts_count":len(payload_parts) if payload_parts else 0},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"react-parallel","runId":"run1","hypothesisId":"A","location":"main.py:run_react_agent_parallel_mode","message":"그래프 실행 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        invoke_start_time = time.time()
+        result = graph.invoke(initial_state)
+        invoke_duration_ms = (time.time() - invoke_start_time) * 1000
+        
+        # #region agent log
+        try:
+            try:
+                import psutil
+                mem_after = psutil.Process().memory_info().rss / 1024 / 1024
+            except ImportError:
+                mem_after = None
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"react-parallel","runId":"run1","hypothesisId":"A","location":"main.py:run_react_agent_parallel_mode","message":"그래프 실행 완료","data":{"duration_ms":invoke_duration_ms,"expert_reports_count":len(result.get("expert_reports",[])),"errors_count":len(result.get("errors",[])),"has_final_verdict":bool(result.get("final_verdict")),"mem_before_mb":mem_before,"mem_after_mb":mem_after,"mem_diff_mb":mem_after-mem_before if mem_before and mem_after else None},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        print("✓ 병렬 멀티 에이전트 분석 완료")
+        
+    except Exception as e:
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"react-parallel","runId":"run1","hypothesisId":"ERROR","location":"main.py:run_react_agent_parallel_mode","message":"그래프 실행 오류","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        raise Exception(f"병렬 멀티 에이전트 분석 중 오류 발생: {e}")
+    
+    # 에러 확인
+    if result.get("errors"):
+        print(f"\n경고: {len(result['errors'])}개의 오류가 발생했습니다:")
+        for error in result["errors"]:
+            print(f"  - {error}")
+    
+    # 전문가 리포트 출력
+    expert_reports = result.get("expert_reports", [])
+    if expert_reports:
+        print("\n" + "=" * 60)
+        print("전문가 리포트 (5명 전문가)")
+        print("=" * 60)
+        for i, report in enumerate(expert_reports, 1):
+            print(f"\n[전문가 {i}]")
+            print(report)
+            print("-" * 60)
+    
+    # 최종 분석 결과 출력
+    final_verdict = result.get("final_verdict", "분석 실패")
+    print("\n" + "=" * 60)
+    print("최종 분석 결과")
+    print("=" * 60)
+    print(final_verdict)
+    print("=" * 60)
+    
+    # 결과를 파일로 저장
+    output_file = output_dir / "react_parallel_result.txt"
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("화재조사 AI 멀티 에이전트 시스템 분석 결과 (병렬 모드)\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"입력 이미지: {input_image_path}\n")
+            if user_query:
+                f.write(f"사용자 질문: {user_query}\n")
+            f.write("=" * 60 + "\n\n")
+            
+            # 전문가 리포트 저장
+            if expert_reports:
+                f.write("=" * 60 + "\n")
+                f.write("전문가 리포트 (5명 전문가)\n")
+                f.write("=" * 60 + "\n\n")
+                for i, report in enumerate(expert_reports, 1):
+                    f.write(f"[전문가 {i}]\n")
+                    f.write(report)
+                    f.write("\n" + "-" * 60 + "\n\n")
+            
+            # 최종 분석 결과 저장
+            f.write("=" * 60 + "\n")
+            f.write("최종 분석 결과\n")
+            f.write("=" * 60 + "\n\n")
+            f.write(final_verdict)
+            f.write("\n")
+            
+            # 에러 정보 저장 (있는 경우)
+            if result.get("errors"):
+                f.write("\n" + "=" * 60 + "\n")
+                f.write("오류 정보\n")
+                f.write("=" * 60 + "\n")
+                for error in result["errors"]:
+                    f.write(f"- {error}\n")
+        
+        print(f"  ✅ 병렬 분석 결과 저장: {output_file}")
+    except Exception as e:
+        print(f"\n경고: 결과 파일 저장 실패: {e}")
+
+
 def main():
     """메인 함수"""
     # argparse 설정
@@ -311,12 +448,22 @@ def main():
         help="분석할 이미지 파일 경로 (지정하지 않으면 대화형 선택 모드)"
     )
     parser.add_argument(
-        "--preprocess-only",
-        action="store_true",
-        help="이미지 전처리만 실행하고 멀티 에이전트 분석은 건너뜁니다"
+        "--query",
+        type=str,
+        default="",
+        help="사용자 질문 (예: '이미지를 분석하세요', 현재 미사용)"
     )
     
     args = parser.parse_args()
+    
+    # #region agent log
+    import json
+    import time
+    try:
+        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"react-execution","runId":"run1","hypothesisId":"A","location":"main.py:main","message":"main 함수 시작","data":{"has_query":bool(args.query)},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
     
     # 입력 이미지 경로 확인
     if args.image_path:
@@ -329,9 +476,24 @@ def main():
         if input_image_path is None:
             sys.exit(0)
     
-    # 파일 존재 확인
-    if not Path(input_image_path).exists():
+    # 파일 존재 확인 및 경로 정규화
+    image_path = Path(input_image_path)
+    
+    # 상대 경로인 경우 data 디렉토리에서 찾기 시도
+    if not image_path.exists():
+        # data 디렉토리에서 찾기 시도
+        try:
+            data_dir = find_data_directory()
+            possible_path = Path(data_dir) / image_path.name
+            if possible_path.exists():
+                image_path = possible_path
+                input_image_path = str(image_path)
+        except ValueError:
+            pass
+    
+    if not image_path.exists():
         print(f"오류: 이미지 파일을 찾을 수 없습니다: {input_image_path}")
+        print(f"시도한 경로: {image_path.absolute()}")
         sys.exit(1)
     
     # 출력 디렉토리 생성
@@ -344,19 +506,34 @@ def main():
     output_dir.mkdir(exist_ok=True)
     
     try:
-        # 1. 이미지 전처리 파이프라인 실행
-        result, analysis_data = run_preprocessing_pipeline(input_image_path)
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"react-execution","runId":"run1","hypothesisId":"A","location":"main.py:main","message":"멀티 에이전트 분석 시작","data":{"input_image_path":input_image_path},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         
-        # 2. 전처리 결과 저장
-        save_preprocessing_results(result, output_dir)
-        
-        # 3. 멀티 에이전트 분석 실행 (옵션)
-        if not args.preprocess_only:
-            run_investigation_pipeline(analysis_data, input_image_path, output_dir)
+        # 멀티 에이전트 분석 실행
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"react-execution","runId":"run1","hypothesisId":"A","location":"main.py:main","message":"병렬 모드 실행 시작","data":{"input_image_path":input_image_path,"query":args.query},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        run_react_agent_parallel_mode(input_image_path, output_dir, args.query)
         
         print(f"\n모든 결과가 {output_dir} 디렉토리에 저장되었습니다.")
         
     except Exception as e:
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                import traceback
+                tb_str = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
+                f.write(json.dumps({"sessionId":"react-execution","runId":"run1","hypothesisId":"ERROR","location":"main.py:main","message":"main 함수 예외 발생","data":{"error":str(e),"error_type":type(e).__name__,"traceback":tb_str[:500]},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
         print(f"\n오류 발생: {e}")
         import traceback
         traceback.print_exc()
