@@ -2,6 +2,7 @@
 향상 노드
 Real-ESRGAN을 사용하여 이미지를 4배 초해상도로 향상시킵니다.
 """
+from typing import Dict, Any
 import os
 import cv2
 import numpy as np
@@ -95,7 +96,7 @@ class ImageEnhancer:
             return cv2.resize(img, (w * config.SR_SCALE, h * config.SR_SCALE))
 
 
-def enhancement_node(state: GraphState) -> dict:
+def enhancement_node(state: GraphState) -> Dict[str, Any]:
     """
     향상 노드
     

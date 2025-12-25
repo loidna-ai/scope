@@ -3,7 +3,6 @@ Tracking 전문가 모듈 (Agent_4 기반)
 트래킹 판별 전문가 - 3단계 순차 분석
 """
 from typing import Dict, Any, List, Optional
-from vertexai.generative_models import Part
 from src.nodes.experts.expert_utils import (
     extract_image_from_payload,
     call_gemini_vision,
@@ -31,8 +30,10 @@ STEP1_PROMPT = """당신은 전기 표면 방전 및 트래킹 현상 분석 전
 
 3단계: 논리적 추론
 - 트래킹은 두 전극 사이에 도전로를 형성하는 현상입니다.
-- 수지상 패턴은 트래킹의 전형적인 특징입니다.
-- 단순한 그을음과 달리 전극을 연결하는 경로가 명확하다면 트래킹 가능성이 높습니다.
+- 수지상 패턴은 트래킹의 전형적인 특징이지만, 단순히 나뭇가지 모양만으로는 트래킹이라고 판단할 수 없습니다.
+- **중요**: 단순 연소 흔적이나 오염도 나뭇가지 모양으로 보일 수 있습니다.
+- 트래킹으로 판단하려면 반드시 **두 전극을 연결하는 경로**가 명확히 확인되어야 합니다.
+- 전극 연결이 확인되지 않으면, 단순 그을음이나 화염 흔적일 가능성이 높으므로 보수적으로 판단하세요.
 - 관찰된 패턴을 종합하여 트래킹 여부를 논리적으로 판단하세요.
 
 [출력 형식]
@@ -52,24 +53,35 @@ STEP2_PROMPT = """당신은 전기 표면 방전 및 트래킹 현상 분석 전
 
 [중요] 먼저 분석 과정을 단계별로 자세히 설명한 후, 마지막에 JSON 형식으로 응답하세요. 각 단계에서 무엇을 관찰하고 어떻게 판단하는지 명확히 서술하세요.
 
-[단계별 분석 프로세스 (Chain of Thought)]
-1단계: 시각적 요소 추출
-- 검은색 탄화 흔적의 광학적 특성을 자세히 관찰하세요.
-- 반짝임이나 광택이 있는 영역을 객관적으로 식별하세요.
-- 조명 반사(Glare)와 탄화물의 광택을 구별하세요.
+[치명적 주의사항 - 빛 반사와 흑연 광택 구별]
+- 사진 촬영 시 사용된 '카메라 플래시'나 '조명'에 의한 하이라이트(Spotlight)를 흑연 광택으로 오인하지 마세요.
+- 흑연 광택은 탄화된 '경로(Path)'를 따라 선형으로 은은하게 나타나는 연속적인 광택입니다.
+- 만약 반짝임이 이미지의 특정 한 지점에만 둥글게 맺혀 있다면, 이는 단순 조명 반사(Glare)일 가능성이 높으므로 'False'로 판단하세요.
+- 젖은 표면이나 기름에 의한 반사도 광택처럼 보일 수 있으므로, 탄화 경로와의 위치 관계를 정확히 확인하세요.
 
-2단계: 특징 서술
+[단계별 분석 프로세스 (Chain of Thought)]
+1단계: 광택의 위치와 분포 분석
+- 먼저 반짝임이 어디에 있는지 정확히 관찰하세요.
+- 반짝임이 탄화 경로를 따라 선형으로 분포하는지, 아니면 특정 지점에만 집중되어 있는지 확인하세요.
+- 카메라 플래시나 조명에 의한 하이라이트는 보통 이미지의 특정 위치(중앙, 모서리 등)에 둥글게 나타납니다.
+
+2단계: 광택의 연속성 평가
+- 흑연 광택은 탄화 경로를 따라 끊김 없이 연속적으로 나타나는 경향이 있습니다.
+- 조명 반사는 특정 지점(Hotspot)에만 강하게 나타나며, 경로를 따라 분포하지 않습니다.
+- 광택이 탄화 경로와 일치하는지, 아니면 무관한 위치에 있는지 정확히 판단하세요.
+
+3단계: 특징 서술
 - 발견된 광택을 정확히 서술하세요:
   * 금속성 광택(Metallic Luster)인지
   * 윤기(Shininess)가 있는지
   * 무광택(Matte)인지
 - 광택이 탄화된 부분에만 국한되어 있는지 위치를 정확히 서술하세요.
-- 조명 반사와 흑연 광택을 구별하는 방법을 서술하세요.
+- 광택의 분포가 선형적(Linear)인지, 점적(Spot)인지 서술하세요.
 
-3단계: 논리적 추론
+4단계: 논리적 추론
 - 일반적인 화재 그을음(Amorphous Carbon)은 무광택(Matte)이며 빛을 흡수합니다.
 - 트래킹에 의해 생성된 흑연(Graphite)은 결정 구조로 인해 빛을 정반사(Specular Reflection)하여 반짝입니다.
-- 광택이 있다면 트래킹 확률을 매우 높게 설정하세요. 이는 단순 탄화물이 아닌 흑연이 형성되었음을 의미하며, 트래킹의 결정적 증거입니다.
+- 광택이 탄화 경로를 따라 연속적으로 나타나고, 조명 반사가 아님이 확실할 때만 트래킹 확률을 높게 설정하세요.
 - 관찰된 광택 특성을 종합하여 흑연화 여부를 논리적으로 판단하세요.
 
 [출력 형식]
@@ -122,12 +134,12 @@ STEP3_PROMPT = """당신은 전기 표면 방전 및 트래킹 현상 분석 전
 }"""
 
 
-def step1_dendritic_pattern(image_part: Part, verbose: bool = False) -> Dict[str, Any]:
+def step1_dendritic_pattern(image_data: bytes, verbose: bool = False) -> Dict[str, Any]:
     """Step 1: 수지상 도전로 패턴 분석"""
     if verbose:
         print("\n🔍 [Step 1] 수지상 도전로 패턴 분석 시작...")
     
-    response_text, thinking_info = call_gemini_vision(STEP1_PROMPT, image_part, "Step 1", verbose)
+    response_text, thinking_info = call_gemini_vision(STEP1_PROMPT, image_data, "Step 1", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -140,12 +152,12 @@ def step1_dendritic_pattern(image_part: Part, verbose: bool = False) -> Dict[str
     return result
 
 
-def step2_luster_detection(image_part: Part, verbose: bool = False) -> Dict[str, Any]:
+def step2_luster_detection(image_data: bytes, verbose: bool = False) -> Dict[str, Any]:
     """Step 2: 광택 감지 분석"""
     if verbose:
         print("\n🎨 [Step 2] 광택 감지 분석 시작...")
     
-    response_text, thinking_info = call_gemini_vision(STEP2_PROMPT, image_part, "Step 2", verbose)
+    response_text, thinking_info = call_gemini_vision(STEP2_PROMPT, image_data, "Step 2", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -158,12 +170,12 @@ def step2_luster_detection(image_part: Part, verbose: bool = False) -> Dict[str,
     return result
 
 
-def step3_surface_erosion(image_part: Part, verbose: bool = False) -> Dict[str, Any]:
+def step3_surface_erosion(image_data: bytes, verbose: bool = False) -> Dict[str, Any]:
     """Step 3: 표면 침식 분석"""
     if verbose:
         print("\n🔥 [Step 3] 표면 침식 분석 시작...")
     
-    response_text, thinking_info = call_gemini_vision(STEP3_PROMPT, image_part, "Step 3", verbose)
+    response_text, thinking_info = call_gemini_vision(STEP3_PROMPT, image_data, "Step 3", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -209,16 +221,31 @@ def calculate_confidence_score(
     if structural_track:
         base_score += 10
     
+    # [중요] 수지상 패턴만 있고 전극 연결이 없으면 점수 하향 조정
+    # 단순 그을음이나 화염 흔적일 가능성
+    if dendritic_pattern_detected and not electrode_connection:
+        base_score = min(base_score, 50)  # 상한선 제한
+    
     avg_confidence = (step1_score + step2_score + step3_score) / 3
     base_score += avg_confidence * 0.1
     
-    # 핵심 3가지가 모두 확인되면 90% 이상 보장
-    if dendritic_pattern_detected and luster_detected and surface_erosion_detected:
+    # [중요] 상호 억제 로직: 광택과 침식의 필수 조건 검증
+    # 광택(Luster)은 있는데 표면 침식(Erosion)이 없다? -> 그냥 젖은 그을음일 수 있음.
+    # 침식(Erosion)은 있는데 광택(Luster)이 없다? -> 그냥 탄화된 플라스틱일 수 있음.
+    if luster_detected and not surface_erosion_detected:
+        base_score = min(base_score, 60)  # 상한선 제한
+    elif surface_erosion_detected and not luster_detected:
+        base_score = min(base_score, 60)  # 상한선 제한
+    
+    # [핵심] 둘 다 동시에 강력하게 나타날 때만 고득점 (진짜 트래킹)
+    # 수지상 패턴 + 광택 + 침식 + 전극 연결이 모두 확인될 때만 최고 점수
+    if (dendritic_pattern_detected and electrode_connection and 
+        luster_detected and surface_erosion_detected):
         base_score = max(base_score, 90)
     
-    # 광택만 확인되어도 높은 신뢰도 부여
-    if luster_detected and graphitization_evidence:
-        base_score = max(base_score, 85)
+    # 광택과 침식이 동시에 확인되면 높은 신뢰도 부여
+    if luster_detected and surface_erosion_detected:
+        base_score = max(base_score, 80)
     
     return min(100, max(0, int(base_score)))
 
@@ -343,9 +370,9 @@ def analyze_tracking(payload: List[Any], verbose: bool = False) -> Dict[str, Any
     Returns:
         분석 결과 딕셔너리
     """
-    image_part = extract_image_from_payload(payload)
+    image_data = extract_image_from_payload(payload)
     
-    if image_part is None:
+    if image_data is None:
         return {
             "error": "이미지를 추출할 수 없습니다.",
             "confidence_score": 0,
@@ -358,9 +385,9 @@ def analyze_tracking(payload: List[Any], verbose: bool = False) -> Dict[str, Any
     if verbose:
         print(f"\n{'='*60}\n🔍 트래킹 분석 시작\n{'='*60}")
     
-    step1_result = step1_dendritic_pattern(image_part, verbose)
-    step2_result = step2_luster_detection(image_part, verbose)
-    step3_result = step3_surface_erosion(image_part, verbose)
+    step1_result = step1_dendritic_pattern(image_data, verbose)
+    step2_result = step2_luster_detection(image_data, verbose)
+    step3_result = step3_surface_erosion(image_data, verbose)
     
     confidence_score = calculate_confidence_score(step1_result, step2_result, step3_result)
     evidence = collect_evidence(step1_result, step2_result, step3_result)

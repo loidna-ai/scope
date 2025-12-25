@@ -2,6 +2,7 @@
 크롭 노드
 Morphological Gradient 기반으로 단락흔 영역을 탐지하고 크롭합니다.
 """
+from typing import Dict, Any
 import cv2
 import numpy as np
 from src.state import GraphState
@@ -108,7 +109,7 @@ class ImageCropper:
         return img[y1:y2, x1:x2]
 
 
-def crop_node(state: GraphState) -> dict:
+def crop_node(state: GraphState) -> Dict[str, Any]:
     """
     크롭 노드
     

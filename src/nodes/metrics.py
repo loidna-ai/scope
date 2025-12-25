@@ -2,6 +2,7 @@
 메트릭스 노드
 형태학적 분석을 수행하여 원형도, 고형도, 면적 등을 추출합니다.
 """
+from typing import Dict, Any
 import cv2
 import numpy as np
 from skimage import measure
@@ -65,7 +66,7 @@ class MorphologyAnalyzer:
         return metrics, binary
 
 
-def metrics_node(state: GraphState) -> dict:
+def metrics_node(state: GraphState) -> Dict[str, Any]:
     """
     메트릭스 노드
     

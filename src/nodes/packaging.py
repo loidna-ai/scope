@@ -2,6 +2,7 @@
 패키징 노드
 LLM 분석을 위한 데이터를 준비하고 JSON 형식으로 변환합니다.
 """
+from typing import Dict, Any
 import json
 import base64
 import cv2
@@ -100,7 +101,7 @@ def create_data_description(analysis_data: dict) -> str:
     return description
 
 
-def get_image_stats(img: np.ndarray) -> dict:
+def get_image_stats(img: np.ndarray) -> Dict[str, Any]:
     """
     이미지 통계 정보를 추출합니다.
     
@@ -138,7 +139,7 @@ def prepare_llm_analysis_data(
     filtered_img: np.ndarray,
     metrics: dict,
     binary_mask: np.ndarray
-) -> dict:
+) -> Dict[str, Any]:
     """
     LLM 분석을 위한 표준 형식 데이터를 준비합니다.
     
@@ -249,6 +250,20 @@ def to_gemini_vertex_ai_format(analysis_data: dict) -> list:
         JSON 저장 시에는 Base64 문자열을 사용하지만, 실제 SDK 사용 시에는
         바이트 데이터로 변환하여 사용할 수 있습니다.
     """
+    # #region agent log
+    import json
+    import time
+    import sys
+    try:
+        import psutil
+        mem_before = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+    except:
+        mem_before = None
+    try:
+        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"C","location":"packaging.py:to_gemini_vertex_ai_format","message":"Format conversion start","data":{"has_images":bool(analysis_data.get("images")),"image_keys":list(analysis_data.get("images",{}).keys()) if analysis_data.get("images") else None,"mem_before_mb":mem_before},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
     # 지시문 제거된 순수 데이터 설명 생성
     data_description = create_data_description(analysis_data)
     
@@ -257,6 +272,13 @@ def to_gemini_vertex_ai_format(analysis_data: dict) -> list:
     enhanced_base64_str = analysis_data['images']['enhanced']['data']
     filtered_base64_str = analysis_data['images']['filtered']['data']
     mask_base64_str = analysis_data['images']['analysis_mask']['data']
+    
+    # #region agent log
+    try:
+        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"C","location":"packaging.py:to_gemini_vertex_ai_format","message":"Base64 decode start","data":{"enhanced_base64_len":len(enhanced_base64_str),"filtered_base64_len":len(filtered_base64_str),"mask_base64_len":len(mask_base64_str)},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
     
     # Base64 디코딩 → numpy 배열로 변환 → 바이트로 재인코딩 (품질 100)
     enhanced_bytes = base64.b64decode(enhanced_base64_str)
@@ -271,10 +293,26 @@ def to_gemini_vertex_ai_format(analysis_data: dict) -> list:
     mask_img = cv2.imdecode(np.frombuffer(mask_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
     mask_bytes_high_quality = encode_image_bytes(mask_img, 'PNG')
     
+    # #region agent log
+    try:
+        mem_after_decode = psutil.Process().memory_info().rss / 1024 / 1024 if 'psutil' in sys.modules and mem_before else None
+        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"C","location":"packaging.py:to_gemini_vertex_ai_format","message":"Image decode complete","data":{"enhanced_bytes_len":len(enhanced_bytes_high_quality),"filtered_bytes_len":len(filtered_bytes_high_quality),"mask_bytes_len":len(mask_bytes_high_quality),"mem_after_decode_mb":mem_after_decode,"mem_diff_mb":mem_after_decode-mem_before if mem_before and mem_after_decode else None},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    
     # Base64로 변환 (JSON 직렬화를 위해)
     enhanced_base64 = base64.b64encode(enhanced_bytes_high_quality).decode('utf-8')
     filtered_base64 = base64.b64encode(filtered_bytes_high_quality).decode('utf-8')
     mask_base64 = base64.b64encode(mask_bytes_high_quality).decode('utf-8')
+    
+    # #region agent log
+    try:
+        mem_final = psutil.Process().memory_info().rss / 1024 / 1024 if 'psutil' in sys.modules and mem_before else None
+        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+            f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"C","location":"packaging.py:to_gemini_vertex_ai_format","message":"Format conversion complete","data":{"enhanced_base64_final_len":len(enhanced_base64),"filtered_base64_final_len":len(filtered_base64),"mask_base64_final_len":len(mask_base64),"mem_final_mb":mem_final,"total_mem_diff_mb":mem_final-mem_before if mem_before and mem_final else None},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
     
     # Gemini Part 구조 생성 (Format 2: 텍스트와 이미지 분리)
     contents = [
@@ -302,7 +340,7 @@ def to_gemini_vertex_ai_format(analysis_data: dict) -> list:
     return contents
 
 
-def packaging_node(state: GraphState) -> dict:
+def packaging_node(state: GraphState) -> Dict[str, Any]:
     """
     패키징 노드
     

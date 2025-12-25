@@ -2,6 +2,7 @@
 필터 노드
 CLAHE (Contrast Limited Adaptive Histogram Equalization) 필터를 적용합니다.
 """
+from typing import Dict, Any
 import cv2
 import numpy as np
 from src.state import GraphState
@@ -38,7 +39,7 @@ class TextureFilter:
         return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
 
-def filter_node(state: GraphState) -> dict:
+def filter_node(state: GraphState) -> Dict[str, Any]:
     """
     필터 노드
     

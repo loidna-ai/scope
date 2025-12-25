@@ -7,43 +7,44 @@ import json
 import base64
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-import vertexai
-from vertexai.generative_models import GenerativeModel, Part, GenerationConfig
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
+from src.nodes.experts.system_instructions import SYSTEM_INSTRUCTION
 
 # .env 파일 로드
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-# Vertex AI 설정
-PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT")
-LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-2.5-pro")
+# Google GenAI 설정
+API_KEY = os.getenv("GEMINI_API_KEY")
+MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
 
-# Vertex AI 초기화 및 GenerativeModel 생성
-if PROJECT_ID:
+# Google GenAI Client 초기화 (최신 SDK 방식)
+if API_KEY:
     try:
-        vertexai.init(project=PROJECT_ID, location=LOCATION)
-        model = GenerativeModel(MODEL_NAME)
-        generation_config = GenerationConfig(temperature=0.7)
+        client = genai.Client(api_key=API_KEY)
+        generation_config = types.GenerateContentConfig(
+            temperature=0.7,
+        )
     except Exception as e:
-        print(f"경고: Vertex AI 초기화 실패: {e}")
-        model = None
+        print(f"경고: Google GenAI 초기화 실패: {e}")
+        client = None
         generation_config = None
 else:
-    model = None
+    client = None
     generation_config = None
 
 
-def create_image_part(image_path: str) -> Optional[Part]:
+def create_image_part(image_path: str) -> Optional[bytes]:
     """
-    이미지 경로를 Vertex AI Part 객체로 변환
+    이미지 경로를 바이트 데이터로 변환
     
     Args:
         image_path: 이미지 파일 경로
         
     Returns:
-        Part 객체 또는 None
+        이미지 바이트 데이터 또는 None
     """
     if not os.path.exists(image_path):
         print(f"❌ 이미지 파일을 찾을 수 없습니다: {image_path}")
@@ -52,29 +53,55 @@ def create_image_part(image_path: str) -> Optional[Part]:
     try:
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
-        
-        # 확장자에 따른 MIME 타입 추론
-        ext = Path(image_path).suffix.lower()
-        mime_type = "image/png" if ext == ".png" else "image/jpeg"
-        
-        return Part.from_data(data=image_data, mime_type=mime_type)
+        return image_data
     except Exception as e:
         print(f"❌ 이미지 로드 오류: {e}")
         return None
 
 
-def extract_image_from_payload(payload: List[Any]) -> Optional[Part]:
+def save_bytes_to_temp_file(image_data: bytes, suffix: str = '.jpg') -> str:
     """
-    payload에서 이미지 Part 추출
+    이미지 bytes 데이터를 임시 파일로 저장하고 경로 반환
+    
+    LangGraph 표준 패턴을 위해 bytes 데이터를 임시 파일로 저장합니다.
+    임시 파일은 호출자가 수동으로 삭제해야 합니다.
+    
+    Args:
+        image_data: 이미지 bytes 데이터
+        suffix: 기본 파일 확장자 (이미지 형식 자동 감지 시 덮어씀)
+        
+    Returns:
+        임시 파일 경로
+    """
+    import tempfile
+    
+    # 이미지 형식 자동 감지
+    if len(image_data) >= 4 and image_data[:4] == b'\x89PNG':
+        suffix = '.png'
+    elif len(image_data) >= 3 and image_data[:3] == b'\xff\xd8\xff':
+        suffix = '.jpg'
+    
+    # 임시 파일 생성 (delete=False로 설정하여 파일이 닫힌 후에도 유지)
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+        temp_file.write(image_data)
+        temp_file_path = temp_file.name
+    
+    return temp_file_path
+
+
+def extract_image_from_payload(payload: List[Any]) -> Optional[bytes]:
+    """
+    payload에서 이미지 데이터 추출
     기존 시스템의 payload 형식 지원
     
     Args:
         payload: LLM 입력 데이터 (이미지 + 텍스트)
         
     Returns:
-        첫 번째 이미지 Part 객체 또는 None
+        첫 번째 이미지 바이트 데이터 또는 None
     """
-    if model is None:
+    if not payload:
+        print("⚠️ payload가 비어있습니다.")
         return None
     
     for part in payload:
@@ -82,94 +109,101 @@ def extract_image_from_payload(payload: List[Any]) -> Optional[Part]:
             inline_data = part["inline_data"]
             try:
                 image_data = base64.b64decode(inline_data["data"])
-                mime_type = inline_data["mime_type"]
-                return Part.from_data(image_data, mime_type=mime_type)
+                return image_data
             except Exception as e:
                 print(f"⚠️ payload에서 이미지 추출 실패: {e}")
                 continue
     
+    print("⚠️ payload에서 이미지 데이터를 찾을 수 없습니다.")
     return None
 
 
 def call_gemini_vision(
     prompt: str, 
-    image_part: Part, 
+    image_data: bytes, 
     step_name: str = "",
     verbose: bool = False
 ) -> tuple[str, Optional[Dict]]:
     """
     Gemini Vision API 호출 및 에러 핸들링
     
+    시스템 인스트럭션(부정적 제약 포함)을 자동으로 프롬프트에 추가합니다.
+    
     Args:
         prompt: 분석 프롬프트
-        image_part: 이미지 Part 객체
+        image_data: 이미지 바이트 데이터
         step_name: 단계 이름 (로깅용)
         verbose: 상세 로그 출력 여부
         
     Returns:
         tuple: (response_text, thinking_info)
     """
-    if model is None:
-        error_msg = f"❌ [{step_name}] 모델이 초기화되지 않았습니다."
+    if client is None:
+        error_msg = f"❌ [{step_name}] Client가 초기화되지 않았습니다."
         return f"Error: {error_msg}", None
-    
+
     try:
-        response = model.generate_content([prompt, image_part], generation_config=generation_config)
+        # #region agent log
+        import json
+        import time
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"D","location":"expert_utils.py:call_gemini_vision","message":"LLM call start","data":{"step_name":step_name,"image_data_len":len(image_data),"prompt_len":len(prompt)},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        # 이미지 MIME 타입 자동 감지 (PNG/JPEG)
+        # PNG 시그니처 확인: 89 50 4E 47 (0x89 0x50 0x4E 0x47)
+        # JPEG 시그니처 확인: FF D8 FF
+        if len(image_data) >= 4 and image_data[:4] == b'\x89PNG':
+            mime_type = "image/png"
+        elif len(image_data) >= 3 and image_data[:3] == b'\xff\xd8\xff':
+            mime_type = "image/jpeg"
+        else:
+            mime_type = "image/png"  # 기본값
+        
+        # 최신 SDK 방식: Client를 사용하여 콘텐츠 생성
+        # 시스템 인스트럭션을 config에 포함 (노트북 방식)
+        config_with_system = types.GenerateContentConfig(
+            temperature=generation_config.temperature if generation_config else 0.7,
+            system_instruction=SYSTEM_INSTRUCTION,
+        )
+        
+        call_start_time = time.time()
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=image_data, mime_type=mime_type)
+            ],
+            config=config_with_system
+        )
+        call_duration_ms = (time.time() - call_start_time) * 1000
+        # #region agent log
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"D","location":"expert_utils.py:call_gemini_vision","message":"LLM call complete","data":{"step_name":step_name,"duration_ms":call_duration_ms,"has_response":bool(response),"has_text":bool(hasattr(response,'text') and response.text)},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         
         # Thinking 과정 추출 및 출력
         thinking_info = None
         response_text = ""
         full_response_text = ""
         
-        if hasattr(response, 'candidates') and response.candidates:
+        # 최신 SDK 방식: response.text 직접 사용
+        if hasattr(response, 'text') and response.text:
+            response_text = response.text
+            full_response_text = response.text
+        
+        # 응답 메타데이터 확인 (최신 SDK)
+        if verbose and hasattr(response, 'candidates') and response.candidates:
             candidate = response.candidates[0]
             
-            # 모든 파트 확인 (thinking 과정이 별도 파트로 있을 수 있음)
-            if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                parts = candidate.content.parts
-                if verbose:
-                    print(f"\n🔍 [{step_name}] 응답 파트 개수: {len(parts)}")
-                
-                all_texts = []
-                for i, part in enumerate(parts):
-                    if hasattr(part, 'text'):
-                        part_text = part.text
-                        all_texts.append(part_text)
-                        if i == 0:
-                            # 첫 번째 파트는 일반 응답
-                            response_text = part_text
-                        else:
-                            # 이후 파트는 thinking 과정일 수 있음
-                            if part_text and part_text.strip():
-                                thinking_info = thinking_info or {}
-                                thinking_info[f"part_{i}"] = part_text
-                                if verbose:
-                                    print(f"\n💭 [{step_name}] 모델의 생각 과정 (파트 {i}):")
-                                    print("-" * 60)
-                                    print(part_text)
-                                    print("-" * 60)
-                
-                # 모든 파트의 텍스트를 합쳐서 전체 응답 확인
-                full_response_text = "\n\n".join(all_texts)
-            
-            # Grounding metadata 확인
-            if hasattr(candidate, 'grounding_metadata'):
-                grounding = candidate.grounding_metadata
-                if grounding:
-                    thinking_info = thinking_info or {}
-                    thinking_info["grounding"] = str(grounding)
-                    if verbose:
-                        print(f"\n📚 [{step_name}] Grounding 정보: {grounding}")
-            
             # Finish reason 확인 (디버깅용)
-            if verbose and hasattr(candidate, 'finish_reason'):
+            if hasattr(candidate, 'finish_reason'):
                 finish_reason = candidate.finish_reason
                 if finish_reason:
                     print(f"📋 [{step_name}] Finish reason: {finish_reason}")
-        
-        # response.text가 있으면 사용 (fallback)
-        if not response_text and hasattr(response, 'text'):
-            response_text = response.text
         
         # 전체 응답 텍스트 출력 (thinking 과정이 포함되어 있을 수 있음)
         if full_response_text and len(full_response_text) > len(response_text):
@@ -210,6 +244,14 @@ def call_gemini_vision(
         
         return response_text, thinking_info
     except Exception as e:
+        # #region agent log
+        import json
+        import time
+        try:
+            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"D","location":"expert_utils.py:call_gemini_vision","message":"LLM call exception","data":{"step_name":step_name,"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         error_msg = f"❌ [{step_name}] API 호출 오류: {e}"
         if verbose:
             import traceback

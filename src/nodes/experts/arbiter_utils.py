@@ -54,14 +54,19 @@ CONFLICT_RESOLUTION_RULES = {
 EVIDENCE_HIERARCHY = {
     "morphological_deformation": 3.0,  # 형상학적 변형 (압착)
     "chemical_composition": 2.0,      # 화학적 성분 (아산화동/흑연)
-    "general_carbonization": 1.0      # 일반적 탄화
+    "general_carbonization": 1.0,     # 일반적 탄화
+    "insufficient_evidence": 0.5       # 증거 부족 (페널티)
 }
+
+# 판정 불확실성 임계값
+# 점수 차이가 이 값 미만이면 "uncertain" 또는 "undetermined" 반환
+UNCERTAINTY_THRESHOLD = 2.0
 
 
 def extract_visual_features(
     expert_analysis_results: dict,
     expert_evidence: dict
-) -> dict:
+) -> Dict[str, Any]:
     """
     전문가 분석 결과에서 시각적 특징 추출
     
@@ -156,23 +161,36 @@ def extract_visual_features(
 
 def calculate_primary_secondary_score(
     visual_features: dict,
-    matrix: dict = None
-) -> dict:
+    matrix: dict = None,
+    uncertainty_threshold: float = None
+) -> Dict[str, Any]:
     """
-    1차/2차 단락흔 점수 계산
+    1차/2차 단락흔 점수 계산 (불확실성 로직 강화)
     
     Args:
         visual_features: 추출된 시각적 특징
         matrix: 판정 매트릭스 (기본값: PRIMARY_VS_SECONDARY_MATRIX)
+        uncertainty_threshold: 점수 차이 임계값 (기본값: UNCERTAINTY_THRESHOLD)
+                               이 값 미만이면 "uncertain" 반환
         
     Returns:
-        {"primary_score": int, "secondary_score": int, "determination": str}
+        {
+            "primary_score": int,
+            "secondary_score": int,
+            "determination": str ("primary" | "secondary" | "uncertain" | "undetermined"),
+            "score_difference": float,
+            "observed_count": int  # 관측된 특징 개수 (디버깅용)
+        }
     """
     if matrix is None:
         matrix = PRIMARY_VS_SECONDARY_MATRIX
     
+    if uncertainty_threshold is None:
+        uncertainty_threshold = UNCERTAINTY_THRESHOLD
+    
     primary_score = 0
     secondary_score = 0
+    observed_features_count = 0  # 관측된 특징 개수
     
     # 각 특징별 점수 계산
     for feature_name, feature_value in visual_features.items():
@@ -182,6 +200,8 @@ def calculate_primary_secondary_score(
         feature_matrix = matrix.get(feature_name)
         if not feature_matrix:
             continue
+        
+        observed_features_count += 1  # 관측 카운트 증가
         
         # 1차 단락흔 점수
         primary_indicators = feature_matrix.get("primary", {})
@@ -197,38 +217,31 @@ def calculate_primary_secondary_score(
                 secondary_score += weight
                 break
     
-    # 판정
-    if primary_score > secondary_score:
+    # 점수 차이 계산
+    score_diff = abs(primary_score - secondary_score)
+    
+    # 판정 로직 고도화
+    if observed_features_count == 0:
+        # 관측된 특징이 하나도 없음
+        determination = "undetermined"
+    elif score_diff <= uncertainty_threshold:
+        # 점수 차이가 미미함 (판단 보류)
+        determination = "uncertain"
+    elif primary_score > secondary_score:
         determination = "primary"
     elif secondary_score > primary_score:
         determination = "secondary"
     else:
+        # 점수가 동일한 경우
         determination = "uncertain"
     
     return {
         "primary_score": primary_score,
         "secondary_score": secondary_score,
         "determination": determination,
-        "score_difference": abs(primary_score - secondary_score)
+        "score_difference": score_diff,
+        "observed_count": observed_features_count  # 디버깅용
     }
-
-
-def determine_primary_or_secondary(
-    visual_features: dict,
-    matrix: dict = None
-) -> str:
-    """
-    1차/2차 단락흔 판정
-    
-    Args:
-        visual_features: 추출된 시각적 특징
-        matrix: 판정 매트릭스
-        
-    Returns:
-        "primary" | "secondary" | "uncertain"
-    """
-    score_result = calculate_primary_secondary_score(visual_features, matrix)
-    return score_result["determination"]
 
 
 def resolve_conflict_tracking_vs_dielectric(
@@ -236,7 +249,7 @@ def resolve_conflict_tracking_vs_dielectric(
     dielectric_result: dict,
     tracking_score: float,
     dielectric_score: float
-) -> dict:
+) -> Dict[str, Any]:
     """
     Case A: 트래킹 vs 절연열화 상충 해결
     
@@ -284,7 +297,7 @@ def resolve_conflict_mechanical_vs_strand_fracture(
     strand_fracture_result: dict,
     mechanical_score: float,
     strand_fracture_score: float
-) -> dict:
+) -> Dict[str, Any]:
     """
     Case B: 압착 vs 반단선 상충 해결
     
@@ -332,7 +345,7 @@ def resolve_conflict_shape_vs_surface(
     surface_texture: str,
     primary_score: float,
     secondary_score: float
-) -> dict:
+) -> Dict[str, Any]:
     """
     Case C: 형상 vs 표면 상충 해결
     
@@ -373,14 +386,16 @@ def resolve_conflict_shape_vs_surface(
 
 def apply_conflict_resolution(
     expert_analysis_results: dict,
-    expert_confidence_scores: dict
-) -> dict:
+    expert_confidence_scores: dict,
+    expert_evidence: dict = None
+) -> Dict[str, Any]:
     """
     전체 상충 해결 적용
     
     Args:
         expert_analysis_results: 각 전문가의 분석 결과
         expert_confidence_scores: 각 전문가의 신뢰도 점수
+        expert_evidence: 각 전문가의 증거 리스트 (Case C용, 선택적)
         
     Returns:
         {"adjusted_scores": dict, "conflicts": list, "resolutions": list}
@@ -420,6 +435,27 @@ def apply_conflict_resolution(
             resolutions.append(conflict_b)
             adjusted_scores.update(conflict_b["adjusted_scores"])
     
+    # Case C: 형상 vs 표면 상충 해결
+    if expert_evidence is not None:
+        visual_features = extract_visual_features(expert_analysis_results, expert_evidence)
+        shape = visual_features.get("shape")
+        surface_texture = visual_features.get("surface_texture")
+        
+        if shape and surface_texture:
+            # 1차/2차 단락흔 점수 계산
+            primary_secondary_result = calculate_primary_secondary_score(visual_features)
+            primary_score = primary_secondary_result.get("primary_score", 0)
+            secondary_score = primary_secondary_result.get("secondary_score", 0)
+            
+            conflict_c = resolve_conflict_shape_vs_surface(
+                shape, surface_texture, primary_score, secondary_score
+            )
+            if conflict_c["resolved"]:
+                conflicts.append("shape_vs_surface")
+                resolutions.append(conflict_c)
+                # Case C는 전문가 신뢰도 점수 조정이 아니라 1차/2차 판정 점수 조정이므로
+                # adjusted_scores 업데이트는 하지 않음 (정보만 기록)
+    
     return {
         "adjusted_scores": adjusted_scores,
         "conflicts": conflicts,
@@ -431,7 +467,7 @@ def apply_evidence_hierarchy(
     expert_scores: dict,
     expert_evidence: dict,
     hierarchy: dict = None
-) -> dict:
+) -> Dict[str, Any]:
     """
     증거 위계 적용
     
@@ -451,33 +487,34 @@ def apply_evidence_hierarchy(
     
     # 각 전문가별 증거 유형 분류
     for expert_name, evidence_list in expert_evidence.items():
-        if not evidence_list:
-            weighted_scores[expert_name] = expert_scores.get(expert_name, 0)
-            evidence_types[expert_name] = "general_carbonization"
-            continue
-        
-        # 증거 유형 판별
-        evidence_type = "general_carbonization"  # 기본값
-        
-        for ev in evidence_list:
-            evidence_text = ev.get("evidence", "").lower()
-            
-            # 형상학적 변형 (압착, 기계적 손상)
-            if any(keyword in evidence_text for keyword in ["압착", "기계적", "변형", "손상", "도구"]):
-                evidence_type = "morphological_deformation"
-                break
-            
-            # 화학적 성분 (아산화동, 흑연)
-            if any(keyword in evidence_text for keyword in ["아산화동", "흑연", "광택", "산화"]):
-                evidence_type = "chemical_composition"
-                break
-        
-        evidence_types[expert_name] = evidence_type
-        
-        # 가중치 적용
         base_score = expert_scores.get(expert_name, 0)
-        weight = hierarchy.get(evidence_type, 1.0)
-        weighted_scores[expert_name] = base_score * weight
+        
+        if not evidence_list:
+            # 증거가 없으면 신뢰도를 대폭 깎아야 함 (페널티 적용)
+            weighted_scores[expert_name] = base_score * 0.5  # 페널티 적용
+            evidence_types[expert_name] = "insufficient_evidence"
+        else:
+            # 증거 유형 판별
+            evidence_type = "general_carbonization"  # 기본값
+            
+            for ev in evidence_list:
+                evidence_text = ev.get("evidence", "").lower()
+                
+                # 형상학적 변형 (압착, 기계적 손상)
+                if any(keyword in evidence_text for keyword in ["압착", "기계적", "변형", "손상", "도구"]):
+                    evidence_type = "morphological_deformation"
+                    break
+                
+                # 화학적 성분 (아산화동, 흑연)
+                if any(keyword in evidence_text for keyword in ["아산화동", "흑연", "광택", "산화"]):
+                    evidence_type = "chemical_composition"
+                    break
+            
+            evidence_types[expert_name] = evidence_type
+            
+            # 가중치 적용
+            weight = hierarchy.get(evidence_type, 1.0)
+            weighted_scores[expert_name] = base_score * weight
     
     return {
         "weighted_scores": weighted_scores,
@@ -485,21 +522,59 @@ def apply_evidence_hierarchy(
     }
 
 
-def calculate_weighted_score(
-    expert_scores: dict,
-    expert_evidence: dict,
-    hierarchy: dict = None
-) -> dict:
+def determine_dominant_expert(
+    weighted_scores: Dict[str, float],
+    absolute_threshold: float = 70.0,
+    margin_threshold: float = 20.0
+) -> Dict[str, Any]:
     """
-    가중치 적용 점수 계산 (apply_evidence_hierarchy의 별칭)
+    압도적 1위 전문가(Dominant Expert) 선정 로직 (Winner-Takes-All)
     
     Args:
-        expert_scores: 각 전문가의 신뢰도 점수
-        expert_evidence: 각 전문가의 증거 리스트
-        hierarchy: 증거 위계 딕셔너리
+        weighted_scores: 증거 위계가 적용된 전문가별 점수
+        absolute_threshold: 1위가 되기 위한 최소 점수 (예: 70점)
+        margin_threshold: 2위와의 최소 격차 (예: 20점)
         
     Returns:
-        apply_evidence_hierarchy()의 반환값과 동일
+        {
+            "dominant_expert": str | None,
+            "max_score": float,
+            "second_score": float,
+            "margin": float,
+            "is_determined": bool
+        }
     """
-    return apply_evidence_hierarchy(expert_scores, expert_evidence, hierarchy)
+    if not weighted_scores:
+        return {
+            "dominant_expert": None,
+            "max_score": 0,
+            "second_score": 0,
+            "margin": 0,
+            "is_determined": False
+        }
+    
+    # 점수 내림차순 정렬
+    sorted_experts = sorted(weighted_scores.items(), key=lambda x: x[1], reverse=True)
+    
+    top_expert, top_score = sorted_experts[0]
+    
+    if len(sorted_experts) > 1:
+        second_expert, second_score = sorted_experts[1]
+        margin = top_score - second_score
+    else:
+        second_score = 0
+        margin = top_score  # 전문가가 1명뿐인 경우
+        
+    # 판정 로직
+    # 1. 1등 점수가 절대 기준을 넘는가?
+    # 2. 2등과의 격차가 충분한가? (독보적인가?)
+    is_determined = (top_score >= absolute_threshold) and (margin >= margin_threshold)
+    
+    return {
+        "dominant_expert": top_expert if is_determined else None,
+        "max_score": top_score,
+        "second_score": second_score,
+        "margin": margin,
+        "is_determined": is_determined
+    }
 

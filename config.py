@@ -26,3 +26,6 @@ MORPH_KERNEL_SIZE = (5, 5)  # Morphological Gradient 커널 크기
 DILATION_KERNEL_SIZE = (9, 9)  # Dilation 커널 크기
 DILATION_ITERATIONS = 2  # Dilation 반복 횟수
 
+# Arbiter Agent 설정
+ARBITER_CONFIDENCE_THRESHOLD = 0.6  # 전문가 신뢰도 평균 임계값 (60%). 이 값 미만일 경우 판단 불가(UNDETERMINED) 상태로 처리
+

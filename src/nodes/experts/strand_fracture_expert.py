@@ -3,7 +3,6 @@ StrandFracture 전문가 모듈 (Agent_5 기반)
 반단선 판별 전문가 - 3단계 순차 분석
 """
 from typing import Dict, Any, List, Optional
-from vertexai.generative_models import Part
 from src.nodes.experts.expert_utils import (
     extract_image_from_payload,
     call_gemini_vision,
@@ -18,23 +17,35 @@ STEP1_PROMPT = """당신은 금속 재료 공학 및 화재 감식 전문가입�
 [분석 목표]
 이미지에서 개별 소선(Strand)의 끝단(Tip) 형태를 정밀하게 분석하여 반단선(Semi-disconnection) 여부를 판단할 수 있는 근거를 마련하십시오.
 
+[주의사항 - 이미지 품질 및 확대 수준 판단]
+- 먼저 이미지의 확대 수준(Zoom Level)과 해상도를 평가하세요.
+- '네킹(Necking)'은 고배율 현미경 확대 이미지에서만 식별 가능한 미세 형상입니다.
+- 만약 이미지가 전선 전체를 찍은 광각 사진(Macro shot)이거나, 개별 소선의 끝단이 명확히 보이지 않는다면, 네킹 여부를 'unknown'으로 처리하고 false로 응답하세요.
+- 픽셀이 깨져 보이거나 흐릿하다면, 빛 반사나 그림자를 네킹으로 착각하지 않도록 매우 보수적으로 판단하세요.
+- 네킹 판단은 개별 소선의 끝단이 명확히 구별되고, 끝단 부위가 충분히 확대되어 있을 때만 수행하세요.
+
 [단계별 분석 프로세스 (Chain of Thought)]
-1단계: 시각적 요소 추출
+1단계: 이미지 품질 및 확대 수준 평가
+- 이미지가 개별 소선의 끝단을 명확히 보여주는 고배율 확대 이미지인지 확인하세요.
+- 이미지 해상도와 선명도를 평가하세요.
+- 만약 확대 수준이 부족하거나 이미지가 흐릿하다면, 네킹 판단을 보류하세요.
+
+2단계: 시각적 요소 추출
 - 연선(Stranded Wire)의 각 소선 끝단을 개별적으로 관찰하세요.
 - 끝단의 형태(뾰족함, 둥글림, 융합 등)를 객관적으로 식별하세요.
-- 네킹(Necking) 현상이 있는지 확인하세요.
+- 네킹(Necking) 현상이 있는지 확인하되, 위의 주의사항을 엄격히 준수하세요.
 
-2단계: 특징 서술
+3단계: 특징 서술
 - 다음 특징을 정확히 서술하세요:
   * 개별 소선이 명확히 구별되는지(Individual strands detected)
   * 끝단이 뾰족한지(Tapered tips) 둥근지(Blunt)
   * 끝단에 미세 용융망울(Micro-bead)이 있는지
-  * 네킹 현상(끝단이 좁아지는 현상)이 있는지
+  * 네킹 현상(끝단이 좁아지는 현상)이 있는지 - 이미지 품질이 충분할 때만 판단
 - 끝단의 형태학적 특징을 구체적으로 서술하세요.
 
-3단계: 논리적 추론
+4단계: 논리적 추론
 - 반단선은 소선이 부분적으로 끊어지면서 끝단이 뾰족하게 형성되는 경향이 있습니다.
-- 네킹 현상은 소선이 끊어지기 전에 좁아지는 현상으로, 반단선의 특징입니다.
+- 네킹 현상은 소선이 끊어지기 전에 좁아지는 현상으로, 반단선의 특징이지만 고배율 확대 이미지에서만 확인 가능합니다.
 - 끝단에 미세 망울이 있다면 부분적 용융이 발생했음을 의미합니다.
 - 관찰된 끝단 형태를 종합하여 반단선 여부를 논리적으로 판단하세요.
 
@@ -73,14 +84,14 @@ STEP2_PROMPT = """당신은 금속 재료 공학 및 화재 감식 전문가입�
 [출력 형식]
 반드시 아래의 JSON 스키마를 준수하여 응답하십시오. Markdown 코드 블록(```json)을 포함하지 말고 순수 JSON 텍스트만 출력하는 것을 권장합니다.
 {
-    "micro_beads_detected": true,
-    "bead_size": "micro",
-    "bead_distribution": "individual_strands",
-    "bead_count": "many",
+    "micro_beads_detected": true/false,
+    "bead_size": "micro" | "small" | "medium" | "large" | "unknown",
+    "bead_distribution": "individual_strands" | "clustered" | "scattered" | "unknown",
+    "bead_count": "few" | "many" | "unknown",
     "bead_description": "상세 관찰 내용...",
-    "large_bead_present": false,
-    "confidence": 95,
-    "reasoning": "소선 끝마다 좁쌀 형태의 작은 망울들이 다수 관찰되며 거대 망울이 부재하므로..."
+    "large_bead_present": true/false,
+    "confidence": 0-100,
+    "reasoning": "판단 근거 요약"
 }"""
 
 STEP3_PROMPT = """당신은 금속 파단면 분석 및 전기 배선 손상 전문가입니다. 제공된 현미경 이미지를 분석하여 전선의 '기계적 피로(Mechanical Fatigue)' 흔적을 식별하는 것이 목표입니다.
@@ -103,24 +114,24 @@ STEP3_PROMPT = """당신은 금속 파단면 분석 및 전기 배선 손상 전
 [출력 형식]
 반드시 아래의 JSON 스키마를 준수하여 응답하십시오. Markdown 코드 블록(```json)을 포함하지 말고 순수 JSON 텍스트만 출력하는 것을 권장합니다.
 {
-    "mechanical_fatigue_detected": true,
-    "fatigue_location": "strain_relief",
-    "insulation_damage": true,
-    "insulation_damage_type": "cracking",
-    "bending_evidence": true,
-    "location_match": true,
-    "fatigue_description": "플러그 목 부분의 피복에 깊은 균열이 관찰되며...",
-    "confidence": 92,
-    "reasoning": "스트레인 릴리프 부위의 피복 균열과 소선 파단 위치가 일치하여 반복적 굽힘에 의한 피로 파괴로 판단됨."
+    "mechanical_fatigue_detected": true/false,
+    "fatigue_location": "strain_relief" | "bend_point" | "twist_point" | "unknown",
+    "insulation_damage": true/false,
+    "insulation_damage_type": "cracking" | "wear" | "deformation" | "unknown",
+    "bending_evidence": true/false,
+    "location_match": true/false,
+    "fatigue_description": "상세 관찰 내용...",
+    "confidence": 0-100,
+    "reasoning": "판단 근거 요약"
 }"""
 
 
-def step1_tip_morphology(image_part: Part, verbose: bool = False) -> Dict[str, Any]:
+def step1_tip_morphology(image_data: bytes, verbose: bool = False) -> Dict[str, Any]:
     """Step 1: 소선 끝단의 형상 분석"""
     if verbose:
         print("\n🔍 [Step 1] 소선 끝단의 형상 분석 시작...")
     
-    response_text, thinking_info = call_gemini_vision(STEP1_PROMPT, image_part, "Step 1", verbose)
+    response_text, thinking_info = call_gemini_vision(STEP1_PROMPT, image_data, "Step 1", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -133,12 +144,12 @@ def step1_tip_morphology(image_part: Part, verbose: bool = False) -> Dict[str, A
     return result
 
 
-def step2_bead_distribution(image_part: Part, verbose: bool = False) -> Dict[str, Any]:
+def step2_bead_distribution(image_data: bytes, verbose: bool = False) -> Dict[str, Any]:
     """Step 2: 용융망울의 크기와 분포 분석"""
     if verbose:
         print("\n🔍 [Step 2] 용융망울의 크기와 분포 분석 시작...")
     
-    response_text, thinking_info = call_gemini_vision(STEP2_PROMPT, image_part, "Step 2", verbose)
+    response_text, thinking_info = call_gemini_vision(STEP2_PROMPT, image_data, "Step 2", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -151,12 +162,12 @@ def step2_bead_distribution(image_part: Part, verbose: bool = False) -> Dict[str
     return result
 
 
-def step3_mechanical_fatigue(image_part: Part, verbose: bool = False) -> Dict[str, Any]:
+def step3_mechanical_fatigue(image_data: bytes, verbose: bool = False) -> Dict[str, Any]:
     """Step 3: 기계적 피로 흔적 분석"""
     if verbose:
         print("\n🔍 [Step 3] 기계적 피로 흔적 분석 시작...")
     
-    response_text, thinking_info = call_gemini_vision(STEP3_PROMPT, image_part, "Step 3", verbose)
+    response_text, thinking_info = call_gemini_vision(STEP3_PROMPT, image_data, "Step 3", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -209,12 +220,22 @@ def calculate_confidence_score(
     avg_confidence = (step1_score + step2_score + step3_score) / 3
     base_score += avg_confidence * 0.1
     
-    # 핵심 조합에 따른 보정
+    # [중요] 기계적 피로와 열적 용융의 필수 조건 검증
+    # 기계적 피로(Fatigue)가 있어도, '미세 망울(Micro Beads)'이 없으면 
+    # 그냥 기계적으로 끊어진 것일 수 있음 (반단선 아님).
+    # 따라서 Micro Beads가 없으면 점수를 대폭 깎아야 함.
+    if mechanical_fatigue and not micro_beads:
+        # 피로는 보이나 열적 증거가 없음 -> 단순 단선일 확률 높음
+        base_score = min(base_score, 40)  # 점수 상한선 제한
+    
+    # 핵심 조합에 따른 보정 (완화된 로직)
     if tapered_tips and micro_beads and mechanical_fatigue:
-        base_score = max(base_score, 90)
+        # 90점 고정이 아니라 가산점 (최대 95점)
+        base_score = min(95, int(base_score * 1.2))
     
     if necking_phenomenon and micro_beads:
-        base_score = max(base_score, 85)
+        # 85점 고정이 아니라 가산점 (최대 90점)
+        base_score = min(90, int(base_score * 1.15))
     
     return min(100, max(0, int(base_score)))
 
@@ -339,9 +360,9 @@ def analyze_strand_fracture(payload: List[Any], verbose: bool = False) -> Dict[s
     Returns:
         분석 결과 딕셔너리
     """
-    image_part = extract_image_from_payload(payload)
+    image_data = extract_image_from_payload(payload)
     
-    if image_part is None:
+    if image_data is None:
         return {
             "error": "이미지를 추출할 수 없습니다.",
             "confidence_score": 0,
@@ -354,9 +375,9 @@ def analyze_strand_fracture(payload: List[Any], verbose: bool = False) -> Dict[s
     if verbose:
         print(f"\n{'='*60}\n🔍 반단선 분석 시작\n{'='*60}")
     
-    step1_result = step1_tip_morphology(image_part, verbose)
-    step2_result = step2_bead_distribution(image_part, verbose)
-    step3_result = step3_mechanical_fatigue(image_part, verbose)
+    step1_result = step1_tip_morphology(image_data, verbose)
+    step2_result = step2_bead_distribution(image_data, verbose)
+    step3_result = step3_mechanical_fatigue(image_data, verbose)
     
     confidence_score = calculate_confidence_score(step1_result, step2_result, step3_result)
     evidence = collect_evidence(step1_result, step2_result, step3_result)

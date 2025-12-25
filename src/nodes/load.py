@@ -2,11 +2,12 @@
 이미지 로드 노드
 입력 이미지 경로에서 이미지를 로드하여 상태에 저장합니다.
 """
+from typing import Dict, Any
 from src.state import GraphState
 from src.utils import load_image_safe
 
 
-def load_node(state: GraphState) -> dict:
+def load_node(state: GraphState) -> Dict[str, Any]:
     """
     이미지 로드 노드
     
