@@ -14,7 +14,6 @@ LangGraph 공식 권장 방식:
 from typing import Literal
 from src.state import InvestigationState
 
-
 def should_use_react_agent_contact_step1(state: InvestigationState) -> Literal["react_agent", "step2_spectral"]:
     """
     Contact Expert Step1 후 react_agent 호출 여부 결정
@@ -40,7 +39,6 @@ def should_use_react_agent_contact_step1(state: InvestigationState) -> Literal["
         return "react_agent"
     
     return "step2_spectral"
-
 
 def should_use_react_agent_contact_step2(state: InvestigationState) -> Literal["react_agent", "step3_thermal"]:
     """
@@ -68,7 +66,6 @@ def should_use_react_agent_contact_step2(state: InvestigationState) -> Literal["
     
     return "step3_thermal"
 
-
 def should_use_react_agent_contact_step3(state: InvestigationState) -> Literal["react_agent", "step4_surface"]:
     """
     Contact Expert Step3 후 react_agent 호출 여부 결정
@@ -94,7 +91,6 @@ def should_use_react_agent_contact_step3(state: InvestigationState) -> Literal["
         return "react_agent"
     
     return "step4_surface"
-
 
 def should_use_react_agent_contact_step4(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """
@@ -122,7 +118,6 @@ def should_use_react_agent_contact_step4(state: InvestigationState) -> Literal["
     
     return "finalize"
 
-
 # Dielectric Expert 조건부 엣지 함수들
 def should_use_react_agent_dielectric_step1(state: InvestigationState) -> Literal["react_agent", "step2_swelling"]:
     """
@@ -143,7 +138,6 @@ def should_use_react_agent_dielectric_step1(state: InvestigationState) -> Litera
     
     return "step2_swelling"
 
-
 def should_use_react_agent_dielectric_step2(state: InvestigationState) -> Literal["react_agent", "step3_global_aging"]:
     """
     Dielectric Expert Step2 후 react_agent 호출 여부 결정
@@ -163,7 +157,6 @@ def should_use_react_agent_dielectric_step2(state: InvestigationState) -> Litera
     
     return "step3_global_aging"
 
-
 def should_use_react_agent_dielectric_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """
     Dielectric Expert Step3 후 react_agent 호출 여부 결정
@@ -182,7 +175,6 @@ def should_use_react_agent_dielectric_step3(state: InvestigationState) -> Litera
         return "react_agent"
     
     return "finalize"
-
 
 # Mechanical Expert 조건부 엣지 함수들
 def should_use_react_agent_mechanical_step1(state: InvestigationState) -> Literal["react_agent", "step2_splaying"]:
@@ -204,7 +196,6 @@ def should_use_react_agent_mechanical_step1(state: InvestigationState) -> Litera
     
     return "step2_splaying"
 
-
 def should_use_react_agent_mechanical_step2(state: InvestigationState) -> Literal["react_agent", "step3_confinement"]:
     """
     Mechanical Expert Step2 후 react_agent 호출 여부 결정
@@ -224,7 +215,6 @@ def should_use_react_agent_mechanical_step2(state: InvestigationState) -> Litera
     
     return "step3_confinement"
 
-
 def should_use_react_agent_mechanical_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """
     Mechanical Expert Step3 후 react_agent 호출 여부 결정
@@ -243,7 +233,6 @@ def should_use_react_agent_mechanical_step3(state: InvestigationState) -> Litera
         return "react_agent"
     
     return "finalize"
-
 
 # Tracking Expert 조건부 엣지 함수들
 def should_use_react_agent_tracking_step1(state: InvestigationState) -> Literal["react_agent", "step2_luster"]:
@@ -265,7 +254,6 @@ def should_use_react_agent_tracking_step1(state: InvestigationState) -> Literal[
     
     return "step2_luster"
 
-
 def should_use_react_agent_tracking_step2(state: InvestigationState) -> Literal["react_agent", "step3_erosion"]:
     """
     Tracking Expert Step2 후 react_agent 호출 여부 결정
@@ -285,7 +273,6 @@ def should_use_react_agent_tracking_step2(state: InvestigationState) -> Literal[
     
     return "step3_erosion"
 
-
 def should_use_react_agent_tracking_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """
     Tracking Expert Step3 후 react_agent 호출 여부 결정
@@ -304,7 +291,6 @@ def should_use_react_agent_tracking_step3(state: InvestigationState) -> Literal[
         return "react_agent"
     
     return "finalize"
-
 
 # StrandFracture Expert 조건부 엣지 함수들
 def should_use_react_agent_strand_fracture_step1(state: InvestigationState) -> Literal["react_agent", "step2_bead_distribution"]:
@@ -326,7 +312,6 @@ def should_use_react_agent_strand_fracture_step1(state: InvestigationState) -> L
     
     return "step2_bead_distribution"
 
-
 def should_use_react_agent_strand_fracture_step2(state: InvestigationState) -> Literal["react_agent", "step3_fatigue"]:
     """
     StrandFracture Expert Step2 후 react_agent 호출 여부 결정
@@ -345,7 +330,6 @@ def should_use_react_agent_strand_fracture_step2(state: InvestigationState) -> L
         return "react_agent"
     
     return "step3_fatigue"
-
 
 def should_use_react_agent_strand_fracture_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """

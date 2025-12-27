@@ -15,7 +15,6 @@ if str(project_root) not in sys.path:
 # 로그 파일 경로
 LOG_PATH = Path(__file__).parent.parent / ".cursor" / "debug.log"
 
-
 def log_debug(session_id: str, run_id: str, hypothesis_id: str, location: str, 
               message: str, data: dict = None):
     """디버그 로그 기록"""
@@ -33,7 +32,6 @@ def log_debug(session_id: str, run_id: str, hypothesis_id: str, location: str,
             f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
     except Exception as e:
         print(f"로그 기록 실패: {e}")
-
 
 def test_investigation_edges_react():
     """엣지 수정 테스트"""
@@ -70,7 +68,6 @@ def test_investigation_edges_react():
                   "테스트 실패", {"error": str(e), "error_type": type(e).__name__})
         print(f"❌ 엣지 수정 테스트 실패: {e}")
         return False
-
 
 def test_agent_integration():
     """그래프 빌더 통합 테스트"""
@@ -110,7 +107,6 @@ def test_agent_integration():
         print(f"❌ 그래프 빌더 통합 테스트 실패: {e}")
         return False
 
-
 def test_main_integration():
     """메인 통합 테스트"""
     log_debug("test-step2", "run1", "C", "test_step2_integration.py:test_main_integration",
@@ -145,7 +141,6 @@ def test_main_integration():
         print(f"❌ 메인 통합 테스트 실패: {e}")
         return False
 
-
 def run_all_tests():
     """모든 2단계 테스트 실행"""
     print("\n" + "=" * 60)
@@ -175,7 +170,6 @@ def run_all_tests():
     print("=" * 60 + "\n")
     
     return all(result for _, result in results)
-
 
 if __name__ == "__main__":
     success = run_all_tests()

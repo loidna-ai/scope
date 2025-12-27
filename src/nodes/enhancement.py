@@ -15,7 +15,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class ImageEnhancer:
     """Real-ESRGAN 기반 이미지 향상 클래스"""
     
@@ -94,7 +93,6 @@ class ImageEnhancer:
             # Fallback: 단순 리사이즈
             h, w = img.shape[:2]
             return cv2.resize(img, (w * config.SR_SCALE, h * config.SR_SCALE))
-
 
 def enhancement_node(state: GraphState) -> Dict[str, Any]:
     """

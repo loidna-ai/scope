@@ -1,226 +1,45 @@
 """
-DielectricAge 전문가 서브그래프 빌더
-순수 ReAct 패턴 (LangGraph 공식 권장 방식)
-
-LangGraph 공식 패턴:
-- create_react_agent 또는 ToolNode + tools_condition 사용
-- LLM이 자유롭게 Step 도구와 이미지 편집 도구를 선택
-- agent → tools → agent 루프 구조
+Dielectric 전문가 서브그래프 빌더
 """
-from typing import Dict, Any, Optional, List
-import json
+from typing import Dict, Any, Optional
 import os
-import contextlib
-from langgraph.graph import StateGraph, START, MessagesState
-from langgraph.prebuilt import ToolNode, tools_condition
-from langchain_core.tools import tool
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+
+from langgraph.graph import StateGraph, START
+
 from src.state import InvestigationState
-from src.nodes.experts.dielectric_expert import (
-    step1_carbonization_depth,
-    step2_swelling_analysis,
-    step3_global_aging,
+from src.nodes.dielectric_nodes import (
+    DielectricExpertState,
+    step1_node,
+    step2_node,
+    step3_node
+)
+from src.tools.experts.dielectric_tools import (
     calculate_confidence_score,
     collect_evidence,
     generate_report
 )
-from src.nodes.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
-from src.agents.gemini_chatmodel import GeminiChatModel
-from src.tools.registry import ToolRegistry
-
-
-# 상수 정의
-STEP_TOOLS = [
-    "analyze_carbonization",
-    "analyze_swelling",
-    "analyze_global_aging"
-]
-
-IMAGE_EDITING_TOOLS = [
-    "enhance_image",
-    "apply_clahe_filter",
-    "crop_image"
-]
-
-TOOL_TO_STEP_KEY = {
-    "analyze_carbonization_depth": "dielectric_step1_result",
-    "analyze_swelling_analysis": "dielectric_step2_result",
-    "analyze_global_aging": "dielectric_step3_result"
-}
-
-
-def _load_image_data(image_path: str) -> bytes:
-    """이미지 파일을 바이트로 로드"""
-    try:
-        with open(image_path, "rb") as f:
-            return f.read()
-    except Exception as e:
-        raise IOError(f"이미지 로드 실패: {str(e)}")
-
-
-def create_step_tools():
-    """
-    Step 도구 생성
-    
-    LangGraph 표준 패턴에 따라 도구는 image_path를 인자로 받습니다.
-    """
-    @tool
-    def analyze_carbonization_depth(image_path: str) -> Dict[str, Any]:
-        """절연체의 탄화 심도와 방향을 분석하여 내부 발열 여부를 판단합니다."""
-        try:
-            image_data = _load_image_data(image_path)
-            return step1_carbonization_depth(image_data, verbose=False)
-        except Exception as e:
-            return {"error": str(e)}
-    
-    @tool
-    def analyze_swelling_analysis(image_path: str) -> Dict[str, Any]:
-        """절연체의 스펀지 현상 및 부풀어 오름을 분석하여 절연열화 징후를 확인합니다."""
-        try:
-            image_data = _load_image_data(image_path)
-            return step2_swelling_analysis(image_data, verbose=False)
-        except Exception as e:
-            return {"error": str(e)}
-    
-    @tool
-    def analyze_global_aging(image_path: str) -> Dict[str, Any]:
-        """전선 전체의 광역적 노후화 징후를 분석하여 절연열화 여부를 판단합니다."""
-        try:
-            image_data = _load_image_data(image_path)
-            return step3_global_aging(image_data, verbose=False)
-        except Exception as e:
-            return {"error": str(e)}
-    
-    return [
-        analyze_carbonization_depth,
-        analyze_swelling_analysis,
-        analyze_global_aging
-    ]
-
-
-class DielectricExpertState(MessagesState):
-    """
-    Dielectric Expert ReAct State
-    
-    MessagesState를 상속받아 messages 필드가 자동으로 포함됩니다.
-    """
-    dielectric_step1_result: Optional[Dict[str, Any]]
-    dielectric_step2_result: Optional[Dict[str, Any]]
-    dielectric_step3_result: Optional[Dict[str, Any]]
-    image_path: Optional[str]  # 현재 사용 중인 이미지 파일 경로 (표준 패턴)
-
-
-def create_agent_node(all_tools: List[Any]):
-    """ReAct 에이전트 노드 생성"""
-    def agent_node(state: DielectricExpertState) -> Dict[str, Any]:
-        """ReAct 에이전트 노드 - LLM이 상황을 판단하고 필요한 도구를 선택합니다."""
-        messages = state.get("messages", [])
-        image_path = state.get("image_path")
-        
-        # 이미지 편집 도구 실행 결과 확인 및 image_path 업데이트
-        updated_image_path = None
-        # 역순으로 탐색하여 가장 최근의 편집된 이미지 경로를 찾음
-        for msg in reversed(messages):
-            if isinstance(msg, ToolMessage) and msg.name in IMAGE_EDITING_TOOLS:
-                try:
-                    # 문자열인 경우에만 파싱 시도
-                    content = msg.content
-                    if isinstance(content, str):
-                        # JSON 파싱 시도 (단순 텍스트 에러일 경우 대비)
-                        with contextlib.suppress(json.JSONDecodeError, TypeError):
-                            data = json.loads(content)
-                            if isinstance(data, dict) and "image_path" in data:
-                                updated_image_path = data["image_path"]
-                                break
-                    elif isinstance(content, dict) and "image_path" in content:
-                        updated_image_path = content["image_path"]
-                        break
-                except Exception:
-                    continue  # 파싱 실패 시 무시하고 계속 탐색
-        
-        llm = GeminiChatModel()
-        llm_with_tools = llm.bind_tools(all_tools)
-        
-        # 현재 유효한 이미지 경로 결정
-        current_image_path = updated_image_path or image_path
-        
-        if current_image_path is None:
-            # 이미지 경로가 없다면 에러를 발생시키는 대신 에이전트에게 알려줌 (Graceful handling)
-            return {"messages": [SystemMessage(content="시스템 오류: 분석할 이미지 경로를 찾을 수 없습니다.")]}
-        
-        sys_msg = SystemMessage(content=f"""
-당신은 전기화재 감식 전문가 'DielectricAge Expert'입니다.
-현재 분석 대상 이미지 파일 경로: "{current_image_path}"
-
-[필수 수행 규칙]
-1. 도구 호출 시 'image_path' 인자에 반드시 위 경로("{current_image_path}")를 그대로 넣으세요.
-2. 상황에 따라 필요한 도구를 자유롭게 선택하여 사용하세요. 사용 가능한 분석 도구:
-   - analyze_carbonization_depth: 절연체의 탄화 심도와 방향 분석 (내부 발열 여부 판단)
-   - analyze_swelling_analysis: 절연체의 스펀지 현상 및 부풀어 오름 분석 (절연열화 징후 확인)
-   - analyze_global_aging: 전선 전체의 광역적 노후화 징후 분석 (절연열화 여부 판단)
-3. 각 분석 결과(JSON)를 확인하고, 신뢰도가 낮으면 이미지 개선 도구를 사용 후 재시도하세요.
-
-[종료 조건]
-모든 분석이 완료되었거나 결론을 내릴 충분한 근거가 있다면, 도구 사용을 멈추고 최종 답변을 하세요.
-최종 답변은 반드시 "**Final Answer:**" 로 시작해야 합니다.
-""")
-        
-        response = llm_with_tools.invoke([sys_msg] + messages)
-        result = {"messages": [response]}
-        if updated_image_path:
-            result["image_path"] = updated_image_path
-        return result
-    
-    return agent_node
-
+from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
 
 def build_dielectric_expert_graph():
-    """
-    DielectricAge 전문가 서브그래프 빌드
-    
-    그래프 구조: START → agent → [조건부: tools_condition → tools 또는 종료] ← tools ───┘
-    """
+    """Dielectric 전문가 서브그래프 빌드"""
     builder = StateGraph(DielectricExpertState)
     
-    step_tools = create_step_tools()
-    registry = ToolRegistry()
-    image_editing_tools = registry.get_tools_by_category("image")
-    all_tools = step_tools + image_editing_tools
+    builder.add_node("step1", step1_node)
+    builder.add_node("step2", step2_node)
+    builder.add_node("step3", step3_node)
     
-    agent_node_func = create_agent_node(all_tools)
-    builder.add_node("agent", agent_node_func)
-    builder.add_node("tools", ToolNode(all_tools))
-    
-    builder.add_edge(START, "agent")
-    builder.add_conditional_edges("agent", tools_condition)
-    builder.add_edge("tools", "agent")
+    builder.add_edge(START, "step1")
+    builder.add_edge("step1", "step2")
+    builder.add_edge("step2", "step3")
     
     return builder.compile()
 
-
-def _extract_report_text(final_message: Any) -> str:
-    """최종 메시지에서 리포트 텍스트 추출"""
-    if not final_message or not hasattr(final_message, "content"):
-        return ""
-    
-    content = final_message.content
-    if isinstance(content, str):
-        return content
-    elif isinstance(content, list):
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                return item.get("text", "")
-    return ""
-
-
 def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Dict[str, Any]]):
-    """임시 파일 정리"""
     if temp_image_path and os.path.exists(temp_image_path):
         try:
             os.remove(temp_image_path)
-        except Exception as e:
-            print(f"⚠️ 임시 파일 정리 실패: {e}")
-    
+        except Exception:
+            pass
     if final_state:
         final_image_path = final_state.get("image_path")
         if final_image_path and final_image_path != temp_image_path and os.path.exists(final_image_path):
@@ -229,19 +48,14 @@ def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Di
             except Exception:
                 pass
 
-
 def dielectric_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
-    """
-    InvestigationState를 DielectricExpertState로 변환하여 ReAct 그래프를 실행하고,
-    결과를 InvestigationState 형식으로 반환합니다.
-    
-    표준 패턴을 사용하여 image_data를 임시 파일로 저장하고 image_path를 사용합니다.
-    """
+    import json
+    import time
     temp_image_path = None
     final_state = None
     try:
-        image_data = extract_image_from_payload(state.get("payload", []))
         
+        image_data = extract_image_from_payload(state.get("payload", []))
         if image_data is None:
             return {
                 "errors": ["Dielectric 전문가: 이미지를 추출할 수 없습니다."],
@@ -251,12 +65,11 @@ def dielectric_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
                 "expert_evidence": {}
             }
         
+        
         temp_image_path = save_bytes_to_temp_file(image_data)
         
         initial_state: DielectricExpertState = {
-            "messages": [
-                HumanMessage(content=f"이미지를 분석하고 절연열화 여부를 판단하세요. 이미지 경로: {temp_image_path}")
-            ],
+            "messages": [],
             "image_path": temp_image_path,
             "dielectric_step1_result": None,
             "dielectric_step2_result": None,
@@ -266,53 +79,15 @@ def dielectric_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
         graph = build_dielectric_expert_graph()
         final_state = graph.invoke(initial_state, config={"recursion_limit": 100})
         
-        messages = final_state.get("messages", [])
-        step_results = {
-            "dielectric_step1_result": {},
-            "dielectric_step2_result": {},
-            "dielectric_step3_result": {}
-        }
         
-        final_message = messages[-1] if messages else None
-        report_text = _extract_report_text(final_message)
+        step1_result = final_state.get("dielectric_step1_result") or {}
+        step2_result = final_state.get("dielectric_step2_result") or {}
+        step3_result = final_state.get("dielectric_step3_result") or {}
         
-        # 메시지를 순서대로 순회하며 결과를 덮어씌움 (재시도 시 마지막 결과가 반영되도록)
-        for msg in messages:
-            if isinstance(msg, ToolMessage) and msg.name in TOOL_TO_STEP_KEY:
-                step_key = TOOL_TO_STEP_KEY[msg.name]
-                try:
-                    content = msg.content
-                    if isinstance(content, str):
-                        # JSON 파싱 시도
-                        with contextlib.suppress(json.JSONDecodeError):
-                            parsed = json.loads(content)
-                            if isinstance(parsed, dict):
-                                step_results[step_key] = parsed
-                            else:
-                                step_results[step_key] = {"result": content}
-                    elif isinstance(content, dict):
-                        step_results[step_key] = content
-                except Exception:
-                    # 파싱 실패 시 원본 텍스트 저장
-                    step_results[step_key] = {"raw_content": str(msg.content)}
-        
-        # None 체크를 위에서 초기값 {}로 처리했으므로 바로 할당
-        step1_result = step_results["dielectric_step1_result"]
-        step2_result = step_results["dielectric_step2_result"]
-        step3_result = step_results["dielectric_step3_result"]
-        
-        confidence_score = calculate_confidence_score(
-            step1_result, step2_result, step3_result
-        )
+        confidence_score = calculate_confidence_score(step1_result, step2_result, step3_result)
         evidence = collect_evidence(step1_result, step2_result, step3_result)
+        report = generate_report(step1_result, step2_result, step3_result, confidence_score, evidence)
         
-        if report_text and ("Final Answer" in report_text or len(report_text) > 100):
-            report = report_text
-        else:
-            report = generate_report(
-                step1_result, step2_result, step3_result,
-                confidence_score, evidence
-            )
         return {
             "expert_reports": [report],
             "expert_analysis_results": {
@@ -323,12 +98,9 @@ def dielectric_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
                 }
             },
             "expert_confidence_scores": {"dielectric": confidence_score},
-            "expert_evidence": {"dielectric": evidence},
-            **step_results
+            "expert_evidence": {"dielectric": evidence}
         }
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         return {
             "errors": [f"Dielectric 전문가 ReAct 에이전트 오류: {str(e)}"],
             "expert_reports": [],

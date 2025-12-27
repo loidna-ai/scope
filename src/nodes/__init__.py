@@ -26,7 +26,7 @@ def get_enhancement_node():
     return enhancement_node
 
 # Arbiter 노드
-from src.nodes.experts.arbiter import node_arbiter
+from src.nodes.arbiter_node import node_arbiter
 
 __all__ = [
     # 전처리 노드

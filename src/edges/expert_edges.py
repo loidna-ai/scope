@@ -4,7 +4,6 @@
 """
 from langgraph.graph import START, END, StateGraph
 
-
 def add_contact_expert_edges(builder: StateGraph) -> None:
     """
     Contact 전문가 서브그래프에 엣지를 추가합니다.
@@ -22,7 +21,6 @@ def add_contact_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step4_surface", "finalize")
     builder.add_edge("finalize", END)
 
-
 def add_dielectric_expert_edges(builder: StateGraph) -> None:
     """
     Dielectric 전문가 서브그래프에 엣지를 추가합니다.
@@ -38,7 +36,6 @@ def add_dielectric_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step2_swelling", "step3_global_aging")
     builder.add_edge("step3_global_aging", "finalize")
     builder.add_edge("finalize", END)
-
 
 def add_mechanical_expert_edges(builder: StateGraph) -> None:
     """
@@ -56,7 +53,6 @@ def add_mechanical_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step3_confinement", "finalize")
     builder.add_edge("finalize", END)
 
-
 def add_tracking_expert_edges(builder: StateGraph) -> None:
     """
     Tracking 전문가 서브그래프에 엣지를 추가합니다.
@@ -72,7 +68,6 @@ def add_tracking_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step2_luster", "step3_erosion")
     builder.add_edge("step3_erosion", "finalize")
     builder.add_edge("finalize", END)
-
 
 def add_strand_fracture_expert_edges(builder: StateGraph) -> None:
     """

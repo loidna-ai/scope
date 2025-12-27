@@ -13,11 +13,9 @@ from src.nodes.metrics import MorphologyAnalyzer
 from src.nodes.crop import ImageCropper
 from src.nodes.filter import TextureFilter
 
-
 class ImageAnalyzerInput(BaseModel):
     """이미지 분석 도구 입력 스키마"""
     image_path: str = Field(description="분석할 이미지 파일 경로")
-
 
 class ImageAnalyzerTool(BaseTool):
     """
@@ -83,105 +81,121 @@ class ImageAnalyzerTool(BaseTool):
         """비동기 실행 (동기 실행으로 위임)"""
         return self._run(image_path, run_manager)
 
-
 class ImageEnhancerInput(BaseModel):
     """이미지 향상 도구 입력 스키마"""
     image_path: str = Field(description="입력 이미지 파일 경로")
     output_path: Optional[str] = Field(default=None, description="출력 이미지 파일 경로 (선택적)")
-
+    force: bool = Field(default=False, description="이미지가 선명해도 강제로 향상을 수행할지 여부")
 
 class ImageEnhancerTool(BaseTool):
     """
-    Real-ESRGAN 기반 이미지 향상 도구
+    OpenCV DNN Super Resolution 기반 이미지 향상 도구
     
-    ImageEnhancer를 래핑하여 ReAct 에이전트가 사용할 수 있도록 합니다.
+    Blur Detection을 통해 이미지가 흐릿한 경우에만 가벼운 EDSR/FSRCNN 모델을 사용하여
+    해상도를 향상시킵니다. 이미지가 충분히 선명하면 작업을 건너뜁니다.
     """
     
     name: str = "enhance_image"
     description: str = (
-        "Real-ESRGAN을 사용하여 이미지를 4배 초해상도로 향상시킵니다. "
-        "입력: 이미지 파일 경로, 출력 경로(선택적). "
-        "출력: 향상된 이미지 정보 (크기 등)."
+        "이미지 해상도를 2배~4배 향상시킵니다. "
+        "기본적으로 이미지가 흐릿할 때만 작동하며, 이미 선명하면 건너뜁니다. "
+        "입력: 이미지 파일 경로, 출력 경로(선택적), force(강제 실행 여부). "
+        "출력: 향상된 이미지 정보."
     )
     args_schema: type[BaseModel] = ImageEnhancerInput
     
+    def _is_image_blurry(self, image: np.ndarray, threshold: float = 100.0) -> float:
+        """
+        이미지의 흐림 정도를 판단합니다.
+        Laplacian Variance가 threshold보다 낮으면 흐린 것으로 판단.
+        """
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        variance = cv2.Laplacian(gray, cv2.CV_64F).var()
+        return variance
+
     def _run(
         self,
         image_path: str,
         output_path: Optional[str] = None,
+        force: bool = False,
         run_manager: Optional[Any] = None,
     ) -> str:
         """
         이미지 향상 실행
-        
-        Args:
-            image_path: 입력 이미지 파일 경로
-            output_path: 출력 이미지 파일 경로 (선택적)
-            run_manager: 실행 매니저 (선택적)
-        
-        Returns:
-            향상 결과 문자열
         """
+        import os
+        
         try:
             # 이미지 로드
             img = cv2.imread(image_path)
             if img is None:
                 return f"이미지 로드 실패: {image_path}"
             
-            # 향상 수행 (torch 의존성 확인 - 지연 로딩)
+            # 흐림 감지 (Blur Detection)
+            variance = self._is_image_blurry(img)
+            is_blurry = variance < 100.0  # 임계값 100
+            
+            if not is_blurry and not force:
+                return (
+                    f"이미지가 이미 선명하여 향상 작업을 건너뜁니다 (Variance: {variance:.1f}).\n"
+                    f"- 원본 크기: {img.shape[1]}x{img.shape[0]}"
+                )
+            
+            enhanced_img = None
+            method_used = "Bicubic Interpolation"
+
             try:
-                # #region agent log
-                import json
-                import time
-                from pathlib import Path
-                log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-                try:
-                    with open(log_path, 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"image_tools.py:ImageEnhancerTool._run","message":"ImageEnhancer 지연 로딩 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
+                # OpenCV DNN Super Resolution 초기화
+                sr = cv2.dnn_superres.DnnSuperResImpl_create()
                 
-                from src.nodes.enhancement import ImageEnhancer
+                # 모델 경로 설정 (프로젝트 내 models 폴더 가정)
+                # 우선순위: EDSR > ESPCN > FSRCNN
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir))) # src/tools/../../
+                models_dir = os.path.join(project_root, "models")
                 
-                # #region agent log
-                try:
-                    with open(log_path, 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"image_tools.py:ImageEnhancerTool._run","message":"ImageEnhancer 지연 로딩 성공","data":{},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
+                model_path = ""
+                model_name = ""
+                scale = 4
                 
-                enhancer = ImageEnhancer()
-                enhanced_img = enhancer.upscale(img)
-            except ImportError as e:
-                # #region agent log
-                try:
-                    with open(log_path, 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"image_tools.py:ImageEnhancerTool._run","message":"ImageEnhancer 지연 로딩 실패","data":{"error":str(e),"error_type":"ImportError"},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
-                if "torch" in str(e).lower() or "torchvision" in str(e).lower():
-                    return f"이미지 향상 도구는 torch/torchvision이 필요합니다. 설치: pip install torch torchvision"
-                raise
+                if os.path.exists(os.path.join(models_dir, "EDSR_x4.pb")):
+                    model_path = os.path.join(models_dir, "EDSR_x4.pb")
+                    model_name = "edsr"
+                elif os.path.exists(os.path.join(models_dir, "ESPCN_x4.pb")):
+                    model_path = os.path.join(models_dir, "ESPCN_x4.pb")
+                    model_name = "espcn"
+                elif os.path.exists(os.path.join(models_dir, "FSRCNN_x3.pb")):
+                    model_path = os.path.join(models_dir, "FSRCNN_x3.pb")
+                    model_name = "fsrcnn"
+                    scale = 3
+
+                if model_path:
+                    sr.readModel(model_path)
+                    sr.setModel(model_name, scale)
+                    enhanced_img = sr.upsample(img)
+                    method_used = f"DNN Super Resolution ({model_name.upper()} x{scale})"
+                else:
+                    height, width = img.shape[:2]
+                    enhanced_img = cv2.resize(img, (width * 2, height * 2), interpolation=cv2.INTER_CUBIC)
+                    method_used = "Bicubic Interpolation (x2)"
+                    
             except Exception as e:
-                # #region agent log
-                try:
-                    with open(log_path, 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"image_tools.py:ImageEnhancerTool._run","message":"ImageEnhancer 실행 중 예상치 못한 오류","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
-                raise
+                # DNN 모듈 에러 시 Bicubic으로 폴백
+                height, width = img.shape[:2]
+                enhanced_img = cv2.resize(img, (width * 2, height * 2), interpolation=cv2.INTER_CUBIC)
+                method_used = "Bicubic Interpolation (Fallback x2)"
             
             # 저장 (선택적)
             if output_path:
                 cv2.imwrite(output_path, enhanced_img)
                 return (
-                    f"이미지 향상 완료: {output_path}\n"
+                    f"이미지 향상 완료 ({method_used}, Variance: {variance:.1f}): {output_path}\n"
                     f"- 원본 크기: {img.shape[1]}x{img.shape[0]}\n"
                     f"- 향상된 크기: {enhanced_img.shape[1]}x{enhanced_img.shape[0]}"
                 )
             
             return (
-                f"이미지 향상 완료\n"
+                f"이미지 향상 완료 ({method_used}, Variance: {variance:.1f})\n"
                 f"- 원본 크기: {img.shape[1]}x{img.shape[0]}\n"
                 f"- 향상된 크기: {enhanced_img.shape[1]}x{enhanced_img.shape[0]}"
             )
@@ -198,12 +212,10 @@ class ImageEnhancerTool(BaseTool):
         """비동기 실행 (동기 실행으로 위임)"""
         return self._run(image_path, output_path, run_manager)
 
-
 class ImageCropperInput(BaseModel):
     """이미지 크롭 도구 입력 스키마"""
     image_path: str = Field(description="입력 이미지 파일 경로")
     output_path: Optional[str] = Field(default=None, description="출력 이미지 파일 경로 (선택적)")
-
 
 class ImageCropperTool(BaseTool):
     """
@@ -274,12 +286,10 @@ class ImageCropperTool(BaseTool):
         """비동기 실행 (동기 실행으로 위임)"""
         return self._run(image_path, output_path, run_manager)
 
-
 class ImageFilterInput(BaseModel):
     """이미지 필터 도구 입력 스키마"""
     image_path: str = Field(description="입력 이미지 파일 경로")
     output_path: Optional[str] = Field(default=None, description="출력 이미지 파일 경로 (선택적)")
-
 
 class ImageFilterTool(BaseTool):
     """

@@ -9,11 +9,9 @@ from langgraph.graph.state import CompiledStateGraph
 from src.agents.gemini_chatmodel import GeminiChatModel
 from src.tools.registry import ToolRegistry
 
-
 # 싱글톤 패턴으로 그래프 재사용
 _react_agent_graph: Optional[CompiledStateGraph] = None
 _graph_lock = threading.Lock()
-
 
 def build_react_agent_graph() -> CompiledStateGraph:
     """
@@ -27,63 +25,25 @@ def build_react_agent_graph() -> CompiledStateGraph:
     Returns:
         컴파일된 ReAct 에이전트 그래프
     """
-    # #region agent log
-    import json
-    import time
-    try:
-        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-            f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"A","location":"react_agent.py:build_react_agent_graph","message":"함수 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
+    
     
     try:
-        # #region agent log
-        try:
-            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"A","location":"react_agent.py:build_react_agent_graph","message":"GeminiChatModel 생성 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
+        
         llm = GeminiChatModel()
         
-        # #region agent log
-        try:
-            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"A","location":"react_agent.py:build_react_agent_graph","message":"GeminiChatModel 생성 완료","data":{"has_client":llm.client is not None,"model_name":llm.model_name},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
-        # #region agent log
-        try:
-            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"react_agent.py:build_react_agent_graph","message":"ToolRegistry 생성 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
+        
+        
         registry = ToolRegistry()
         
-        # #region agent log
-        try:
-            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                tools = registry.get_tools()
-                f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"react_agent.py:build_react_agent_graph","message":"ToolRegistry 생성 완료","data":{"tools_count":len(tools),"tool_names":[t.name for t in tools]},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
+        
         tools = registry.get_tools()  # 모든 도구 (기본: image_tools, pipeline_tools)
         
-        # #region agent log
-        try:
-            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"C","location":"react_agent.py:build_react_agent_graph","message":"create_react_agent 호출 시작","data":{"tools_count":len(tools)},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
+        
         
         # LangGraph 공식 권장: create_react_agent 사용
         try:
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"C","location":"react_agent.py:build_react_agent_graph","message":"create_react_agent 호출 직전","data":{"llm_type":type(llm).__name__,"llm_has_stream":hasattr(llm,'_stream'),"tools_count":len(tools)},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
             
             agent = create_react_agent(
                 model=llm,
@@ -113,35 +73,17 @@ def build_react_agent_graph() -> CompiledStateGraph:
                 )
             )
             
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"C","location":"react_agent.py:build_react_agent_graph","message":"create_react_agent 호출 완료","data":{"has_agent":agent is not None,"has_invoke":hasattr(agent,'invoke')},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
         except Exception as create_error:
-            # #region agent log
-            try:
-                import traceback
-                tb_str = ''.join(traceback.format_exception(type(create_error), create_error, create_error.__traceback__))
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"ERROR","location":"react_agent.py:build_react_agent_graph","message":"create_react_agent 호출 중 예외","data":{"error":str(create_error),"error_type":type(create_error).__name__,"traceback":tb_str[:1000]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
             raise
         
         # create_react_agent는 이미 컴파일된 그래프를 반환
         return agent
         
     except Exception as e:
-        # #region agent log
-        try:
-            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"ERROR","location":"react_agent.py:build_react_agent_graph","message":"에러 발생","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
+        
         raise
-
 
 def _get_react_agent_graph() -> CompiledStateGraph:
     """

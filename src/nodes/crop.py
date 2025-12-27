@@ -8,7 +8,6 @@ import numpy as np
 from src.state import GraphState
 import config
 
-
 class ImageCropper:
     """
     Morphological Gradient 기반 스마트 크롭퍼
@@ -107,7 +106,6 @@ class ImageCropper:
         y2 = min(h, cy + crop_size // 2)
         
         return img[y1:y2, x1:x2]
-
 
 def crop_node(state: GraphState) -> Dict[str, Any]:
     """

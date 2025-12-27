@@ -8,7 +8,6 @@ from typing_extensions import TypedDict
 import numpy as np
 from langgraph.graph import MessagesState
 
-
 def merge_dicts(left: dict, right: dict) -> dict:
     """
     두 딕셔너리를 병합하는 reducer 함수
@@ -28,7 +27,6 @@ def merge_dicts(left: dict, right: dict) -> dict:
     result = left.copy()
     result.update(right)
     return result
-
 
 class GraphState(TypedDict):
     """
@@ -53,7 +51,6 @@ class GraphState(TypedDict):
     # 에러 수집 (Reducer 패턴 사용)
     errors: Annotated[list[str], operator.add]  # 에러 메시지 수집
 
-
 def keep_first(left: List[Any], right: List[Any]) -> List[Any]:
     """
     첫 번째 값을 유지하는 reducer 함수
@@ -72,7 +69,6 @@ def keep_first(left: List[Any], right: List[Any]) -> List[Any]:
     # left가 None이거나 비어있으면 right 반환
     return right if right is not None else []
 
-
 def keep_last(left: Optional[str], right: Optional[str]) -> Optional[str]:
     """
     마지막 값을 유지하는 reducer 함수
@@ -89,7 +85,6 @@ def keep_last(left: Optional[str], right: Optional[str]) -> Optional[str]:
     if right is not None:
         return right
     return left
-
 
 def keep_last_dict(left: Optional[Dict[str, Any]], right: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """
@@ -108,7 +103,6 @@ def keep_last_dict(left: Optional[Dict[str, Any]], right: Optional[Dict[str, Any
         return right
     return left
 
-
 def keep_last_bytes(left: Optional[bytes], right: Optional[bytes]) -> Optional[bytes]:
     """
     마지막 값을 유지하는 reducer 함수 (bytes 타입용)
@@ -126,7 +120,6 @@ def keep_last_bytes(left: Optional[bytes], right: Optional[bytes]) -> Optional[b
         return right
     return left
 
-
 def keep_last_list(left: Optional[List[Any]], right: Optional[List[Any]]) -> Optional[List[Any]]:
     """
     마지막 값을 유지하는 reducer 함수 (List 타입용)
@@ -139,19 +132,11 @@ def keep_last_list(left: Optional[List[Any]], right: Optional[List[Any]]) -> Opt
     Returns:
         마지막 값 (None이 아닌 값 우선)
     """
-    # #region agent log
-    import json
-    import time
-    try:
-        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-            f.write(json.dumps({"sessionId":"react-parallel","runId":"run1","hypothesisId":"D","location":"state.py:keep_last_list","message":"Reducer 호출","data":{"left_is_none":left is None,"right_is_none":right is None,"left_len":len(left) if left else 0,"right_len":len(right) if right else 0},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
+    
     # None이 아닌 값이 있으면 그것을 반환, 둘 다 None이면 None 반환
     if right is not None:
         return right
     return left
-
 
 class InvestigationState(TypedDict):
     """
@@ -220,7 +205,6 @@ class InvestigationState(TypedDict):
     
     # ReAct 에이전트를 위한 작업 설명 (이미지 경로 포함)
     task: Annotated[Optional[str], keep_last]  # 수행할 작업 설명 (이미지 경로 포함 가능)
-
 
 class ReActState(MessagesState):
     """

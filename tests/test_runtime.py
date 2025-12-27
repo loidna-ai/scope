@@ -15,7 +15,6 @@ if str(project_root) not in sys.path:
 # 로그 파일 경로
 LOG_PATH = Path(__file__).parent.parent / ".cursor" / "debug.log"
 
-
 def log_debug(session_id: str, run_id: str, hypothesis_id: str, location: str, 
               message: str, data: dict = None):
     """디버그 로그 기록"""
@@ -33,7 +32,6 @@ def log_debug(session_id: str, run_id: str, hypothesis_id: str, location: str,
             f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
     except Exception as e:
         print(f"로그 기록 실패: {e}")
-
 
 def test_build_react_agent_graph():
     """ReAct 에이전트 그래프 빌드 런타임 테스트"""
@@ -76,7 +74,6 @@ def test_build_react_agent_graph():
         traceback.print_exc()
         return False
 
-
 def test_tool_registry_runtime():
     """도구 레지스트리 런타임 테스트"""
     log_debug("runtime-test", "run1", "B", "test_runtime.py:test_tool_registry_runtime",
@@ -118,7 +115,6 @@ def test_tool_registry_runtime():
         traceback.print_exc()
         return False
 
-
 def test_gemini_chatmodel_runtime():
     """Gemini ChatModel 런타임 테스트"""
     log_debug("runtime-test", "run1", "C", "test_runtime.py:test_gemini_chatmodel_runtime",
@@ -157,7 +153,6 @@ def test_gemini_chatmodel_runtime():
         traceback.print_exc()
         return False
 
-
 def run_all_tests():
     """모든 런타임 테스트 실행"""
     print("\n" + "=" * 60)
@@ -187,7 +182,6 @@ def run_all_tests():
     print("=" * 60 + "\n")
     
     return all(result for _, result in results)
-
 
 if __name__ == "__main__":
     success = run_all_tests()

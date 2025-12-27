@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Optional
 import config
 
-
 def find_data_directory(data_dir: Optional[str] = None) -> str:
     """
     data 폴더를 탐색하여 실제 경로를 반환합니다.
@@ -59,7 +58,6 @@ def find_data_directory(data_dir: Optional[str] = None) -> str:
     
     return actual_path
 
-
 def load_image_safe(image_path: str) -> np.ndarray:
     """
     한글 경로 및 특수 문자가 포함된 이미지를 안전하게 로드합니다.
@@ -76,23 +74,36 @@ def load_image_safe(image_path: str) -> np.ndarray:
     Raises:
         ValueError: 이미지를 로드할 수 없을 때
     """
+    import json
+    import time
+    import os
+    
+    
+    
     # 경로를 Path 객체로 변환하여 정규화
     path = Path(image_path)
     
     if not path.exists():
         raise ValueError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
     
+    
+    
     # np.fromfile로 바이너리 데이터 읽기 (한글 경로 지원)
     img_array = np.fromfile(str(path), np.uint8)
     
+    
+    
+    
+    
     # cv2.imdecode로 이미지 디코딩
     img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    
+    
     
     if img is None:
         raise ValueError(f"이미지를 디코딩할 수 없습니다: {image_path}")
     
     return img
-
 
 def save_image_safe(image: np.ndarray, output_path: str, quality: int = 95) -> None:
     """

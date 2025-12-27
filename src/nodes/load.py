@@ -6,7 +6,6 @@ from typing import Dict, Any
 from src.state import GraphState
 from src.utils import load_image_safe
 
-
 def load_node(state: GraphState) -> Dict[str, Any]:
     """
     이미지 로드 노드

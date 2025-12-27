@@ -4,7 +4,6 @@
 """
 from langgraph.graph import START, END, StateGraph
 
-
 def add_investigation_edges(builder: StateGraph) -> None:
     """
     화재조사 멀티 에이전트 그래프에 엣지를 추가합니다.
@@ -32,7 +31,6 @@ def add_investigation_edges(builder: StateGraph) -> None:
     
     # 종료
     builder.add_edge("chief_investigator", END)
-
 
 def add_investigation_edges_with_react(builder: StateGraph) -> None:
     """

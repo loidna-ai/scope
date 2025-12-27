@@ -7,7 +7,6 @@ import threading
 from langchain_core.tools import BaseTool
 # 지연 로딩을 위해 import를 함수 내부로 이동
 
-
 class ToolRegistry:
     """
     도구 레지스트리 싱글톤
@@ -47,22 +46,10 @@ class ToolRegistry:
         
         기본 도구와 파이프라인 도구를 등록합니다.
         """
-        # #region agent log
-        import json
-        import time
-        try:
-            with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"도구 초기화 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
+        
         
         try:
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"이미지 도구 import 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
             
             # 지연 로딩: import를 함수 내부로 이동
             try:
@@ -73,92 +60,47 @@ class ToolRegistry:
                     ImageFilterTool,
                 )
             except ImportError as e:
-                # #region agent log
-                try:
-                    with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"이미지 도구 import 실패","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
+                
                 # 이미지 도구를 사용할 수 없으면 빈 리스트로 시작
                 image_tools = []
             else:
-                # #region agent log
-                try:
-                    with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"이미지 도구 생성 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
+                
                 # 이미지 분석 도구 (torch 의존성 있는 도구는 선택적)
                 image_tools = []
                 try:
                     image_tools.append(ImageAnalyzerTool())
                 except Exception as e:
-                    # #region agent log
-                    try:
-                        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                            f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"ImageAnalyzerTool 생성 실패","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                    except: pass
-                    # #endregion
+                    
                     pass
                 
                 try:
                     image_tools.append(ImageEnhancerTool())
                 except Exception as e:
-                    # #region agent log
-                    try:
-                        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                            f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"ImageEnhancerTool 생성 실패 (torch 의존성 가능)","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                    except: pass
-                    # #endregion
+                    
                     pass
                 
                 try:
                     image_tools.append(ImageCropperTool())
                 except Exception as e:
-                    # #region agent log
-                    try:
-                        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                            f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"ImageCropperTool 생성 실패","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                    except: pass
-                    # #endregion
+                    
                     pass
                 
                 try:
                     image_tools.append(ImageFilterTool())
                 except Exception as e:
-                    # #region agent log
-                    try:
-                        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                            f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"ImageFilterTool 생성 실패","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                    except: pass
-                    # #endregion
+                    
                     pass
             
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"이미지 도구 생성 완료","data":{"count":len(image_tools),"names":[t.name for t in image_tools]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"파이프라인 도구 import 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
+            
             
             # 지연 로딩: 파이프라인 도구 import
             # ReAct 모드에서는 run_investigation_pipeline 도구를 제거하여 중복 실행 방지
             # 각 전문가는 서브그래프로 직접 실행되므로 파이프라인 도구가 필요 없음
             try:
                 from src.tools.pipeline_tools import RunPreprocessingPipelineTool
-                # #region agent log
-                try:
-                    with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"파이프라인 도구 생성 시작","data":{},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
+                
                 # 파이프라인 도구 (전처리만, 조사 파이프라인은 제외)
                 # RunInvestigationPipelineTool은 제거: 각 전문가가 서브그래프로 직접 실행되므로 중복 실행 방지
                 pipeline_tools = [
@@ -166,20 +108,10 @@ class ToolRegistry:
                     # RunInvestigationPipelineTool() 제거됨 - 중복 실행 방지
                 ]
             except ImportError as e:
-                # #region agent log
-                try:
-                    with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                        f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"파이프라인 도구 import 실패","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
+                
                 pipeline_tools = []
             
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"파이프라인 도구 생성 완료","data":{"count":len(pipeline_tools),"names":[t.name for t in pipeline_tools]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
             
             # 모든 도구 등록
             self._tools.extend(image_tools)
@@ -189,20 +121,10 @@ class ToolRegistry:
             self._tools_by_category["image"] = image_tools
             self._tools_by_category["pipeline"] = pipeline_tools
             
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"B","location":"registry.py:_initialize_tools","message":"도구 초기화 완료","data":{"total_count":len(self._tools)},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
             
         except Exception as e:
-            # #region agent log
-            try:
-                with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                    f.write(json.dumps({"sessionId":"runtime-test","runId":"run1","hypothesisId":"ERROR","location":"registry.py:_initialize_tools","message":"도구 초기화 에러","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            
             raise
     
     def get_tools(self) -> List[BaseTool]:

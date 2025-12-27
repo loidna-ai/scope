@@ -8,7 +8,6 @@ import numpy as np
 from src.state import GraphState
 import config
 
-
 class TextureFilter:
     """텍스처 강조 필터 클래스"""
     
@@ -37,7 +36,6 @@ class TextureFilter:
         # LAB 색공간으로 병합 후 BGR로 변환
         limg = cv2.merge((cl, a, b))
         return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-
 
 def filter_node(state: GraphState) -> Dict[str, Any]:
     """

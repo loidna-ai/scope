@@ -16,7 +16,7 @@ ReAct 패턴:
 from typing import List, Any
 from langgraph.graph import StateGraph
 from src.state import InvestigationState, GraphState
-from src.nodes.experts.arbiter import node_arbiter
+from src.nodes.arbiter_node import node_arbiter
 from src.edges.investigation_edges import add_investigation_edges
 from src.edges.preprocessing_edges import add_preprocessing_edges
 from src.graphs.contact_expert_graph import contact_expert_wrapper_node
@@ -24,7 +24,6 @@ from src.graphs.dielectric_expert_graph import dielectric_expert_wrapper_node
 from src.graphs.mechanical_expert_graph import mechanical_expert_wrapper_node
 from src.graphs.tracking_expert_graph import tracking_expert_wrapper_node
 from src.graphs.strand_fracture_expert_graph import strand_fracture_expert_wrapper_node
-
 
 def build_graph() -> StateGraph:
     """
@@ -66,7 +65,6 @@ def build_graph() -> StateGraph:
     
     return builder.compile()
 
-
 def build_investigation_graph() -> StateGraph:
     """
     화재조사 멀티 에이전트 그래프 빌드 (ReAct 패턴)
@@ -99,7 +97,6 @@ def build_investigation_graph() -> StateGraph:
     add_investigation_edges(builder)
     
     return builder.compile()
-
 
 def build_investigation_graph_with_react() -> StateGraph:
     """
@@ -134,7 +131,6 @@ def build_investigation_graph_with_react() -> StateGraph:
     
     return builder.compile()
 
-
 def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     """
     화재 증거물 분석 (외부 호출용)
@@ -149,14 +145,8 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
             "errors": List[str]  # 에러 메시지 리스트
         }
     """
-    # #region agent log
-    import json
     import time
-    try:
-        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-            f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"E","location":"agent.py:analyze_fire_evidence","message":"Investigation graph start","data":{"payload_parts_count":len(payload_data),"payload_types":[type(p).__name__ for p in payload_data]},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
+    
     graph = build_investigation_graph()
     
     initial_state = {
@@ -176,14 +166,14 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     }
     
     invoke_start_time = time.time()
-    result = graph.invoke(initial_state)
-    invoke_duration_ms = (time.time() - invoke_start_time) * 1000
-    # #region agent log
+    
     try:
-        with open(r'c:\Users\user\Documents\Project\P_04_Scope\.cursor\debug.log', 'a', encoding='utf-8') as f:
-            f.write(json.dumps({"sessionId":"workflow-debug","runId":"run1","hypothesisId":"E","location":"agent.py:analyze_fire_evidence","message":"Investigation graph complete","data":{"duration_ms":invoke_duration_ms,"expert_reports_count":len(result.get("expert_reports",[])),"errors_count":len(result.get("errors",[])),"has_final_verdict":bool(result.get("final_verdict"))},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
+        result = graph.invoke(initial_state)
+    except Exception as e:
+        
+        raise
+    invoke_duration_ms = (time.time() - invoke_start_time) * 1000
+    
     return {
         "final_verdict": result.get("final_verdict", "분석 실패"),
         "expert_reports": result.get("expert_reports", []),

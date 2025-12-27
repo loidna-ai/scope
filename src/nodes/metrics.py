@@ -8,7 +8,6 @@ import numpy as np
 from skimage import measure
 from src.state import GraphState
 
-
 class MorphologyAnalyzer:
     """형태학적 분석 클래스"""
     
@@ -64,7 +63,6 @@ class MorphologyAnalyzer:
             metrics["area"] = int(largest.area)
         
         return metrics, binary
-
 
 def metrics_node(state: GraphState) -> Dict[str, Any]:
     """

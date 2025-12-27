@@ -8,11 +8,9 @@ from langchain_core.tools import BaseTool
 from src.state import GraphState
 from src.nodes.packaging import to_gemini_vertex_ai_format
 
-
 class RunPreprocessingPipelineInput(BaseModel):
     """전처리 파이프라인 도구 입력 스키마"""
     image_path: str = Field(description="전처리할 이미지 파일 경로")
-
 
 class RunPreprocessingPipelineTool(BaseTool):
     """
@@ -96,11 +94,9 @@ class RunPreprocessingPipelineTool(BaseTool):
         """비동기 실행 (동기 실행으로 위임)"""
         return self._run(image_path, run_manager)
 
-
 class RunInvestigationPipelineInput(BaseModel):
     """조사 파이프라인 도구 입력 스키마"""
     image_path: str = Field(description="분석할 이미지 파일 경로 (전처리 파이프라인을 먼저 실행한 후 조사 파이프라인 실행)")
-
 
 class RunInvestigationPipelineTool(BaseTool):
     """

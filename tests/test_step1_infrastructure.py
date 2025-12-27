@@ -15,7 +15,6 @@ if str(project_root) not in sys.path:
 # 로그 파일 경로
 LOG_PATH = Path(__file__).parent.parent / ".cursor" / "debug.log"
 
-
 def log_debug(session_id: str, run_id: str, hypothesis_id: str, location: str, 
               message: str, data: dict = None):
     """디버그 로그 기록"""
@@ -33,7 +32,6 @@ def log_debug(session_id: str, run_id: str, hypothesis_id: str, location: str,
             f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
     except Exception as e:
         print(f"로그 기록 실패: {e}")
-
 
 def test_react_state():
     """ReActState 정의 테스트"""
@@ -69,7 +67,6 @@ def test_react_state():
         print(f"❌ ReActState 테스트 실패: {e}")
         return False
 
-
 def test_gemini_chatmodel():
     """Gemini ChatModel 래퍼 테스트"""
     log_debug("test-step1", "run1", "B", "test_step1_infrastructure.py:test_gemini_chatmodel",
@@ -103,7 +100,6 @@ def test_gemini_chatmodel():
                   "테스트 실패", {"error": str(e), "error_type": type(e).__name__})
         print(f"❌ GeminiChatModel 테스트 실패: {e}")
         return False
-
 
 def test_tool_registry():
     """도구 레지스트리 테스트"""
@@ -141,7 +137,6 @@ def test_tool_registry():
         print(f"❌ ToolRegistry 테스트 실패: {e}")
         return False
 
-
 def test_react_agent_builder():
     """ReAct 에이전트 빌더 테스트"""
     log_debug("test-step1", "run1", "D", "test_step1_infrastructure.py:test_react_agent_builder",
@@ -175,7 +170,6 @@ def test_react_agent_builder():
                   "테스트 실패", {"error": str(e), "error_type": type(e).__name__})
         print(f"❌ ReAct 에이전트 빌더 테스트 실패: {e}")
         return False
-
 
 def test_tools():
     """개별 도구 테스트"""
@@ -229,7 +223,6 @@ def test_tools():
         print(f"❌ 도구 테스트 실패: {e}")
         return False
 
-
 def run_all_tests():
     """모든 1단계 테스트 실행"""
     print("\n" + "=" * 60)
@@ -261,7 +254,6 @@ def run_all_tests():
     print("=" * 60 + "\n")
     
     return all(result for _, result in results)
-
 
 if __name__ == "__main__":
     success = run_all_tests()
