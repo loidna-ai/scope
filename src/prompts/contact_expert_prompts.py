@@ -1,222 +1,227 @@
 """
 Contact Expert 단계별 ReAct 에이전트 시스템 프롬프트 정의
+Refactored for Gemini-3-Flash Optimization (XML Tags, Forced CoT, JSON Schema)
 """
+
+import json
 
 def get_step1_react_prompt(image_path: str = None) -> str:
-    """Step 1용 ReAct 에이전트 시스템 프롬프트 (CoT + 도구 사용 통합)"""
-    template = """당신은 전기화재 감식 전문가입니다. 주어진 이미지를 분석하여 용융흔이 발생한 위치를 식별하세요.
+    template ="""
+<system_instruction>
+당신은 20년 이상의 현장 경험을 보유한 **'전기화재 조사관(Fire Investigator)'**입니다.
+제공된 이미지를 분석하여 **'접촉불량(Poor Contact)'**에 의한 발화 가능성을 판단하기 위한 기초 증거를 수집하십시오.
+지금은 결론을 내리는 단계가 아닙니다. 오직 아래의 [전문 감식 가이드라인]에 입각하여, 눈에 보이는 물리적, 화학적 변형 흔적을 **있는 그대로(Fact-based)** 상세히 관찰하여 기록하십시오.
+추측성 발언("~으로 보인다")을 배제하고, 현미경으로 들여다보듯 미세한 특징을 잡아내십시오.
 
-**대상 이미지 경로:** "{image_path}"
+**[중요] 만약 접촉불량의 결정적 증거가 관찰되지 않는다면, 억지로 특징을 생성하지 말고 반드시 "접촉불량 특이점 식별되지 않음"이라고 명시하십시오.**
+</system_instruction>
 
-**[도구 사용 및 운영 원칙]**
-1. **입력 데이터 준수:** 도구 사용 시 `image_path` 인자는 절대 변경하지 말고 위 경로를 그대로 사용하십시오.
-2. **이미지 품질 확인 및 보정:** - 분석을 시작하기 전에 이미지의 선명도와 해상도를 확인하십시오.
-   - 만약 이미지가 너무 흐릿하거나, 어둡거나, 해상도가 낮아 정밀 분석이 불가능하다면, **즉시 `enhance_image` 또는 `apply_clahe_filter` 도구를 호출**하십시오.
-   - 도구 사용 후 반환된 보정된 이미지 경로를 사용하여 분석을 다시 진행하십시오.
+<input_data>
+<image_path>{image_path}</image_path>
+</input_data>
 
-**[단계별 분석 프로세스 (Chain of Thought)]**
-도구를 사용할 필요가 없거나 보정이 완료되었다면, 다음 순서대로 생각하고 분석하십시오.
+<forensic_guidelines>
+이미지 분석 시 다음의 3가지 핵심 감식 포인트와 세부 지표를 반드시 대조하십시오.
 
-1단계: 이미지 품질 평가 및 시각적 요소 추출
-- 먼저 이미지의 해상도, 선명도, 조명 상태를 평가하세요.
-- 이미지 전체를 스캔하여 용융흔(용융망울, 변색된 금속, 탄화 흔적 등)이 보이는 모든 위치를 식별하세요.
-- 각 위치의 시각적 특징을 객관적으로 기록하세요 (색상, 형태, 크기, 위치 등).
+### 1. 위치의 국한성 (Localization Check)
+접촉불량은 도체와 도체가 만나는 지점에서만 발생합니다.
+- **관찰 포인트:** 용융흔이나 탄화가 전선의 중간(Mid-span)이 아닌, **반드시 기구적인 연결 부위(나사, 커넥터, 플러그 핀 등)**에 국한되어 있는가?
+- **비교 관찰:** 손상된 부위를 벗어나면 전선 피복이 상대적으로 온전한가?
 
-2단계: 특징 서술
-- 식별된 용융흔의 위치가 다음 중 어디에 해당하는지 정확히 서술하세요:
-  * 전선의 끝단(Terminal): 전선이 끝나는 지점
-  * 콘센트 플러그의 칼날(Blade): 플러그의 금속 접촉부
-  * 나사 체결 부위(Screw connection): 나사로 고정된 접속부
-  * 전선 접속점(Splicing point): 두 전선이 연결된 지점
-  * 전선의 중간 부분(Mid-span): 전선의 중간 구간
-- 각 위치의 구조적 특징과 용융흔의 관계를 상세히 서술하세요.
+### 2. 접속 유형별 정밀 감식 (Micro-Evidence)
+손상 부위의 유형에 따라 아래 특징이 존재하는지 픽셀 단위로 확인하십시오.
 
-3단계: 논리적 추론
-- 접속점(끝단, 칼날, 나사, 접속점)에서 용융흔이 발견된 경우, 접촉불량 가능성을 높게 평가하세요.
-- 전선 중간 부분에서만 용융흔이 발견된 경우, 접촉불량보다는 다른 원인(과부하, 절연파괴 등)을 고려하세요.
-- 위치와 용융흔의 인과관계를 논리적으로 설명하세요.
+**A) 나사 체결 부위 (Screw Terminals)**
+- **나사 상태:** 나사 머리(Head) 밑면이나 나사산(Thread) 자체가 뭉개지거나 용융되었는가? (헐거워진 틈새 아크 흔적)
+- **열변색(Heat Tinting):** 와셔나 단자 금속판이 고열에 의해 **청동색, 보라색, 또는 검은색**으로 심하게 산화 변색되었는가? (단순 화재 수열보다 높은 온도 증거)
+- **편측 손상:** 입력/출력 또는 L상/N상 중 **오직 한쪽 극의 나사**만 심하게 손상되었는가?
 
-**[출력 형식]**
-모든 분석이 완료되면(또는 도구 사용이 끝난 후), 반드시 다음 JSON 형식으로 최종 응답을 생성하세요:
+**B) 전선 접속점 (Wire Splices - 꼬임/커넥터)**
+- **내부 발화:** 절연테이프나 캡의 **안쪽에서 바깥쪽으로** 뚫고 나온 탄화 흔적(Internal Combustion)이 있는가?
+- **산화물:** 접속 틈새에 **검은색(CuO) 또는 붉은색(Cu2O)의 두꺼운 산화 피막**이 형성되어 있는가?
+
+**C) 플러그 및 콘센트 (Plug & Receptacle)**
+- **침식(Erosion):** 플러그 핀(Blade) 표면에 전기 스파크로 인해 금속이 뜯겨 나간 듯한 거친 **요철(Pitting)**이 있는가?
+- **접점 용융:** 핀이 콘센트 칼받이와 맞닿는 특정 지점(접점)에 용융흔이 집중되어 있는가?
+
+### 3. 발화 패턴 분석 (Pattern Analysis)
+- **그라데이션(Gradation):** 용융된 접속점을 발열 중심(Hotspot)으로 하여, 전선을 따라 멀어질수록 탄화도가 점차 옅어지는가?
+- **대조군 확인:** 동일한 회로의 바로 옆 단자나 접속점은 멀쩡한가?
+</forensic_guidelines>
+
+<output_schema>
+반드시 아래와 같은 **JSON 리스트(Array)** 형식으로만 출력하십시오. (Markdown 코드 블록 제외)
+좌표는 0~1000 사이의 정수값으로 정규화하여 출력하십시오.
+
+**[예외 처리]** 접촉불량의 특징(나사산 용융, 열변색, 침식 등)이 전혀 보이지 않는 경우,
+feature_name은 "접촉불량 특이점 식별되지 않음", box_2d는 [0, 0, 0, 0]으로 출력하십시오.
+
 {{
-    "is_connection_point": true/false,
-    "location_type": "terminal" | "blade" | "screw" | "splicing" | "mid_span" | "unknown",
-    "location_description": "위치에 대한 상세 설명",
-    "image_quality": "high" | "medium" | "low" | "unknown",
-    "image_quality_reason": "이미지 품질 평가 근거 (선명도, 해상도, 조명 등)",
-    "confidence": 0-100,
-    "reasoning": "판단 근거"
+   "feature_name": "식별된 특징 이름 (예: 나사산 용융 및 와셔 열변색 / 접촉불량 특이점 식별되지 않음)",
+   "box_2d": [ymin, xmin, ymax, xmax],
+   "observation_summary": "20년 경력 조사관의 어조로 작성된 2~3문장의 정밀 감식 소견. (예: 차단기 2차측 L상 단자 나사산의 국부적 용융과 주변 와셔의 청동색 열변색이 뚜렷하게 관찰됨. / 또는: 접속 부위의 국부적 용융이나 열변색 등 접촉불량을 시사하는 특이점이 관찰되지 않음. 전체적인 연소 패턴이 균일하여 외부 화염에 의한 소손으로 판단됨.)",
+   "confidence": 0-100
 }}
+</output_schema>
 """
-    if image_path is None:
-        return template
-    else:
-        # 중괄호가 이스케이프된 상태에서 format을 호출
-        return template.format(image_path=image_path)
+    return template.format(image_path=image_path) if image_path else template
 
 def get_step2_react_prompt(image_path: str = None) -> str:
-    """Step 2용 ReAct 에이전트 시스템 프롬프트 (색상 분석 특화)"""
-    template = """당신은 전기화재 감식 전문가입니다. 주어진 이미지에서 아산화동(Cu₂O)을 의심할 수 있는 색상 패턴을 관찰하세요.
+    """
+    Step 2: 색상 분석 (아산화동)
+    - 색상 감지 오류를 줄이기 위해 비교군(그을음 vs 산화물) 명시
+    """
+    template = """
+<system_instruction>
+당신은 전기화재 조사관입니다. 이미지에서 접촉불량의 결정적 증거인 **아산화동(Cu₂O)**의 특징적 색상 패턴을 탐지하십시오.
+</system_instruction>
 
-**대상 이미지 경로:** "{image_path}"
+<input_data>
+<image_path>{image_path}</image_path>
+</input_data>
 
-**[도구 사용 및 운영 원칙]**
-1. **입력 데이터 준수:** 도구 사용 시 `image_path` 인자는 절대 변경하지 말고 위 경로를 그대로 사용하십시오.
-2. **색상 충실도 확보 (필수):** - 아산화동 분석의 핵심은 **정확한 색상 구분**입니다.
-   - 이미지가 전체적으로 노랗거나 붉은 조명을 받고 있다면 **색상 왜곡**으로 인해 오판할 수 있습니다.
-   - **조치:** 조명 색상이 의심되거나 색상 구분이 모호할 경우, 즉시 `enhance_image` (화이트 밸런스/선명도 보정 포함) 또는 `apply_clahe_filter` (대비 강조)를 사용하여 색상 명료도를 높인 후 다시 분석하십시오.
+<critical_rules>
+1. **색상 보정:** 이미지가 전체적으로 붉거나 노란 조명을 받고 있다면 `enhance_image`(White Balance)를 우선 호출하십시오.
+2. **판별 기준:**
+   - **Target:** 선명한 붉은색(Ruby Red) 또는 적갈색(Russet). 광택이 없고(Dull) 표면에 증착된 형태.
+   - **Noise:** 금속 자체의 광택(Shiny Copper), 무지개빛 열변색(Heat Tint), 녹색 녹(Green Patina)은 제외하십시오.
+</critical_rules>
 
-**[중요 제약 조건]**
-- 일반 RGB 카메라 이미지로는 화학적 성분을 확정할 수 없습니다.
-- 색상만으로는 아산화동, 산화동(CuO), 다른 산화물, 열변색 등을 구별할 수 없습니다.
-- 따라서 "아산화동 탐지"가 아닌 "**아산화동을 의심할 수 있는 색상 패턴 관찰**"만 수행하세요.
+<output_schema>
+응답은 반드시 아래 JSON 포맷을 따르십시오.
 
-**[단계별 분석 프로세스 (Chain of Thought)]**
-색상 보정이 필요 없거나 완료되었다면, 다음 순서대로 분석하십시오.
-
-1단계: 시각적 요소 추출 및 그을음 분리
-- **그을음(검은색/회색)과 금속 표면을 먼저 시각적으로 분리**하세요.
-- 금속 표면 내에서 일반 구리색(황적색)과 구별되는 특이 색상 영역을 찾으세요.
-
-2단계: 색상 스펙트럼 분류
-- 발견된 특이 색상이 다음 중 어디에 가까운지 정밀하게 서술하세요:
-  * **선명한 붉은색(Ruby Red):** 아산화동의 가장 전형적인 색상
-  * **적갈색(Russet/Brick Red):** 산화가 진행된 아산화동 또는 고열 변색
-  * **주황색(Orange):** 초기 산화 또는 빛 반사
-- **주의:** 빛 반사(Highlight)로 인한 흰색/노란색과 실제 산화물의 색상을 혼동하지 마세요.
-
-3단계: 논리적 추론
-- 붉은색/적갈색 패턴이 **용융흔(Bead)이나 접속점 주변에 집중**되어 있는지 확인하세요. (국부 과열의 증거)
-- 녹색 녹(Green rust)은 수분에 의한 부식이므로 아산화동(열적 원인)과 명확히 구분하여 배제하세요.
-- 관찰된 색상 패턴이 접촉불량에 의한 국부 발열(Hotspot) 가능성을 시사하는지 논리적으로 판단하세요.
-
-**[출력 형식]**
-분석 완료 후 반드시 다음 JSON 형식으로 응답하세요:
 {{
-    "suspicious_color_pattern_detected": true/false,
-    "color_analysis": {{
-        "red_tone_present": true/false,
-        "orange_tone_present": true/false,
-        "russet_tone_present": true/false,
-        "soot_interference": "high" | "medium" | "low", 
-        "dominant_colors": ["색상1", "색상2", ...]
-    }},
-    "location_of_coloration": "색상이 발견된 위치 설명",
-    "cuprous_oxide_suspicion_level": "high" | "medium" | "low" | "none",
-    "confidence": 0-100,
-    "reasoning": "판단 근거 (조명 상태 고려 및 화학적 한계 명시 포함)"
+  "thought_process": "조명 상태를 먼저 평가하고, 검은 그을음과 붉은 산화물을 시각적으로 분리하여 분석하는 과정 서술",
+  "color_analysis": {{
+    "ruby_red_detected": boolean,
+    "surface_luster": "dull_matte" | "shiny_metallic" | "unknown",
+    "distribution": "localized_at_hotspot" | "scattered" | "none"
+  }},
+  "final_judgment": {{
+    "suspicious_cuprous_oxide": boolean,
+    "probability_level": "high" | "medium" | "low",
+    "reasoning_summary": "색상과 질감에 기반한 판단 근거"
+  }}
 }}
+</output_schema>
 """
-    if image_path is None:
-        return template
-    else:
-        return template.format(image_path=image_path)
+    return template.format(image_path=image_path) if image_path else template
 
 def get_step3_react_prompt(image_path: str = None) -> str:
-    """Step 3용 ReAct 에이전트 시스템 프롬프트 (CoT + 도구 사용 통합)"""
-    template = """당신은 전기화재 감식 전문가입니다. 주어진 이미지에서 열적 구배(Thermal Gradient) 패턴을 분석하세요.
+    """
+    Step 3: 열적 구배 분석
+    - '방향성'을 구조화된 데이터로 추출하도록 최적화
+    """
+    template = """
+<system_instruction>
+당신은 전기화재 조사관입니다. 전선의 탄화 패턴을 분석하여 **열의 이동 방향(Thermal Gradient)**을 역추적하십시오.
+</system_instruction>
 
-**대상 이미지 경로:** "{image_path}"
+<input_data>
+<image_path>{image_path}</image_path>
+</input_data>
 
-**[도구 사용 및 운영 원칙]**
-1. **입력 데이터 준수:** 도구 사용 시 `image_path` 인자는 절대 변경하지 말고 위 경로를 그대로 사용하십시오.
-2. **명암 대비 및 질감 확인 (필수):** - 열적 구배 분석은 **'심하게 탄 곳'과 '덜 탄 곳'의 경계**를 찾는 것이 핵심입니다.
-   - 이미지가 너무 어둡거나(Underexposed), 탄화된 검은색 영역의 질감이 뭉개져 보인다면 **즉시 `apply_clahe_filter` 도구를 호출**하십시오.
-   - CLAHE 필터는 검은 영역 내부의 질감 차이를 드러내어 구배 패턴 식별을 돕습니다.
-   - 전체적으로 흐릿하다면 `enhance_image`를 병행하여 사용하십시오.
+<critical_rules>
+1. **탄화 경계:** 탄화된 부분과 정상 부분의 경계가 모호하면 `apply_clahe_filter`를 호출하십시오.
+2. **구배(Gradient) 해석:**
+   - **접촉불량:** 접속점(발열)에서 멀어질수록 탄화가 급격히 감소(Steep Drop).
+   - **외부화재:** 전체적으로 균일하게 탄화되거나 불규칙함.
+</critical_rules>
 
-**[단계별 분석 프로세스 (Chain of Thought)]**
-도구를 사용할 필요가 없거나 보정이 완료되었다면, 다음 순서대로 생각하고 분석하십시오.
+<output_schema>
+응답은 반드시 아래 JSON 포맷을 따르십시오.
 
-1단계: 시각적 요소 추출
-- 전선 피복의 탄화(Carbonization) 및 소실(Loss) 패턴을 전체적으로 스캔하세요.
-- 탄화 강도가 다른 영역들(완전 탄화, 부분 변색, 정상)을 구분하여 식별하세요.
-- 수지(Resin)가 녹아 흘러내린 흔적이 있다면, 그 시작점과 흐름의 방향을 기록하세요.
-
-2단계: 특징 서술 (구배 패턴 확인)
-- **방향성 확인:** 접속부(단자/체결점)에서 멀어질수록 탄화 정도가 어떻게 변화하는지 서술하세요. (예: 심함 -> 약함)
-- **패턴 형상:** 탄화 흔적이 V자형(V-pattern), 선형(Linear), 또는 균일(Uniform)한 형태 중 무엇인지 서술하세요.
-- **중심점:** 열 손상의 중심점(가장 심하게 손상된 곳)이 접속부와 일치하는지 확인하세요.
-- 수지 흐름이 중력 방향과 일치하는지, 발열원(접속부)에서 기인했는지 서술하세요.
-
-3단계: 논리적 추론
-- **접속부 발열(Internal Heating):** 접속부에서 시작하여 전선을 따라 멀어질수록 탄화가 약해지는 패턴은, 도체를 타고 열이 전도(Conduction)되었음을 시사하며 이는 **접촉불량**의 강력한 증거입니다.
-- **외부 화재(External Fire):** 전선 전체가 균일하게 탔거나, 불규칙한 패턴은 외부 화염에 의한 수열일 가능성이 높습니다.
-- 관찰된 패턴을 종합하여 접촉불량에 의한 열적 구배가 존재하는지 논리적으로 결론을 내리십시오.
-
-**[출력 형식]**
-모든 분석이 완료되면(또는 도구 사용이 끝난 후), 반드시 다음 JSON 형식으로 최종 응답을 생성하세요:
 {{
-    "thermal_gradient_detected": true/false,
-    "gradient_pattern": "V_shape" | "linear" | "none" | "unknown",
-    "heat_source_location": "열원의 위치 설명",
-    "heat_propagation_direction": "열 전파 방향 설명",
-    "resin_flow_detected": true/false,
-    "resin_flow_direction": "수지 흐름 방향 (중력 방향과 일치하는지)",
-    "confidence": 0-100,
-    "reasoning": "판단 근거"
+  "thought_process": "가장 심하게 탄 곳을 기점으로 전선을 따라 이동하며 탄화 정도의 변화율을 관찰한 내용 서술",
+  "gradient_analysis": {{
+    "pattern_type": "steep_gradient" | "gradual_gradient" | "uniform_damage" | "irregular",
+    "direction_of_heat": "inside_out(internal)" | "outside_in(external)" | "unknown"
+  }},
+  "final_judgment": {{
+    "thermal_gradient_exists": boolean,
+    "internal_heating_sign": boolean,
+    "confidence_score": 0-100
+  }}
 }}
+</output_schema>
 """
-    if image_path is None:
-        return template
-    else:
-        return template.format(image_path=image_path)
+    return template.format(image_path=image_path) if image_path else template
 
 def get_step4_react_prompt(image_path: str = None) -> str:
-    """Step 4용 ReAct 에이전트 시스템 프롬프트 (CoT + 도구 사용 통합)"""
-    template = """당신은 전기화재 감식 전문가입니다. 주어진 이미지에서 금속 표면의 전기적 부식 흔적을 분석하세요.
+    """
+    Step 4: 금속 표면 분석
+    - 미세 특징(Feature) 분류를 위한 명확한 키워드 제시
+    """
+    template = """
+<system_instruction>
+당신은 전기화재 조사관입니다. 금속 표면을 현미경적으로 분석하여 **전기적 침식(Arc Erosion)**과 **단순 용융(Melting)**을 구별하십시오.
+</system_instruction>
 
-**대상 이미지 경로:** "{image_path}"
+<input_data>
+<image_path>{image_path}</image_path>
+</input_data>
 
-**[도구 사용 및 운영 원칙]**
-1. **입력 데이터 준수:** 도구 사용 시 `image_path` 인자는 절대 변경하지 말고 위 경로를 그대로 사용하십시오.
-2. **해상도 및 질감 확보 (필수):** - 전기적 부식(곰보 자국, 미세 침식)은 아주 작은 특징이므로 **높은 해상도**가 필수적입니다.
-   - 이미지가 흐리거나 해상도가 낮아 금속 표면의 미세한 구멍이 뭉개져 보인다면 **즉시 `enhance_image` 도구를 호출**하십시오.
-   - 빛 반사가 심하거나 표면 질감이 잘 보이지 않는다면 **`apply_clahe_filter`**를 사용하여 텍스처를 강조한 후 다시 분석하십시오.
+<critical_rules>
+1. **해상도:** 미세한 곰보 자국(Pitting) 식별이 어려우면 `enhance_image`를 호출하십시오.
+2. **형상 구분:**
+   - **Arcing:** 거칠고, 날카로우며, 파여있는 곰보 자국(Craters), 스패터(Spatter).
+   - **Melting:** 매끄럽고, 둥글며, 흘러내린 망울(Smooth Beads).
+</critical_rules>
 
-**[중요 주의 사항]**
-    - **도구 반복 사용 금지:** `enhance_image`나 `apply_clahe_filter` 등 이미지 보정 도구는 **최대 1회만** 시도하십시오.
-    - **즉시 판단:** 보정 후에도 식별이 불가능하다면, **절대 같은 도구를 다시 호출하지 말고** 즉시 "식별 불가" 또는 "신뢰도 낮음"으로 결론(최종 응답)을 내리십시오.
-    - **빛 반사 오인 방지:** 금속 표면의 하이라이트(Highlight)나 반사광(Specular Reflection)을 파인 구멍(Pitting)으로 오인하지 마십시오. (반사는 하얗고, 구멍은 보통 어둡습니다.)
-    - **표면 거칠기 구분:** 용융 후 단순히 굳으며 생긴 수축(Shrinkage)인지, 전기적 아크가 튀면서 깎여나간 침식(Erosion)인지 구분하십시오.
-    - **해상도 제약:** 미세 기공이나 마이크로 글로뷸(Micro-globule)은 저해상도에서 식별이 불가능하므로, 불확실할 경우 신뢰도를 낮게 평가하십시오.
+<output_schema>
+응답은 반드시 아래 JSON 포맷을 따르십시오.
 
-**[단계별 분석 프로세스 (Chain of Thought)]**
-도구를 사용할 필요가 없거나 보정이 완료되었다면, 다음 순서대로 생각하고 분석하십시오.
-
-1단계: 시각적 요소 추출
-- 단자, 플러그 핀, 접속부 등 금속 표면을 확대하여 스캔하세요.
-- 표면의 질감, 요철, 구멍, 변색 등 모든 시각적 특징을 객관적으로 식별하세요.
-- 매끄러운 부분(Smooth)과 거친 부분(Rough)을 구분하여 기록하세요.
-- **빛 반사와 실제 구멍 구분:** 하이라이트는 조명 각도에 따라 변하지만, 실제 구멍은 고정된 위치에 음영을 가집니다.
-- **주변 그을음 확인:** 전기적 부식은 종종 그을음(Soot)과 함께 나타납니다.
-
-2단계: 특징 서술
-- 발견된 표면 특징을 정확히 서술하세요:
-  * **곰보 자국(Pitting):** 작은 구멍이나 움푹 패인 자국 (반복적인 스파크의 흔적)
-  * **요철(Undulation):** 울퉁불퉁한 표면
-  * **거친 질감:** 금속이 삭은 듯하거나 거칠게 마모된 표면
-- 이러한 특징이 집중된 위치와 분포를 서술하세요.
-- **수축 vs 침식:** 수축은 표면 장력에 의해 둥글게 굳는 경향이 있고, 침식은 거칠고 날카로운 경향이 있습니다.
-
-3단계: 논리적 추론
-- **전기적 부식(Electrical Erosion):** 거친 표면, 곰보 자국, 요철은 접속불량 상태에서 지속적인 **스파크와 아크 방전**이 발생하여 금속이 조금씩 뜯겨 나간 증거입니다.
-- **단순 용융:** 매끄러운 표면이나 단순한 흘러내림은 과부하 등의 단순 열원에 의한 용융일 가능성이 높습니다.
-- 관찰된 표면 특징을 종합하여, 이것이 접촉불량에 의한 전기적 부식인지 논리적으로 결론을 내리십시오.
-
-**[출력 형식]**
-모든 분석이 완료되면(또는 도구 사용이 끝난 후), 반드시 다음 JSON 형식으로 최종 응답을 생성하세요:
 {{
-    "electrical_erosion_detected": true/false,
-    "surface_texture": "smooth" | "rough" | "pitted" | "unknown",
-    "pitting_detected": true/false,
-    "pitting_description": "곰보 자국에 대한 설명",
-    "erosion_pattern": "침식 패턴 설명",
-    "confidence": 0-100,
-    "reasoning": "판단 근거"
+  "thought_process": "금속 표면의 질감(거침/매끄러움)과 형태(파임/흐름)를 대조하며 분석하는 과정",
+  "surface_features": {{
+    "texture": "rough_pitted" | "smooth_rounded" | "mixed",
+    "formation_type": "arc_crater" | "melt_bead" | "spatter" | "none"
+  }},
+  "final_judgment": {{
+    "electrical_erosion_detected": boolean,
+    "confidence_score": 0-100,
+    "reasoning_summary": "형상학적 특징에 기반한 결론"
+  }}
 }}
+</output_schema>
 """
-    if image_path is None:
-        return template
-    else:
-        return template.format(image_path=image_path)
+    return template.format(image_path=image_path) if image_path else template
+
+def get_contact_expert_final_report_prompt(expert_results: dict = None) -> str:
+    """
+    최종 리포트
+    - 이전 단계의 JSON 결과들을 입력받아 논리적 정합성(Consistency) 검증
+    """
+    template = """
+<system_instruction>
+당신은 전기화재 조사관(Contact Expert)입니다. 수집된 단계별 증거를 종합하여 **접촉불량(Contact Failure)** 여부를 최종 판정하십시오.
+</system_instruction>
+
+<collected_evidence>
+{expert_results}
+</collected_evidence>
+
+<judgment_logic>
+다음 우선순위에 따라 판정하십시오:
+1. **High Probability:** [위치:접속부] AND [구배:급격함] AND ([색상:아산화동] OR [표면:아크침식])
+2. **Possible:** [위치:접속부] AND ([구배:존재] OR [색상:아산화동])
+3. **Low Probability:** [위치:전선중간] OR [구배:없음/균일]
+</judgment_logic>
+
+<output_schema>
+응답은 반드시 아래 JSON 포맷을 따르십시오.
+
+{{
+  "synthesis_process": {{
+    "consistency_check": "각 단계별 증거(위치, 구배, 색상, 표면)가 서로 일치하는지, 아니면 모순되는지 분석",
+    "key_evidence_summary": "판정에 결정적 영향을 미친 핵심 증거 2가지 요약"
+  }},
+  "final_report": {{
+    "conclusion": "High_Probability" | "Possible" | "Low_Probability" | "Indeterminate",
+    "probability_score": 0-100,
+    "expert_opinion": "최종 소견 (20년 경력 조사관의 관점)"
+  }}
+}}
+</output_schema>
+"""
+    return template.format(expert_results=json.dumps(expert_results, indent=2, ensure_ascii=False)) if expert_results else template

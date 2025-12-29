@@ -25,7 +25,8 @@ if API_KEY:
     try:
         client = genai.Client(api_key=API_KEY)
         generation_config = types.GenerateContentConfig(
-            temperature=0.7,
+            temperature=0.3,
+            response_mime_type="application/json"
         )
     except Exception as e:
         print(f"경고: Google GenAI 초기화 실패: {e}")

@@ -25,6 +25,7 @@ from src.prompts.contact_expert_prompts import (
     get_step3_react_prompt,
     get_step4_react_prompt
 )
+from src.prompts.common_prompts import get_common_system_prompt
 
 def print_agent_process(messages):
     """에이전트의 추론 및 도구 사용 과정을 출력"""
@@ -111,8 +112,11 @@ def build_step1_react_agent(image_path: str):
             return json.dumps({"error": str(e)}, ensure_ascii=False)
     
     all_tools = [analyze_location_context_internal] + image_editing_tools
-    react_prompt = get_step1_react_prompt(image_path)
-    return create_react_agent(model=llm, tools=all_tools, prompt=react_prompt)
+    # react_prompt = get_step1_react_prompt(image_path)
+    # create_react_agent의 prompt는 SystemMessage로 처리되는데, GeminiChatModel에서 이슈가 있어
+    # 전문가 프롬프트를 User Prompt로 전달하기 위해 여기서는 기본 시스템 메시지만 설정합니다.
+    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
+    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
 def build_step2_react_agent(image_path: str):
     llm = GeminiChatModel()
@@ -130,8 +134,8 @@ def build_step2_react_agent(image_path: str):
             return json.dumps({"error": str(e)}, ensure_ascii=False)
     
     all_tools = [analyze_spectral_analysis_internal] + image_editing_tools
-    react_prompt = get_step2_react_prompt(image_path)
-    return create_react_agent(model=llm, tools=all_tools, prompt=react_prompt)
+    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
+    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
 def build_step3_react_agent(image_path: str):
     llm = GeminiChatModel()
@@ -149,8 +153,8 @@ def build_step3_react_agent(image_path: str):
             return json.dumps({"error": str(e)}, ensure_ascii=False)
     
     all_tools = [analyze_thermal_gradient_internal] + image_editing_tools
-    react_prompt = get_step3_react_prompt(image_path)
-    return create_react_agent(model=llm, tools=all_tools, prompt=react_prompt)
+    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
+    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
 def build_step4_react_agent(image_path: str):
     llm = GeminiChatModel()
@@ -168,20 +172,44 @@ def build_step4_react_agent(image_path: str):
             return json.dumps({"error": str(e)}, ensure_ascii=False)
     
     all_tools = [analyze_surface_analysis_internal] + image_editing_tools
-    react_prompt = get_step4_react_prompt(image_path)
-    return create_react_agent(model=llm, tools=all_tools, prompt=react_prompt)
+    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
+    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
 # --------------------------------------------------------------------------------
 # Step Node 정의
 # --------------------------------------------------------------------------------
 
 def step1_node(state: ContactExpertState):
+    """
+    Step 1: 위치 식별 노드
+    
+    새로운 프롬프트 구조에 따라 다음 JSON 구조를 반환합니다:
+    {
+        "feature_name": "식별된 특징 이름 (예: 나사산 용융 및 와셔 열변색)",
+        "box_2d": [ymin, xmin, ymax, xmax],
+        "observation_summary": "20년 경력 조사관의 어조로 작성된 2~3문장의 정밀 감식 소견",
+        "confidence": 0-100
+    }
+    
+    contact_tools.py의 step1_location_context 함수가 이 구조를 기존 필드로 매핑합니다:
+    - location_type: feature_name에서 키워드를 추출하여 매핑 (나사/터미널/단자 -> circuit_breaker_terminal 등)
+    - is_connection_point: feature_name에 접속 관련 키워드가 있으면 True
+    - location_description: feature_name과 observation_summary를 조합
+    - bboxes: box_2d를 배열로 변환
+    - confidence: 그대로 사용
+    - reasoning: observation_summary 사용
+    """
     import json
     import time
     current_image_path = state.get("image_path")
     
     agent = build_step1_react_agent(current_image_path)
-    input_msg = HumanMessage(content=f"이미지를 분석하여 용융흔이 발생한 위치를 식별하세요. 이미지 경로: {current_image_path}")
+    
+    # 전문가 프롬프트를 User Prompt로 전달
+    # 새로운 프롬프트 구조: observation_summary와 fact_check를 요구
+    common_prompt = get_common_system_prompt()
+    prompt_content = get_step1_react_prompt(current_image_path)
+    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지를 분석하여 용융흔이 발생한 위치를 식별하세요. 이미지 경로: {current_image_path}")
     
     result = agent.invoke({"messages": [input_msg]})
     
@@ -190,26 +218,39 @@ def step1_node(state: ContactExpertState):
     updated_image_path = _update_image_path_from_messages(step_messages, current_image_path)
     
     step_result = None
-    if step_messages:
-        last_msg = step_messages[-1]
-        if isinstance(last_msg.content, str):
-            try:
-                content = last_msg.content
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    step_result = json.loads(json_match.group(0))
-                else:
-                    step_result = {"result_text": content}
-            except:
-                step_result = {"result_text": last_msg.content}
-
+    # 먼저 ToolMessage에서 결과 추출 시도 (가장 정확한 결과)
     for msg in reversed(step_messages):
         if isinstance(msg, ToolMessage) and msg.name == "analyze_location_context_internal":
             try:
+                # contact_tools.py의 step1_location_context가 이미 매핑된 결과를 반환
                 step_result = json.loads(msg.content)
                 break
             except:
                 pass
+    
+    # ToolMessage에서 결과를 찾지 못한 경우, 마지막 메시지에서 JSON 추출 시도
+    if step_result is None and step_messages:
+        last_msg = step_messages[-1]
+        if isinstance(last_msg.content, str):
+            try:
+                content = last_msg.content
+                
+                # 배열 형태도 처리
+                content_stripped = content.strip()
+                if content_stripped.startswith('['):
+                    # JSON 배열 처리
+                    step_result = json.loads(content_stripped)
+                    if isinstance(step_result, list) and len(step_result) > 0:
+                        step_result = step_result[0]  # 첫 번째 객체 사용
+                else:
+                    # 단일 객체 또는 중첩된 JSON 문자열 처리
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        step_result = json.loads(json_match.group(0))
+                    else:
+                        step_result = {"result_text": content}
+            except:
+                step_result = {"result_text": last_msg.content}
 
     return {
         "messages": step_messages,
@@ -220,7 +261,12 @@ def step1_node(state: ContactExpertState):
 def step2_node(state: ContactExpertState):
     current_image_path = state.get("image_path")
     agent = build_step2_react_agent(current_image_path)
-    input_msg = HumanMessage(content=f"이미지에서 아산화동(Cu₂O)을 의심할 수 있는 색상 패턴을 관찰하세요. 이미지 경로: {current_image_path}")
+    
+    # 전문가 프롬프트를 User Prompt로 전달
+    # 전문가 프롬프트를 User Prompt로 전달
+    common_prompt = get_common_system_prompt()
+    prompt_content = get_step2_react_prompt(current_image_path)
+    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지에서 아산화동(Cu₂O)을 의심할 수 있는 색상 패턴을 관찰하세요. 이미지 경로: {current_image_path}")
     result = agent.invoke({"messages": [input_msg]})
     step_messages = result.get("messages", [])
     print_agent_process(step_messages)
@@ -250,7 +296,12 @@ def step3_node(state: ContactExpertState):
     current_image_path = state.get("image_path")
     
     agent = build_step3_react_agent(current_image_path)
-    input_msg = HumanMessage(content=f"이미지에서 열적 구배(Thermal Gradient) 패턴을 분석하세요. 이미지 경로: {current_image_path}")
+    
+    # 전문가 프롬프트를 User Prompt로 전달
+    # 전문가 프롬프트를 User Prompt로 전달
+    common_prompt = get_common_system_prompt()
+    prompt_content = get_step3_react_prompt(current_image_path)
+    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지에서 열적 구배(Thermal Gradient) 패턴을 분석하세요. 이미지 경로: {current_image_path}")
     
     print("\n[DEBUG] step3_node agent.invoke 호출 시작")
     result = agent.invoke({"messages": [input_msg]})
@@ -303,7 +354,12 @@ def step4_node(state: ContactExpertState):
     current_image_path = state.get("image_path")
     
     agent = build_step4_react_agent(current_image_path)
-    input_msg = HumanMessage(content=f"이미지에서 금속 표면의 전기적 부식 흔적을 분석하세요. 이미지 경로: {current_image_path}")
+    
+    # 전문가 프롬프트를 User Prompt로 전달
+    # 전문가 프롬프트를 User Prompt로 전달
+    common_prompt = get_common_system_prompt()
+    prompt_content = get_step4_react_prompt(current_image_path)
+    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지에서 금속 표면의 전기적 부식 흔적을 분석하세요. 이미지 경로: {current_image_path}")
     
     result_container = {"result": None, "error": None}
     

@@ -12,6 +12,16 @@ from google import genai
 from google.genai import types
 from src.tools.experts.expert_utils import client, generation_config, MODEL_NAME
 
+# 화재 감식/손상 분석을 위해 안전 필터를 최소화하는 설정
+# 주의: google.genai 최신 SDK 버전에 맞는 타입 사용 필요
+# types.SafetySetting이나 dict 형태로 전달 가능
+DEFAULT_SAFETY_SETTINGS = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+]
+
 class GeminiChatModel(BaseChatModel):
     """
     Google Gemini를 LangChain ChatModel로 래핑
@@ -99,9 +109,21 @@ class GeminiChatModel(BaseChatModel):
             "도구 실행 결과를 받은 후 최종 답변을 제공할 때는 반드시 'Final Answer:'로 시작하세요. "
             "예시: 'Final Answer: [여기에 최종 답변 내용]'"
         )
+        
+        # Generation Config 상세 설정
+        # user_config는 src.tools.experts.expert_utils.generation_config에서 가져온 값
+        user_config = self.config
+        
         config = types.GenerateContentConfig(
-            temperature=self.config.temperature if self.config else 0.7,
+            temperature=user_config.temperature if user_config else 0.5,
+            top_p=0.9,      # 결정론적이고 집중된 결과를 위해 약간 낮춤
+            top_k=40,       # 일반적인 기본값
+            max_output_tokens=2048, # 충분한 길이 확보
+            response_mime_type=user_config.response_mime_type if user_config and hasattr(user_config, "response_mime_type") else "text/plain",
+            # thinking_level="HIGH", # User requested but SDK support uncertain, commented out for safety
             system_instruction=react_system_instruction,
+            # SDK 버전에 따라 config 내부에 safety_settings가 있을 수 있음
+            safety_settings=DEFAULT_SAFETY_SETTINGS
         )
         
         # 도구가 있으면 추가 (kwargs의 tools 우선, 없으면 bound_tools 사용)

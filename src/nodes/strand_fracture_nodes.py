@@ -23,6 +23,7 @@ from src.prompts.strand_fracture_expert_prompts import (
     get_step2_react_prompt,
     get_step3_react_prompt
 )
+from src.prompts.common_prompts import get_common_system_prompt
 
 class StrandFractureExpertState(MessagesState):
     """
@@ -107,8 +108,9 @@ def build_step1_react_agent(image_path: str):
             return json.dumps({"error": str(e)}, ensure_ascii=False)
     
     all_tools = [analyze_tip_morphology_internal] + image_editing_tools
-    react_prompt = get_step1_react_prompt()
-    return create_react_agent(model=llm, tools=all_tools, prompt=react_prompt)
+    # 전문가 프롬프트를 User Prompt로 전달하기 위해 여기서는 기본 시스템 메시지만 설정
+    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
+    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
 def build_step2_react_agent(image_path: str):
     llm = GeminiChatModel()
@@ -126,8 +128,8 @@ def build_step2_react_agent(image_path: str):
             return json.dumps({"error": str(e)}, ensure_ascii=False)
     
     all_tools = [analyze_bead_distribution_internal] + image_editing_tools
-    react_prompt = get_step2_react_prompt()
-    return create_react_agent(model=llm, tools=all_tools, prompt=react_prompt)
+    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
+    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
 def build_step3_react_agent(image_path: str):
     llm = GeminiChatModel()
@@ -145,8 +147,8 @@ def build_step3_react_agent(image_path: str):
             return json.dumps({"error": str(e)}, ensure_ascii=False)
     
     all_tools = [analyze_mechanical_fatigue_internal] + image_editing_tools
-    react_prompt = get_step3_react_prompt()
-    return create_react_agent(model=llm, tools=all_tools, prompt=react_prompt)
+    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
+    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
 # --------------------------------------------------------------------------------
 # Step Node 정의
@@ -155,7 +157,12 @@ def build_step3_react_agent(image_path: str):
 def step1_node(state: StrandFractureExpertState):
     current_image_path = state.get("image_path")
     agent = build_step1_react_agent(current_image_path)
-    input_msg = HumanMessage(content=f"이미지를 분석하여 소선의 끝단 형상과 네킹 현상을 식별하세요. 이미지 경로: {current_image_path}")
+    
+    # 전문가 프롬프트를 User Prompt로 전달 (image_path 사용하여 포맷팅)
+    # 전문가 프롬프트를 User Prompt로 전달 (image_path 사용하여 포맷팅)
+    common_prompt = get_common_system_prompt()
+    prompt_content = get_step1_react_prompt(current_image_path)
+    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지를 분석하여 소선의 끝단 형상과 네킹 현상을 식별하세요. 이미지 경로: {current_image_path}")
     result = agent.invoke({"messages": [input_msg]})
     step_messages = result.get("messages", [])
     print_agent_process(step_messages)
@@ -192,7 +199,10 @@ def step1_node(state: StrandFractureExpertState):
 def step2_node(state: StrandFractureExpertState):
     current_image_path = state.get("image_path")
     agent = build_step2_react_agent(current_image_path)
-    input_msg = HumanMessage(content=f"이미지에서 용융망울의 크기와 분포를 분석하세요. 이미지 경로: {current_image_path}")
+    
+    common_prompt = get_common_system_prompt()
+    prompt_content = get_step2_react_prompt(current_image_path)
+    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지에서 용융망울의 크기와 분포를 분석하세요. 이미지 경로: {current_image_path}")
     result = agent.invoke({"messages": [input_msg]})
     step_messages = result.get("messages", [])
     print_agent_process(step_messages)
@@ -218,7 +228,10 @@ def step2_node(state: StrandFractureExpertState):
 def step3_node(state: StrandFractureExpertState):
     current_image_path = state.get("image_path")
     agent = build_step3_react_agent(current_image_path)
-    input_msg = HumanMessage(content=f"이미지에서 기계적 피로 흔적을 분석하세요. 이미지 경로: {current_image_path}")
+    
+    common_prompt = get_common_system_prompt()
+    prompt_content = get_step3_react_prompt(current_image_path)
+    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지에서 기계적 피로 흔적을 분석하세요. 이미지 경로: {current_image_path}")
     result = agent.invoke({"messages": [input_msg]})
     step_messages = result.get("messages", [])
     print_agent_process(step_messages)

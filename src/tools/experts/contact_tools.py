@@ -10,185 +10,30 @@ from src.tools.experts.expert_utils import (
 )
 
 # 프롬프트 정의
-STEP1_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이미지를 분석하여 용융흔이 발생한 위치를 식별하세요.
+from src.prompts.contact_expert_prompts import (
+    get_step1_react_prompt,
+    get_step2_react_prompt,
+    get_step3_react_prompt,
+    get_step4_react_prompt
+)
 
-[중요] 먼저 분석 과정을 단계별로 자세히 설명한 후, 마지막에 JSON 형식으로 응답하세요. 각 단계에서 무엇을 관찰하고 어떻게 판단하는지 명확히 서술하세요.
 
-[단계별 분석 프로세스 (Chain of Thought)]
 
-1단계: 이미지 품질 평가 및 시각적 요소 추출
-- 먼저 이미지의 해상도, 선명도, 조명 상태를 평가하세요.
-- 이미지가 흐리거나 해상도가 낮으면, 미세 특징 식별이 제한될 수 있음을 명시하세요.
-- 이미지 전체를 스캔하여 용융흔(용융망울, 변색된 금속, 탄화 흔적 등)이 보이는 모든 위치를 식별하세요.
-- 각 위치의 시각적 특징을 객관적으로 기록하세요 (색상, 형태, 크기, 위치 등).
-
-2단계: 특징 서술
-- 식별된 용융흔의 위치가 다음 중 어디에 해당하는지 정확히 서술하세요:
-  * 전선의 끝단(Terminal): 전선이 끝나는 지점
-  * 콘센트 플러그의 칼날(Blade): 플러그의 금속 접촉부
-  * 나사 체결 부위(Screw connection): 나사로 고정된 접속부
-  * 전선 접속점(Splicing point): 두 전선이 연결된 지점
-  * 전선의 중간 부분(Mid-span): 전선의 중간 구간
-- 각 위치의 구조적 특징과 용융흔의 관계를 상세히 서술하세요.
-
-3단계: 논리적 추론
-- 접속점(끝단, 칼날, 나사, 접속점)에서 용융흔이 발견된 경우, 접촉불량 가능성을 높게 평가하세요.
-- 전선 중간 부분에서만 용융흔이 발견된 경우, 접촉불량보다는 다른 원인(과부하, 절연파괴 등)을 고려하세요.
-- 위치와 용융흔의 인과관계를 논리적으로 설명하세요.
-
-[출력 형식]
-식별된 특징의 위치를 나타내는 Bounding Box 좌표(0~1000 정규화 좌표, [ymin, xmin, ymax, xmax])를 포함하여 다음 JSON 형식으로 응답하세요:
-{
-    "is_connection_point": true/false,
-    "location_type": "terminal" | "blade" | "screw" | "splicing" | "mid_span" | "unknown",
-    "location_description": "위치에 대한 상세 설명",
-    "image_quality": "high" | "medium" | "low" | "unknown",
-    "image_quality_reason": "이미지 품질 평가 근거 (선명도, 해상도, 조명 등)",
-    "confidence": 0-100,
-    "reasoning": "판단 근거",
-    "bboxes": [[ymin, xmin, ymax, xmax]]
-}"""
-
-STEP2_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이미지에서 아산화동(Cu₂O)을 의심할 수 있는 색상 패턴을 관찰하세요.
-
-[중요 제약 조건]
-- 일반 RGB 카메라 이미지로는 화학적 성분을 확정할 수 없습니다.
-- 색상만으로는 아산화동, 산화동(CuO), 다른 산화물, 열변색 등을 구별할 수 없습니다.
-- 따라서 "아산화동 탐지"가 아닌 "아산화동을 의심할 수 있는 색상 패턴 관찰"만 수행하세요.
-- 화학적 성분 분석은 육안 관찰로 불가능하므로, 색상적 특징만 기술하고 확정하지 말 것.
-
-[중요] 먼저 분석 과정을 단계별로 자세히 설명한 후, 마지막에 JSON 형식으로 응답하세요. 각 단계에서 무엇을 관찰하고 어떻게 판단하는지 명확히 서술하세요.
-
-[단계별 분석 프로세스 (Chain of Thought)]
-
-1단계: 시각적 요소 추출
-- 금속 표면(구리선, 단자, 플러그 등)의 모든 색상 영역을 식별하세요.
-- 검은색 그을음(Soot)과 구별되는 색상 영역을 찾으세요.
-- 각 색상 영역의 위치, 크기, 분포를 객관적으로 기록하세요.
-
-2단계: 특징 서술
-- 발견된 색상이 다음 중 어떤 계열에 해당하는지 정확히 서술하세요:
-  * 붉은색(Red): 따뜻한 빨간 톤
-  * 주황색(Orange): 빨강과 노랑의 중간 톤
-  * 적갈색(Russet): 갈색이 섞인 붉은 톤
-- 이러한 색상이 금속 용융부 주변이나 단자 표면에 부착되어 있는지 위치를 정확히 서술하세요.
-- 녹색 녹(Green rust)이 있는 경우, 그 위치와 색상 특성(채도, 명도)을 구별하여 서술하세요.
-
-3단계: 논리적 추론
-- 붉은/주황/적갈색 산화물이 금속 접속부에 집중되어 있다면, 이는 아산화동(Cu₂O)을 의심할 수 있는 색상 패턴일 수 있습니다.
-- 다만, 화학적 성분 확정은 불가능하므로 "의심 가능성"으로만 기술하세요.
-- 이러한 색상 패턴은 접촉불량으로 인한 국부적 과열의 가능한 지표일 수 있습니다.
-- 녹색 녹은 화재 진압 시 물에 의한 2차 부식으로, 아산화동과는 다른 메커니즘입니다.
-- 색상의 위치, 분포, 톤을 종합하여 아산화동을 의심할 수 있는 색상 패턴의 존재 여부를 논리적으로 판단하세요.
-
-[출력 형식]
-식별된 특징의 위치를 나타내는 Bounding Box 좌표(0~1000 정규화 좌표, [ymin, xmin, ymax, xmax])를 포함하여 다음 JSON 형식으로 응답하세요:
-{
-    "suspicious_color_pattern_detected": true/false,
-    "color_analysis": {
-        "red_tone_present": true/false,
-        "orange_tone_present": true/false,
-        "russet_tone_present": true/false,
-        "dominant_colors": ["색상1", "색상2", ...]
-    },
-    "location_of_coloration": "색상이 발견된 위치 설명",
-    "cuprous_oxide_suspicion_level": "high" | "medium" | "low" | "none",
-    "confidence": 0-100,
-    "reasoning": "판단 근거 및 화학적 성분 확정 불가능성 명시",
-    "bboxes": [[ymin, xmin, ymax, xmax]]
-}"""
-
-STEP3_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이미지에서 열적 구배(Thermal Gradient) 패턴을 분석하세요.
-
-[중요] 먼저 분석 과정을 단계별로 자세히 설명한 후, 마지막에 JSON 형식으로 응답하세요. 각 단계에서 무엇을 관찰하고 어떻게 판단하는지 명확히 서술하세요.
-
-[단계별 분석 프로세스 (Chain of Thought)]
-
-1단계: 시각적 요소 추출
-- 전선 피복의 탄화/소실 패턴을 전체적으로 관찰하세요.
-- 탄화 정도가 다른 영역들을 식별하고, 각 영역의 위치와 탄화 강도를 객관적으로 기록하세요.
-- 수지(Resin)가 흘러내린 흔적이 있다면 그 방향과 위치를 식별하세요.
-
-2단계: 특징 서술
-- 접속부에서 멀어질수록 탄화 정도가 어떻게 변화하는지 구체적으로 서술하세요.
-- V자형, 선형, 또는 균일한 패턴 중 어떤 형태인지 정확히 서술하세요.
-- 수지 흐름의 방향이 중력 방향과 일치하는지, 그리고 접속 단자 위치와의 관계를 서술하세요.
-- 열 손상의 중심점(가장 심하게 탄화된 지점)을 정확히 위치시켜 서술하세요.
-
-3단계: 논리적 추론
-- 접속부에서 시작하여 전선을 따라 멀어질수록 탄화가 약해지는 패턴은, 접속점에서 열이 발생하여 전도(Conduction)로 전파되었음을 시사합니다.
-- 이는 접촉불량으로 인한 국부적 과열의 전형적 특징입니다.
-- 외부 화재의 경우 전선 전체가 균일하게 가열되므로, 이러한 구배 패턴이 나타나지 않습니다.
-- 수지 흐름이 접속부 발열과 일치한다면, 접촉불량의 추가 증거가 됩니다.
-- 관찰된 패턴을 종합하여 열적 구배의 존재 여부와 그 의미를 논리적으로 판단하세요.
-
-[출력 형식]
-식별된 특징의 위치를 나타내는 Bounding Box 좌표(0~1000 정규화 좌표, [ymin, xmin, ymax, xmax])를 포함하여 다음 JSON 형식으로 응답하세요:
-{
-    "thermal_gradient_detected": true/false,
-    "gradient_pattern": "V_shape" | "linear" | "none" | "unknown",
-    "heat_source_location": "열원의 위치 설명",
-    "heat_propagation_direction": "열 전파 방향 설명",
-    "resin_flow_detected": true/false,
-    "resin_flow_direction": "수지 흐름 방향 (중력 방향과 일치하는지)",
-    "confidence": 0-100,
-    "reasoning": "판단 근거",
-    "bboxes": [[ymin, xmin, ymax, xmax]]
-}"""
-
-STEP4_PROMPT = """당신은 전기화재 감식 전문가입니다. 다음 이미지에서 금속 표면의 전기적 부식 흔적을 분석하세요.
-
-[중요] 먼저 분석 과정을 단계별로 자세히 설명한 후, 마지막에 JSON 형식으로 응답하세요. 각 단계에서 무엇을 관찰하고 어떻게 판단하는지 명확히 서술하세요.
-
-[주의 사항]
-- **빛 반사 오인 방지**: 빛 반사에 의한 하이라이트(Highlight)나 스펙큘러 리플렉션(Specular Reflection)을 금속이 파인 구멍(Pitting)으로 오인하지 마세요.
-- **표면 거칠기 구분**: 표면의 거칠기가 용융 후 굳은 수축(Shrinkage)인지, 전기적 아크에 의한 침식(Erosion)인지 구분하기 위해 주변 그을음과의 관계를 살피세요.
-- **해상도 제약**: 미세 기공(Pitting)이나 마이크로 글로뷸(Micro-globule) 같은 특징은 고해상도 이미지가 아니면 식별이 불가능할 수 있습니다. 이미지가 흐리거나 해상도가 낮으면 신뢰도를 낮게 설정하세요.
-
-[단계별 분석 프로세스 (Chain of Thought)]
-
-1단계: 시각적 요소 추출
-- 단자, 플러그 핀, 접속부 등 금속 표면을 확대하여 관찰하세요.
-- 표면의 질감, 요철, 구멍, 변색 등 모든 시각적 특징을 객관적으로 식별하세요.
-- 매끄러운 부분과 거친 부분을 구분하여 기록하세요.
-- **빛 반사와 실제 구멍을 구분**: 하이라이트는 위치가 변할 수 있지만, 실제 구멍은 고정된 위치에 있습니다.
-- **주변 그을음과의 관계 확인**: 전기적 부식은 그을음과 함께 나타나는 경우가 많습니다.
-
-2단계: 특징 서술
-- 발견된 표면 특징을 정확히 서술하세요:
-  * 곰보 자국(Pitting): 작은 구멍이나 움푹 패인 자국 (빛 반사와 구별 필요)
-  * 요철(Undulation): 울퉁불퉁한 표면
-  * 거친 질감: 삭은 듯하거나 거칠게 마모된 표면
-- 이러한 특징이 어느 위치에 집중되어 있는지 정확히 서술하세요.
-- 표면이 매끄러운 용융인지, 거친 침식인지 구별하여 서술하세요.
-- **수축(Shrinkage) vs 침식(Erosion) 구분**: 수축은 용융 후 냉각 과정에서 발생하며, 침식은 전기적 아크에 의한 것입니다.
-
-3단계: 논리적 추론
-- 거친 표면, 곰보 자국, 요철은 지속적인 스파크와 아크 방전으로 인한 전기적 부식(Electrical Erosion)의 특징입니다.
-- 매끄러운 용융은 단순 과열에 의한 것이며, 거친 침식은 반복적인 전기 방전에 의한 것입니다.
-- 접촉불량은 불안정한 접촉으로 인해 반복적인 스파크와 아크를 발생시켜, 이러한 전기적 부식을 유발합니다.
-- 관찰된 표면 특징의 위치, 분포, 정도를 종합하여 전기적 부식 여부를 논리적으로 판단하세요.
-- **이미지 품질 고려**: 이미지가 흐리거나 해상도가 낮아 미세 특징을 식별하기 어렵다면, 신뢰도를 낮게 설정하세요.
-
-[출력 형식]
-식별된 특징의 위치를 나타내는 Bounding Box 좌표(0~1000 정규화 좌표, [ymin, xmin, ymax, xmax])를 포함하여 다음 JSON 형식으로 응답하세요:
-{
-    "electrical_erosion_detected": true/false,
-    "surface_texture": "smooth" | "rough" | "pitted" | "unknown",
-    "pitting_detected": true/false,
-    "pitting_description": "곰보 자국에 대한 설명",
-    "erosion_pattern": "침식 패턴 설명",
-    "confidence": 0-100,
-    "reasoning": "판단 근거",
-    "bboxes": [[ymin, xmin, ymax, xmax]]
-}"""
 
 def step1_location_context(image_data: bytes, verbose: bool = False) -> Dict[str, Any]:
     """Step 1: 위치적 맥락 확인"""
     # 진행 상황 확인을 위해 항상 출력
     print(f"\n🔍 [Step 1] 위치적 맥락 확인 시작... (이미지: {len(image_data)} bytes)")
     
-    response_text, thinking_info = call_gemini_vision(STEP1_PROMPT, image_data, "Step 1", verbose)
+    # 동적 프롬프트 생성 (이미지 경로는 함수 내부에서는 사용되지 않지만, 프롬프트 포맷팅을 위해 전달할 수도 있음)
+    # 현재 구현상 image_path 정보가 이 함수에 없으므로, 프롬프트에서 {image_path} 부분은 생략하거나 placeholder로 처리해야 함.
+    # 하지만 새 프롬프트는 image_path를 인자로 받도록 되어 있음.
+    # 여기서는 image_path 정보가 없으므로 "Provided Image" 정도로 채워서 전달하거나, 
+    # extract_image_from_payload 호출 시점부터 경로를 관리해야 함.
+    # 그러나 현재 구조상 bytes만 넘어오므로, "Current Image"로 대체.
+    
+    prompt = get_step1_react_prompt("Current Image")
+    response_text, thinking_info = call_gemini_vision(prompt, image_data, "Step 1", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -198,7 +43,140 @@ def step1_location_context(image_data: bytes, verbose: bool = False) -> Dict[str
     result["_analysis_status"] = "COMPLETED"
     result["_instruction_for_agent"] = "Analysis successfully completed. DO NOT CALL tool again. Use this result to generate the Final Answer immediately."
     
+    # 결과 필드 추출 (새로운 JSON 구조 대응)
+    # 새로운 프롬프트는 "feature_name", "box_2d", "observation_summary", "confidence" 구조를 사용함.
+    # 하위 호환성을 위해 기존 구조도 지원하되, 새로운 구조를 우선적으로 사용.
     
+    # 새로운 구조: feature_name, box_2d, observation_summary, confidence
+    if "feature_name" in result or "box_2d" in result:
+        # feature_name을 location_type으로 매핑 (간단한 추론)
+        feature_name = result.get("feature_name", "")
+        if "나사" in feature_name or "터미널" in feature_name or "단자" in feature_name:
+            result["location_type"] = "circuit_breaker_terminal"
+            result["is_connection_point"] = True
+        elif "전선" in feature_name and ("접속" in feature_name or "꼬임" in feature_name or "커넥터" in feature_name):
+            result["location_type"] = "wire_splice"
+            result["is_connection_point"] = True
+        elif "플러그" in feature_name or "콘센트" in feature_name or "핀" in feature_name:
+            result["location_type"] = "outlet_receptor"
+            result["is_connection_point"] = True
+        elif "중간" in feature_name or "mid" in feature_name.lower():
+            result["location_type"] = "mid_span_wire"
+            result["is_connection_point"] = False
+        else:
+            result["location_type"] = "unknown"
+            result["is_connection_point"] = False
+        
+        # location_description은 feature_name과 observation_summary를 조합
+        description_parts = []
+        if feature_name:
+            description_parts.append(f"특징: {feature_name}")
+        if "observation_summary" in result:
+            # observation_summary의 첫 문장만 사용 (너무 길 수 있음)
+            obs_summary = result["observation_summary"]
+            if len(obs_summary) > 100:
+                obs_summary = obs_summary[:100] + "..."
+            description_parts.append(f"소견: {obs_summary}")
+        
+        result["location_description"] = " | ".join(description_parts) if description_parts else "정보 없음"
+        
+        # box_2d를 bboxes로 매핑 (하위 호환성)
+        if "box_2d" in result:
+            result["bboxes"] = [result["box_2d"]]
+            result["suspected_origin_box_2d"] = result["box_2d"]
+        
+        # confidence는 그대로 사용
+        if "confidence" not in result:
+            result["confidence"] = 50
+        
+        # reasoning은 observation_summary 사용
+        if "observation_summary" in result:
+            result["reasoning"] = result["observation_summary"]
+    
+    # 하위 호환성: 기존 fact_check 구조
+    elif "fact_check" in result:
+        fact_check = result["fact_check"]
+        location_category = fact_check.get("location_category", "unknown")
+        physical_contact = fact_check.get("physical_contact", "")
+        fusion_detected = fact_check.get("fusion_mark_detected", False)
+        
+        # location_category를 location_type으로 매핑
+        location_type_map = {
+            "terminal_end": "circuit_breaker_terminal",
+            "mid_span": "mid_span_wire",
+            "unknown": "unknown"
+        }
+        result["location_type"] = location_type_map.get(location_category, "unknown")
+        
+        # is_connection_point 판단
+        is_connection = (
+            location_category == "terminal_end" and 
+            physical_contact == "touching_metal_connector"
+        )
+        result["is_connection_point"] = is_connection
+        
+        # location_description 생성
+        description_parts = []
+        if fusion_detected:
+            description_parts.append("용융흔 감지됨")
+        if location_category:
+            location_desc_map = {
+                "terminal_end": "전선 끝단",
+                "mid_span": "전선 중간",
+                "unknown": "위치 불명"
+            }
+            description_parts.append(f"위치: {location_desc_map.get(location_category, location_category)}")
+        if physical_contact:
+            contact_desc_map = {
+                "touching_metal_connector": "금속 체결부 접촉",
+                "isolated_in_air": "허공/격리",
+                "touching_other_wire": "다른 전선 접촉"
+            }
+            description_parts.append(f"접촉: {contact_desc_map.get(physical_contact, physical_contact)}")
+        
+        result["location_description"] = " | ".join(description_parts) if description_parts else "정보 없음"
+        result["confidence"] = 75 if fusion_detected else 50
+        if "observation_summary" in result:
+            result["reasoning"] = result["observation_summary"]
+    
+    # 하위 호환성: 기존 location_judgment 구조
+    elif "location_judgment" in result:
+        location_judgment = result["location_judgment"]
+        result["is_connection_point"] = location_judgment.get("is_connection_related_position", False)
+        result["confidence"] = location_judgment.get("confidence_score", 0)
+        result["reasoning"] = location_judgment.get("reasoning_summary", "")
+    
+    # 하위 호환성: 기존 final_judgment 구조
+    elif "final_judgment" in result:
+        final_judgment = result["final_judgment"]
+        result["is_connection_point"] = final_judgment.get("is_connection_point", False)
+        result["confidence"] = final_judgment.get("confidence_score", 0)
+        result["reasoning"] = final_judgment.get("reasoning_summary", "")
+    
+    # 하위 호환성: 기존 spatial_analysis 구조
+    if "spatial_analysis" in result and "location_type" not in result:
+        spatial_analysis = result["spatial_analysis"]
+        result["location_type"] = spatial_analysis.get("component_type", "unknown")
+        
+        damage_epicenter = spatial_analysis.get("damage_epicenter", "")
+        proximity = spatial_analysis.get("proximity_to_interface", "")
+        
+        description_parts = []
+        if damage_epicenter:
+            description_parts.append(f"손상 중심: {damage_epicenter}")
+        if proximity:
+            description_parts.append(f"접속부 근접도: {proximity}")
+        
+        if "location_description" not in result:
+            result["location_description"] = " | ".join(description_parts) if description_parts else "정보 없음"
+    
+    # 하위 호환성: 기존 visual_evidence 구조
+    elif "visual_evidence" in result and "location_type" not in result:
+        visual_evidence = result["visual_evidence"]
+        result["location_type"] = visual_evidence.get("hotspot_location", "unknown")
+        if "location_description" not in result:
+            result["location_description"] = f"물리적 결함: {visual_evidence.get('physical_defect', '없음')}"
+        
     loc_type = result.get('location_type', 'unknown')
     print(f"✅ [Step 1] 완료: {loc_type}")
     
@@ -209,7 +187,8 @@ def step2_spectral_analysis(image_data: bytes, verbose: bool = False) -> Dict[st
     # 진행 상황 확인을 위해 항상 출력
     print(f"\n🎨 [Step 2] 색채 스펙트럼 분석 시작... (이미지: {len(image_data)} bytes)")
     
-    response_text, thinking_info = call_gemini_vision(STEP2_PROMPT, image_data, "Step 2", verbose)
+    prompt = get_step2_react_prompt("Current Image")
+    response_text, thinking_info = call_gemini_vision(prompt, image_data, "Step 2", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -219,9 +198,30 @@ def step2_spectral_analysis(image_data: bytes, verbose: bool = False) -> Dict[st
     result["_analysis_status"] = "COMPLETED"
     result["_instruction_for_agent"] = "Analysis successfully completed. DO NOT CALL tool again. Use this result to generate the Final Answer immediately."
     
+    # 결과 필드 매핑 (새로운 JSON 구조 -> 기존 로직 호환)
+    detected = False
+    suspicion_level = "none"
+    
+    if "final_judgment" in result:
+        final_judgment = result["final_judgment"]
+        detected = final_judgment.get("suspicious_cuprous_oxide", False)
+        result["suspicious_color_pattern_detected"] = detected
+        suspicion_level = final_judgment.get("probability_level", "none")
+        result["cuprous_oxide_suspicion_level"] = suspicion_level
+        result["confidence"] = 0 # confidence score가 프롬프트에 명시되지 않았을 수 있음, 기본값
+        
+        # 새 프롬프트에는 confidence_score가 명시적으로 없음, probability_level로 대체하거나
+        # reasoning에서 추출해야 함. 여기선 probability_level 기반 매핑
+        if suspicion_level == "high": result["confidence"] = 90
+        elif suspicion_level == "medium": result["confidence"] = 70
+        elif suspicion_level == "low": result["confidence"] = 40
+        else: result["confidence"] = 10
+
+    if "color_analysis" in result:
+        color_analysis = result["color_analysis"]
+        result["location_of_coloration"] = f"Distribution: {color_analysis.get('distribution', 'unknown')}, Luster: {color_analysis.get('surface_luster', 'unknown')}"
+    
     # 결과 요약 항상 출력
-    detected = result.get("suspicious_color_pattern_detected", False) or result.get("cuprous_oxide_detected", False)
-    suspicion_level = result.get("cuprous_oxide_suspicion_level", "none")
     print(f"✅ [Step 2] 완료: 아산화동 의심 색상 패턴 {'관찰됨' if detected else '미관찰'} (의심도: {suspicion_level})")
     
     return result
@@ -231,20 +231,32 @@ def step3_thermal_gradient(image_data: bytes, verbose: bool = False) -> Dict[str
     # 진행 상황 확인을 위해 항상 출력 (Hang 여부 확인용)
     print(f"\n🔥 [Step 3] 열적 구배 분석 시작... (이미지: {len(image_data)} bytes)")
     
-    # 상세 로그는 verbose 설정 따름
-    response_text, thinking_info = call_gemini_vision(STEP3_PROMPT, image_data, "Step 3", verbose)
+    prompt = get_step3_react_prompt("Current Image")
+    response_text, thinking_info = call_gemini_vision(prompt, image_data, "Step 3", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
         result["thinking_process"] = thinking_info
     
     # [중요] ReAct 에이전트 무한 루프 방지용 지시문 추가
-    # 에이전트가 결과를 불충분하다고 판단하여 재시도하는 것을 막음
     result["_analysis_status"] = "COMPLETED"
     result["_instruction_for_agent"] = "Analysis successfully completed. DO NOT CALL tool again. Use this result to generate the Final Answer immediately."
     
+    # 결과 필드 매핑
+    gradient_detected = False
+    
+    if "final_judgment" in result:
+        final_judgment = result["final_judgment"]
+        gradient_detected = final_judgment.get("thermal_gradient_exists", False)
+        result["thermal_gradient_detected"] = gradient_detected
+        result["confidence"] = final_judgment.get("confidence_score", 0)
+        
+    if "gradient_analysis" in result:
+        gradient_analysis = result["gradient_analysis"]
+        result["gradient_pattern"] = gradient_analysis.get("pattern_type", "unknown")
+        result["heat_source_location"] = f"Direction: {gradient_analysis.get('direction_of_heat', 'unknown')}"
+
     # 결과 요약은 항상 출력
-    gradient_detected = result.get("thermal_gradient_detected", False)
     print(f"✅ [Step 3] 완료: 열적 구배 {'탐지됨' if gradient_detected else '미탐지'}")
     
     return result
@@ -254,7 +266,8 @@ def step4_surface_analysis(image_data: bytes, verbose: bool = False) -> Dict[str
     # 진행 상황 확인을 위해 항상 출력
     print(f"\n🔬 [Step 4] 금속 표면 상태 분석 시작... (이미지: {len(image_data)} bytes)")
     
-    response_text, thinking_info = call_gemini_vision(STEP4_PROMPT, image_data, "Step 4", verbose)
+    prompt = get_step4_react_prompt("Current Image")
+    response_text, thinking_info = call_gemini_vision(prompt, image_data, "Step 4", verbose)
     result = parse_json_response(response_text)
     
     if thinking_info:
@@ -264,8 +277,21 @@ def step4_surface_analysis(image_data: bytes, verbose: bool = False) -> Dict[str
     result["_analysis_status"] = "COMPLETED"
     result["_instruction_for_agent"] = "Analysis successfully completed. DO NOT CALL tool again. Generate Final Answer."
     
+    # 결과 필드 매핑
+    erosion_detected = False
+    
+    if "final_judgment" in result:
+        final_judgment = result["final_judgment"]
+        erosion_detected = final_judgment.get("electrical_erosion_detected", False)
+        result["electrical_erosion_detected"] = erosion_detected
+        result["confidence"] = final_judgment.get("confidence_score", 0)
+
+    if "surface_features" in result:
+        surface_features = result["surface_features"]
+        result["surface_texture"] = surface_features.get("texture", "unknown")
+        result["erosion_pattern"] = f"Formation: {surface_features.get('formation_type', 'none')}"
+    
     # 결과 요약 항상 출력
-    erosion_detected = result.get("electrical_erosion_detected", False)
     print(f"✅ [Step 4] 완료: 전기적 부식 {'탐지됨' if erosion_detected else '미탐지'}")
     
     return result

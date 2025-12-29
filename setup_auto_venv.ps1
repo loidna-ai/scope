@@ -2,7 +2,7 @@
 # 사용법: .\setup_auto_venv.ps1
 
 $profilePath = $PROFILE
-$projectPath = "C:\Users\user\Documents\Project\P_04_Scope"
+$projectPath = "C:\Users\loidn\Documents\Projects\P_04_Scope"
 
 # 프로필 디렉토리 생성 (없는 경우)
 $profileDir = Split-Path -Parent $profilePath

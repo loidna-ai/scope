@@ -1,9 +1,0 @@
-{
-  "test_image": "c:\\Users\\loidn\\Documents\\Projects\\P_04_Scope\\data\\Primary_Arc_Bead_1.png",
-  "prompt_structure": "각 Step별 독립적인 ReAct 에이전트 (get_step1_react_prompt, get_step2_react_prompt, get_step3_react_prompt, get_step4_react_prompt)",
-  "execution_time_contact_only": 292.6129381656647,
-  "execution_time_full": 211.47660040855408,
-  "expert_reports_count": 5,
-  "final_verdict_length": 2041,
-  "errors_count": 0
-}
