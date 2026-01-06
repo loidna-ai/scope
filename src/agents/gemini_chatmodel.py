@@ -115,12 +115,15 @@ class GeminiChatModel(BaseChatModel):
         user_config = self.config
         
         config = types.GenerateContentConfig(
-            temperature=user_config.temperature if user_config else 0.5,
+            temperature=user_config.temperature if user_config else 0.0,  # 결정적 응답을 위해 0으로 설정
             top_p=0.9,      # 결정론적이고 집중된 결과를 위해 약간 낮춤
             top_k=40,       # 일반적인 기본값
             max_output_tokens=2048, # 충분한 길이 확보
             response_mime_type=user_config.response_mime_type if user_config and hasattr(user_config, "response_mime_type") else "text/plain",
-            # thinking_level="HIGH", # User requested but SDK support uncertain, commented out for safety
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True,
+                thinking_level="medium"
+            ),
             system_instruction=react_system_instruction,
             # SDK 버전에 따라 config 내부에 safety_settings가 있을 수 있음
             safety_settings=DEFAULT_SAFETY_SETTINGS

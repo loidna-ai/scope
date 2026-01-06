@@ -17,17 +17,17 @@ def add_investigation_edges(builder: StateGraph) -> None:
     """
     # Fan-out: START → 모든 전문가 (병렬 실행)
     builder.add_edge(START, "contact")
-    builder.add_edge(START, "dielectric")
-    builder.add_edge(START, "mechanical")
+    builder.add_edge(START, "aging")
+    builder.add_edge(START, "deform")
     builder.add_edge(START, "tracking")
-    builder.add_edge(START, "strand_fracture")
+    builder.add_edge(START, "necking")
     
     # Fan-in: 모든 전문가 → 수석 조사관
     builder.add_edge("contact", "chief_investigator")
-    builder.add_edge("dielectric", "chief_investigator")
-    builder.add_edge("mechanical", "chief_investigator")
+    builder.add_edge("aging", "chief_investigator")
+    builder.add_edge("deform", "chief_investigator")
     builder.add_edge("tracking", "chief_investigator")
-    builder.add_edge("strand_fracture", "chief_investigator")
+    builder.add_edge("necking", "chief_investigator")
     
     # 종료
     builder.add_edge("chief_investigator", END)
@@ -45,18 +45,18 @@ def add_investigation_edges_with_react(builder: StateGraph) -> None:
     """
     # Fan-out: START → 모든 전문가 및 ReAct 에이전트 (병렬 실행)
     builder.add_edge(START, "contact")
-    builder.add_edge(START, "dielectric")
-    builder.add_edge(START, "mechanical")
+    builder.add_edge(START, "aging")
+    builder.add_edge(START, "deform")
     builder.add_edge(START, "tracking")
-    builder.add_edge(START, "strand_fracture")
+    builder.add_edge(START, "necking")
     builder.add_edge(START, "react_agent")
     
     # Fan-in: 모든 전문가 및 ReAct 에이전트 → 수석 조사관
     builder.add_edge("contact", "chief_investigator")
-    builder.add_edge("dielectric", "chief_investigator")
-    builder.add_edge("mechanical", "chief_investigator")
+    builder.add_edge("aging", "chief_investigator")
+    builder.add_edge("deform", "chief_investigator")
     builder.add_edge("tracking", "chief_investigator")
-    builder.add_edge("strand_fracture", "chief_investigator")
+    builder.add_edge("necking", "chief_investigator")
     builder.add_edge("react_agent", "chief_investigator")
     
     # 종료

@@ -30,17 +30,17 @@ PRIMARY_VS_SECONDARY_MATRIX = {
 
 # 상충 해결 규칙
 CONFLICT_RESOLUTION_RULES = {
-    "tracking_vs_dielectric": {
+    "tracking_vs_aging": {
         "condition": "tracking_luster_detected",
         "priority": "tracking",
-        "reason": "흑연 광택은 트래킹의 강력한 증거이므로 절연열화보다 우선순위가 높음",
-        "weight_adjustment": {"tracking": 1.2, "dielectric": 0.8}
+        "reason": "흑연 광택은 트래킹의 강력한 증거이므로 절연열화(Aging)보다 우선순위가 높음",
+        "weight_adjustment": {"tracking": 1.2, "aging": 0.8}
     },
-    "mechanical_vs_strand_fracture": {
-        "condition": "mechanical_deformation_detected",
-        "priority": "mechanical",
-        "reason": "압착 흔적이 명확하면 반단선보다 우선하며, 반단선은 압착에 의한 2차적 절단으로 해석",
-        "weight_adjustment": {"mechanical": 1.3, "strand_fracture": 0.7}
+    "deform_vs_necking": {
+        "condition": "deformation_detected",
+        "priority": "deform",
+        "reason": "압착 흔적이 명확하면 반단선보다 우선하며, 반단선(Necking)은 압착에 의한 2차적 절단으로 해석",
+        "weight_adjustment": {"deform": 1.3, "necking": 0.7}
     },
     "shape_vs_surface": {
         "condition": "spherical_and_rough",
@@ -115,8 +115,8 @@ def extract_visual_features(
                 features["porosity"] = "low"
         
         # 탄화 위치 정보 추출
-        step1 = dielectric_results.get("step1", {})
-        step3 = dielectric_results.get("step3", {})
+        step1 = aging_results.get("step1", {})
+        step3 = aging_results.get("step3", {})
         if step1:
             direction = step1.get("carbonization_direction", "unknown")
             if direction == "internal_to_external":
@@ -126,10 +126,10 @@ def extract_visual_features(
             if global_aging:
                 features["carbonization_location"] = "widespread"
     
-    # Mechanical 전문가에서 형상 정보 추출
-    mechanical_results = expert_analysis_results.get("mechanical", {})
-    if mechanical_results:
-        step2 = mechanical_results.get("step2", {})
+    # Deform 전문가에서 형상 정보 추출
+    deform_results = expert_analysis_results.get("deform", {})
+    if deform_results:
+        step2 = deform_results.get("step2", {})
         if step2:
             bead_shape = step2.get("bead_shape", "unknown")
             if bead_shape == "spherical":
@@ -241,20 +241,20 @@ def calculate_primary_secondary_score(
         "observed_count": observed_features_count  # 디버깅용
     }
 
-def resolve_conflict_tracking_vs_dielectric(
+def resolve_conflict_tracking_vs_aging(
     tracking_result: dict,
-    dielectric_result: dict,
+    aging_result: dict,
     tracking_score: float,
-    dielectric_score: float
+    aging_score: float
 ) -> Dict[str, Any]:
     """
-    Case A: 트래킹 vs 절연열화 상충 해결
+    Case A: 트래킹 vs 절연열화(Aging) 상충 해결
     
     Args:
         tracking_result: Tracking 전문가 분석 결과
-        dielectric_result: Dielectric 전문가 분석 결과
+        aging_result: Aging 전문가 분석 결과
         tracking_score: Tracking 전문가 신뢰도 점수
-        dielectric_score: Dielectric 전문가 신뢰도 점수
+        aging_score: Aging 전문가 신뢰도 점수
         
     Returns:
         {"resolved": bool, "priority": str, "adjusted_scores": dict, "reason": str}
@@ -273,9 +273,9 @@ def resolve_conflict_tracking_vs_dielectric(
             "priority": "tracking",
             "adjusted_scores": {
                 "tracking": adjusted_tracking,
-                "dielectric": adjusted_dielectric
+                "aging": adjusted_dielectric
             },
-            "reason": "흑연 광택은 트래킹의 강력한 증거이므로 절연열화보다 우선순위가 높습니다."
+            "reason": "흑연 광택은 트래킹의 강력한 증거이므로 절연열화(Aging)보다 우선순위가 높습니다."
         }
     
     return {
@@ -283,44 +283,44 @@ def resolve_conflict_tracking_vs_dielectric(
         "priority": None,
         "adjusted_scores": {
             "tracking": tracking_score,
-            "dielectric": dielectric_score
+            "aging": dielectric_score
         },
         "reason": "상충 없음"
     }
 
-def resolve_conflict_mechanical_vs_strand_fracture(
-    mechanical_result: dict,
-    strand_fracture_result: dict,
-    mechanical_score: float,
-    strand_fracture_score: float
+def resolve_conflict_deform_vs_necking(
+    deform_result: dict,
+    necking_result: dict,
+    deform_score: float,
+    necking_score: float
 ) -> Dict[str, Any]:
     """
-    Case B: 압착 vs 반단선 상충 해결
+    Case B: 압착 vs 반단선(Necking) 상충 해결
     
     Args:
-        mechanical_result: Mechanical 전문가 분석 결과
-        strand_fracture_result: StrandFracture 전문가 분석 결과
-        mechanical_score: Mechanical 전문가 신뢰도 점수
-        strand_fracture_score: StrandFracture 전문가 신뢰도 점수
+        deform_result: Deform 전문가 분석 결과
+        necking_result: Necking 전문가 분석 결과
+        deform_score: Deform 전문가 신뢰도 점수
+        necking_score: Necking 전문가 신뢰도 점수
         
     Returns:
         {"resolved": bool, "priority": str, "adjusted_scores": dict, "reason": str}
     """
-    mechanical_step1 = mechanical_result.get("step1", {})
-    deformation_detected = mechanical_step1.get("mechanical_deformation_detected", False)
-    causal_relationship = mechanical_step1.get("causal_relationship", False)
+    deform_step1 = deform_result.get("step1", {})
+    deformation_detected = deform_step1.get("deformation_detected", False)
+    causal_relationship = deform_step1.get("causal_relationship", False)
     
     if deformation_detected and causal_relationship:
         # 압착 흔적이 명확하면 압착 우선
-        adjusted_mechanical = mechanical_score * 1.3
-        adjusted_strand_fracture = strand_fracture_score * 0.7
+        adjusted_deform = deform_score * 1.3
+        adjusted_necking = necking_score * 0.7
         
         return {
             "resolved": True,
-            "priority": "mechanical",
+            "priority": "deform",
             "adjusted_scores": {
-                "mechanical": adjusted_mechanical,
-                "strand_fracture": adjusted_strand_fracture
+                "deform": adjusted_deform,
+                "necking": adjusted_necking
             },
             "reason": "압착 흔적이 명확하면 반단선보다 우선하며, 반단선은 압착에 의한 2차적 절단으로 해석됩니다."
         }
@@ -329,8 +329,8 @@ def resolve_conflict_mechanical_vs_strand_fracture(
         "resolved": False,
         "priority": None,
         "adjusted_scores": {
-            "mechanical": mechanical_score,
-            "strand_fracture": strand_fracture_score
+            "deform": deform_score,
+            "necking": necking_score
         },
         "reason": "상충 없음"
     }
@@ -398,34 +398,34 @@ def apply_conflict_resolution(
     conflicts = []
     resolutions = []
     
-    # Case A: 트래킹 vs 절연열화
+    # Case A: 트래킹 vs 절연열화(Aging)
     tracking_result = expert_analysis_results.get("tracking", {})
-    dielectric_result = expert_analysis_results.get("dielectric", {})
+    aging_result = expert_analysis_results.get("aging", {})
     tracking_score = expert_confidence_scores.get("tracking", 0)
-    dielectric_score = expert_confidence_scores.get("dielectric", 0)
+    aging_score = expert_confidence_scores.get("aging", 0)
     
-    if tracking_result and dielectric_result:
-        conflict_a = resolve_conflict_tracking_vs_dielectric(
-            tracking_result, dielectric_result, tracking_score, dielectric_score
+    if tracking_result and aging_result:
+        conflict_a = resolve_conflict_tracking_vs_aging(
+            tracking_result, aging_result, tracking_score, aging_score
         )
         if conflict_a["resolved"]:
-            conflicts.append("tracking_vs_dielectric")
+            conflicts.append("tracking_vs_aging")
             resolutions.append(conflict_a)
             adjusted_scores.update(conflict_a["adjusted_scores"])
     
-    # Case B: 압착 vs 반단선
-    mechanical_result = expert_analysis_results.get("mechanical", {})
-    strand_fracture_result = expert_analysis_results.get("strand_fracture", {})
-    mechanical_score = expert_confidence_scores.get("mechanical", 0)
-    strand_fracture_score = expert_confidence_scores.get("strand_fracture", 0)
+    # Case B: 압착 vs 반단선(Necking)
+    deform_result = expert_analysis_results.get("deform", {})
+    necking_result = expert_analysis_results.get("necking", {})
+    deform_score = expert_confidence_scores.get("deform", 0)
+    necking_score = expert_confidence_scores.get("necking", 0)
     
-    if mechanical_result and strand_fracture_result:
-        conflict_b = resolve_conflict_mechanical_vs_strand_fracture(
-            mechanical_result, strand_fracture_result,
-            mechanical_score, strand_fracture_score
+    if deform_result and necking_result:
+        conflict_b = resolve_conflict_deform_vs_necking(
+            deform_result, necking_result,
+            deform_score, necking_score
         )
         if conflict_b["resolved"]:
-            conflicts.append("mechanical_vs_strand_fracture")
+            conflicts.append("deform_vs_necking")
             resolutions.append(conflict_b)
             adjusted_scores.update(conflict_b["adjusted_scores"])
     
@@ -569,4 +569,3 @@ def determine_dominant_expert(
         "margin": margin,
         "is_determined": is_determined
     }
-

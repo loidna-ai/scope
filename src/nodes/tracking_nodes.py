@@ -1,255 +1,504 @@
 """
-Tracking 전문가 노드 및 ReAct 에이전트 정의
+Tracking 전문가 노드 정의 (Multi-Hotspot Loop Mode)
 """
-from typing import Dict, Any, Optional, List
-import json
+from typing import Dict, Any, Optional, List, Annotated
 import os
-import re
+import operator
+import json
 
 from langgraph.graph import MessagesState
-from langgraph.prebuilt import create_react_agent
-from langchain_core.messages import HumanMessage, ToolMessage, AIMessage
-from langchain_core.tools import tool
+from src.tools.experts.expert_utils import (
+    call_gemini_vision,
+    parse_json_response,
+    call_gemini_text,
+    _load_image_data
+)
 
-from src.agents.gemini_chatmodel import GeminiChatModel
-from src.tools.registry import ToolRegistry
-from src.tools.experts.tracking_tools import (
-    step1_dendritic_pattern,
-    step2_luster_detection,
-    step3_surface_erosion
+# Prompts Import
+from src.prompts.common_prompts import (
+    get_multi_hotspot_prompt,
+    get_component_classifier_prompt
 )
 from src.prompts.tracking_expert_prompts import (
-    get_step1_react_prompt,
-    get_step2_react_prompt,
-    get_step3_react_prompt
+    get_tracking_terminal_prompt,
+    get_tracking_plug_prompt,
+    get_tracking_pcb_prompt,
+    get_final_verdict_prompt
 )
-from src.prompts.common_prompts import get_common_system_prompt
 
 class TrackingExpertState(MessagesState):
     """
-    Tracking Expert ReAct State
+    Tracking Expert State
     """
-    tracking_step1_result: Optional[Dict[str, Any]]
-    tracking_step2_result: Optional[Dict[str, Any]]
-    tracking_step3_result: Optional[Dict[str, Any]]
+    # 원본 이미지
     image_path: Optional[str]
+    
+    # Phase 1: Hotspot Detection
+    hotspots: Optional[List[Dict[str, Any]]]
+    hotspot_queue: Optional[List[Dict[str, Any]]]
+    
+    # Loop Context
+    current_hotspot: Optional[Dict[str, Any]]
+    detector_result: Optional[Dict[str, Any]] # roi_crop_node 호환용
+    roi_image_path: Optional[str]
+    connection_type: Optional[str] # Component Classification 결과
+    
+    # Analysis Results (Specific Components)
+    tracking_terminal_result: Optional[Dict[str, Any]]
+    tracking_plug_result: Optional[Dict[str, Any]]
+    tracking_pcb_result: Optional[Dict[str, Any]]
+    
+    # Final Aggregation
+    analysis_results: Annotated[List[Dict[str, Any]], operator.add]
+    
+    # Verdict Results
+    verdict_report: Optional[str]
+    verdict_confidence: Optional[int]
+    verdict_result: Optional[Dict[str, Any]]
 
-def print_agent_process(messages):
-    """에이전트의 추론 및 도구 사용 과정을 출력"""
-    print("\n" + "="*20 + " Agent Reasoning & Tool Execution " + "="*20)
-    for msg in messages:
-        if isinstance(msg, HumanMessage):
-            continue
-        if isinstance(msg, AIMessage):
-            if msg.content:
-                print(f"\n🧠 [Thought]:\n{msg.content}\n")
-            if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                for tool_call in msg.tool_calls:
-                    print(f"🛠️ [Tool Call]: {tool_call['name']} (Args: {tool_call['args']})")
-        elif isinstance(msg, ToolMessage):
-             content = str(msg.content)
-             display_content = content[:300] + "..." if len(content) > 300 else content
-             print(f"   └─ 📊 [Tool Output]: {display_content}")
-    print("="*76 + "\n")
 
-def _load_image_data(image_path: str) -> bytes:
-    """이미지 파일을 바이트로 로드"""
+
+# --------------------------------------------------------------------------------
+# 워크플로우 노드 구현 (Contact Expert 구조 도입)
+# --------------------------------------------------------------------------------
+
+def hotspot_detector_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """
+    Node 0: Hotspot Detector
+    - 전체 이미지에서 다중 발화 지점(Hotspots) 탐색
+    """
+    image_path = state.get("image_path")
+    if not image_path:
+        return {"hotspots": []}
+    
+    print(f"\n📡 [Hotspot Detector] 다중 발화 지점 탐색 시작... (이미지: {image_path})")
+    
     try:
-        with open(image_path, "rb") as f:
-            return f.read()
+        image_data = _load_image_data(image_path)
     except Exception as e:
-        raise IOError(f"이미지 로드 실패: {str(e)}")
-
-def _update_image_path_from_messages(messages: List[Any], current_path: str) -> str:
-    """메시지 히스토리에서 이미지 편집 도구의 결과를 찾아 이미지 경로 업데이트"""
-    updated_path = current_path
-    image_tool_names = ["enhance_image", "apply_clahe_filter", "crop_image"]
+        print(f"Error loading image: {e}")
+        return {"hotspots": []}
     
-    for msg in reversed(messages):
-        if isinstance(msg, ToolMessage):
-            tool_name = getattr(msg, "name", "")
-            content = str(msg.content)
+    prompt = get_multi_hotspot_prompt(image_path)
+    response_text, _ = call_gemini_vision(prompt, image_data, "Hotspot Detector", verbose=True, temperature=0.0)
+    
+    result = parse_json_response(response_text)
+    hotspots = result.get("hotspots", [])
+    
+    # [Fix] Schema Mismatch Correction
+    for h in hotspots:
+        if "damage_type" not in h and "suspected_feature" in h:
+            h["damage_type"] = h["suspected_feature"]
+        if "severity_score" not in h:
+            h["severity_score"] = 50 
             
-            try:
-                data = json.loads(content)
-                if isinstance(data, dict) and "image_path" in data:
-                    potential_path = data["image_path"]
-                    if os.path.exists(potential_path):
-                        return potential_path
-            except:
-                pass
-            
-            if tool_name in image_tool_names:
-                match = re.search(r'완료[:\\s]+([^\\n]+)', content)
-                if match:
-                    potential_path = match.group(1).strip()
-                    if os.path.exists(potential_path):
-                        return potential_path
-                        
-    return updated_path
+    print(f"✅ [Hotspot Detector] 발견된 Hotspots: {len(hotspots)}개")
+    for h in hotspots:
+        print(f"   - ID {h.get('id')}: {h.get('damage_type')} (Score: {h.get('severity_score')})")
+        
+    return {"hotspots": hotspots}
 
-# --------------------------------------------------------------------------------
-# Step별 ReAct 에이전트 빌더
-# --------------------------------------------------------------------------------
+def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """
+    Middleware: Hotspot Manager
+    - Hotspot 리스트를 점수순 정렬
+    - Top-N 선별하여 Queue에 적재
+    - Queue에서 하나씩 꺼내어 처리 준비 (Loop 제어)
+    """
+    hotspots = state.get("hotspots", [])
+    queue = state.get("hotspot_queue")
+    
+    # 1. 초기화 로직 (큐가 없으면 생성)
+    if queue is None:
+        print("\n⚖️ [Hotspot Manager] Hotspot 우선순위 정렬 및 Top-N 선별")
+        # Score 내림차순 정렬
+        sorted_hotspots = sorted(
+            hotspots, 
+            key=lambda x: x.get("severity_score", 0), 
+            reverse=True
+        )
+        # Top 3 선별
+        queue = sorted_hotspots[:3]
+        print(f"✅ 선별된 Hotspots: {[h.get('id') for h in queue]}")
+        
+        # 첫 번째 Hotspot 바로 Pop (Loop 시작을 위해)
+        if not queue:
+             print("\n🏁 [Hotspot Manager] 처리할 Hotspot이 없습니다.")
+             return {"hotspot_queue": [], "current_hotspot": None}
+             
+        current = queue[0]
+        remaining = queue[1:]
+        
+        print(f"\n▶️ [Hotspot Manager] Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+        
+        # downstream 호환성을 위해 detector_result에 매핑
+        detector_result_mapping = {
+            "box_2d": current.get("box_2d"),
+            "feature_name": current.get("damage_type"),
+            "confidence": current.get("severity_score")
+        }
+        
+        # State 업데이트 (큐 초기화 + 첫 아이템 로드)
+        return {
+            "hotspot_queue": remaining,
+            "current_hotspot": current,
+            "detector_result": detector_result_mapping,
+            "analysis_results": []
+        }
 
-def build_step1_react_agent(image_path: str):
-    llm = GeminiChatModel()
-    registry = ToolRegistry()
-    image_editing_tools = registry.get_tools_by_category("image")
-    
-    @tool
-    def analyze_dendritic_pattern_internal(image_path: str) -> str:
-        """이미지에서 수지상 도전로 패턴(나뭇가지 모양)을 분석합니다. 이미지 보정이 필요하면 먼저 보정 도구를 사용하세요."""
-        try:
-            image_data = _load_image_data(image_path)
-            result = step1_dendritic_pattern(image_data, verbose=False)
-            return json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
-        except Exception as e:
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
-    
-    all_tools = [analyze_dendritic_pattern_internal] + image_editing_tools
-    # 전문가 프롬프트를 User Prompt로 전달하기 위해 여기서는 기본 시스템 메시지만 설정
-    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
-    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
-def build_step2_react_agent(image_path: str):
-    llm = GeminiChatModel()
-    registry = ToolRegistry()
-    image_editing_tools = registry.get_tools_by_category("image")
-    
-    @tool
-    def analyze_luster_detection_internal(image_path: str) -> str:
-        """이미지에서 흑연화로 인한 광택을 분석합니다. 이미지 보정이 필요하면 먼저 보정 도구를 사용하세요."""
-        try:
-            image_data = _load_image_data(image_path)
-            result = step2_luster_detection(image_data, verbose=False)
-            return json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
-        except Exception as e:
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
-    
-    all_tools = [analyze_luster_detection_internal] + image_editing_tools
-    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
-    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
 
-def build_step3_react_agent(image_path: str):
-    llm = GeminiChatModel()
-    registry = ToolRegistry()
-    image_editing_tools = registry.get_tools_by_category("image")
-    
-    @tool
-    def analyze_surface_erosion_internal(image_path: str) -> str:
-        """이미지에서 탄화 경로를 따른 표면 침식을 분석합니다. 이미지 보정이 필요하면 먼저 보정 도구를 사용하세요."""
-        try:
-            image_data = _load_image_data(image_path)
-            result = step3_surface_erosion(image_data, verbose=False)
-            return json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else str(result)
-        except Exception as e:
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
-    
-    all_tools = [analyze_surface_erosion_internal] + image_editing_tools
-    system_message = "You are a helpful AI assistant. Follow the user's instructions carefully."
-    return create_react_agent(model=llm, tools=all_tools, prompt=system_message)
+    # 2. Loop 로직 (큐에서 꺼내기)
+    if not queue:
+        print("\n🏁 [Hotspot Manager] 모든 Hotspot 처리 완료.")
+        return {"current_hotspot": None}  # Loop 종료 신호
 
-# --------------------------------------------------------------------------------
-# Step Node 정의
-# --------------------------------------------------------------------------------
-
-def step1_node(state: TrackingExpertState):
-    current_image_path = state.get("image_path")
-    agent = build_step1_react_agent(current_image_path)
+    current = queue[0]
+    remaining = queue[1:]
     
-    # 전문가 프롬프트를 User Prompt로 전달 (image_path 사용하여 포맷팅)
-    # 전문가 프롬프트를 User Prompt로 전달 (image_path 사용하여 포맷팅)
-    common_prompt = get_common_system_prompt()
-    prompt_content = get_step1_react_prompt(current_image_path)
-    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지를 분석하여 수지상 도전로 패턴을 식별하세요. 이미지 경로: {current_image_path}")
-    result = agent.invoke({"messages": [input_msg]})
-    step_messages = result.get("messages", [])
-    print_agent_process(step_messages)
-    updated_image_path = _update_image_path_from_messages(step_messages, current_image_path)
+    print(f"\n▶️ [Hotspot Manager] Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
     
-    step_result = None
-    if step_messages:
-        last_msg = step_messages[-1]
-        if isinstance(last_msg.content, str):
-            try:
-                content = last_msg.content
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    step_result = json.loads(json_match.group(0))
-                else:
-                    step_result = {"result_text": content}
-            except:
-                step_result = {"result_text": last_msg.content}
-
-    for msg in reversed(step_messages):
-        if isinstance(msg, ToolMessage) and msg.name == "analyze_dendritic_pattern_internal":
-            try:
-                step_result = json.loads(msg.content)
-                break
-            except:
-                pass
-
+    # downstream 호환성을 위해 detector_result에 매핑
+    detector_result_mapping = {
+        "box_2d": current.get("box_2d"),
+        "feature_name": current.get("damage_type"),
+        "confidence": current.get("severity_score")
+    }
+    
     return {
-        "messages": step_messages,
-        "tracking_step1_result": step_result,
-        "image_path": updated_image_path
+        "hotspot_queue": remaining,
+        "current_hotspot": current,
+        "detector_result": detector_result_mapping, # for roi_crop_node
+        "connection_type": None, # Reset for new loop
+        "tracking_terminal_result": None,
+        "tracking_plug_result": None,
+        "tracking_pcb_result": None
     }
 
-def step2_node(state: TrackingExpertState):
-    current_image_path = state.get("image_path")
-    agent = build_step2_react_agent(current_image_path)
+def roi_crop_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """
+    ROI 크롭 노드
+    detector_result(current_hotspot)에서 box_2d 추출하여 크롭
+    후처리로 2배 초해상도 향상 적용
+    """
+    from src.utils import crop_roi_from_box
+    from src.nodes.enhancement import enhancement_node
+    import cv2
+    import numpy as np
     
-    common_prompt = get_common_system_prompt()
-    prompt_content = get_step2_react_prompt(current_image_path)
-    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지에서 흑연화로 인한 광택을 분석하세요. 이미지 경로: {current_image_path}")
-    result = agent.invoke({"messages": [input_msg]})
-    step_messages = result.get("messages", [])
-    print_agent_process(step_messages)
-    updated_image_path = _update_image_path_from_messages(step_messages, current_image_path)
+    detector_result = state.get("detector_result")
+    image_path = state.get("image_path")
     
-    step_result = None
-    for msg in reversed(step_messages):
-        if isinstance(msg, ToolMessage) and msg.name == "analyze_luster_detection_internal":
-            try:
-                step_result = json.loads(msg.content)
-                break
-            except:
-                pass
-    if step_result is None and step_messages:
-        step_result = {"result_text": step_messages[-1].content}
+    if not detector_result or not image_path:
+        return {"roi_image_path": image_path}
+    
+    box_2d = detector_result.get("box_2d")
+    if not box_2d:
+        return {"roi_image_path": image_path}
+    
+    print(f"✂️ [ROI Crop] Hotspot 영역 크롭... {box_2d}")
+    try:
+        cropped_path = crop_roi_from_box(image_path, box_2d)
+        
+        # 이미지 향상 적용
+        print(f"✨ [Enhancement] ROI 이미지 2배 향상 적용 중...")
+        try:
+            # 1. 크롭된 이미지 로드
+            cropped_img = cv2.imread(cropped_path)
+            if cropped_img is None:
+                raise ValueError("크롭된 이미지를 읽을 수 없습니다.")
+                
+            # 2. Enhancement Node 직접 호출 (State 구성 불필요)
+            # ImageEnhancer 클래스 직접 사용이 더 깔끔할 수 있으나, 기존 구조 활용
+            from src.nodes.enhancement import ImageEnhancer
+            enhancer = ImageEnhancer()
+            enhanced_img = enhancer.upscale(cropped_img)
+            
+            # 3. 향상된 이미지 저장 (덮어쓰기)
+            cv2.imwrite(cropped_path, enhanced_img)
+            print(f"✨ [Enhancement] 향상 완료: {cropped_path}")
+            
+        except Exception as enh_err:
+             print(f"⚠️ Enhancement Failed: {enh_err}")
+             # 향상 실패해도 원본 크롭 이미지는 유지됨
+             
+        return {"roi_image_path": cropped_path}
+    except Exception as e:
+        print(f"⚠️ Crop Failed: {e}")
+        return {"roi_image_path": image_path}
 
-    return {
-        "messages": step_messages,
-        "tracking_step2_result": step_result,
-        "image_path": updated_image_path
+def component_classifier_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """
+    Node 1: Component Classifier
+    - 크롭된 이미지를 분석하여 접속부 유형(Terminal/Splice/Plug/None) 식별
+    """
+    roi_image_path = state.get("roi_image_path")
+    if not roi_image_path:
+        return {"connection_type": "None"}
+        
+    print(f"\n🔍 [Component Classifier] 부품 유형 식별 중... (Dual Input: Context + Detail, ROI: {roi_image_path})")
+    
+    try:
+        # Dual Image Load
+        roi_image_data = _load_image_data(roi_image_path)
+        original_image_path = state.get("image_path")
+        original_image_data = _load_image_data(original_image_path) if original_image_path else roi_image_data
+        
+        # 순서: [Original(Context), Crop(Detail)]
+        image_payload = [original_image_data, roi_image_data]
+        
+    except Exception:
+        return {"connection_type": "None"}
+        
+    prompt = get_component_classifier_prompt(roi_image_path)
+    
+    try:
+        # Temperature 0.0 for deterministic classification
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_payload, 
+            "Component Classifier", 
+            temperature=0.0
+        )
+        result = parse_json_response(response_text)
+        
+        # New Schema: deduced_type, visual_description
+        deduced_type = result.get("deduced_type", "None")
+        visual_description = result.get("visual_description", "")
+        confidence = result.get("confidence", 0)
+        reasoning = result.get("reasoning", "")
+        
+        print(f"👁️ [Observation] {visual_description}")
+        print(f"✅ 판별 결과: {deduced_type} (신뢰도: {confidence}%)")
+        
+        return {
+            "connection_type": deduced_type,
+            "classifier_result": result
+        }
+    except Exception as e:
+        print(f"⚠️ Component Classifier Error: {e}")
+        return {
+            "connection_type": "None",
+            "classifier_result": {"error": str(e)}
+        }
+
+def tracking_terminal_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """Tracking Specialist: Terminal Analysis"""
+    roi_image_path = state.get("roi_image_path")
+    original_image_path = state.get("image_path") # 원본 이미지 경로
+    
+    print(f"\n⚡ [Tracking Specialist] Terminal 분석 시작... (2 Images: Context + ROI)")
+    
+    try:
+        # 두 장의 이미지를 모두 로드
+        roi_data = _load_image_data(roi_image_path)
+        original_data = _load_image_data(original_image_path)
+        
+        # 리스트로 전달 [원본(Context), ROI(Detail)]
+        image_data_list = [original_data, roi_data]
+        
+        prompt = get_tracking_terminal_prompt(roi_image_path)
+        response_text, _ = call_gemini_vision(prompt, image_data_list, "Tracking Terminal Expert", verbose=True)
+        result = parse_json_response(response_text)
+        return {"tracking_terminal_result": result}
+    except Exception as e:
+        print(f"⚠️ Terminal Node Error: {e}")
+        return {"tracking_terminal_result": {"error": str(e)}}
+
+
+
+def tracking_plug_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """Tracking Specialist: Plug Analysis"""
+    roi_image_path = state.get("roi_image_path")
+    original_image_path = state.get("image_path")
+    
+    print(f"\n⚡ [Tracking Specialist] Plug 분석 시작... (2 Images: Context + ROI)")
+    
+    try:
+        # 두 장의 이미지를 모두 로드
+        roi_data = _load_image_data(roi_image_path)
+        original_data = _load_image_data(original_image_path)
+        
+        # 리스트로 전달 [원본(Context), ROI(Detail)]
+        image_data_list = [original_data, roi_data]
+        
+        prompt = get_tracking_plug_prompt(roi_image_path)
+        response_text, _ = call_gemini_vision(prompt, image_data_list, "Tracking Plug Expert")
+        result = parse_json_response(response_text)
+        return {"tracking_plug_result": result}
+    except Exception as e:
+        print(f"⚠️ Plug Node Error: {e}")
+        return {"tracking_plug_result": {"error": str(e)}}
+
+def tracking_pcb_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """Tracking Specialist: PCB Analysis"""
+    roi_image_path = state.get("roi_image_path")
+    original_image_path = state.get("image_path")
+    
+    print(f"\n⚡ [Tracking Specialist] PCB 분석 시작... (2 Images: Context + ROI)")
+    
+    try:
+        # 두 장의 이미지를 모두 로드
+        roi_data = _load_image_data(roi_image_path)
+        original_data = _load_image_data(original_image_path)
+        
+        # 리스트로 전달 [원본(Context), ROI(Detail)]
+        image_data_list = [original_data, roi_data]
+        
+        prompt = get_tracking_pcb_prompt(roi_image_path)
+        response_text, _ = call_gemini_vision(prompt, image_data_list, "Tracking PCB Expert", verbose=True)
+        result = parse_json_response(response_text)
+        return {"tracking_pcb_result": result}
+    except Exception as e:
+        print(f"⚠️ PCB Node Error: {e}")
+        return {"tracking_pcb_result": {"error": str(e)}}
+
+def result_aggregator_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """개별 Hotspot의 분석 결과를 종합 (Component Type 별 결과 처리)"""
+    h_info = state.get("current_hotspot", {})
+    conn_type = state.get("connection_type")
+    
+    # 해당되는 결과 추출
+    result_data = {}
+    if conn_type == "Terminal":
+        result_data = state.get("tracking_terminal_result") or {}
+    elif conn_type == "Plug":
+        result_data = state.get("tracking_plug_result") or {}
+    elif conn_type == "PCB":
+        result_data = state.get("tracking_pcb_result") or {}
+        
+    conf = result_data.get("confidence", 0)
+    verdict = result_data.get("verdict", "Unknown")
+    reasoning = result_data.get("reasoning", "")
+    visual_desc = result_data.get("visual_description", "")
+    
+    final_entry = {
+        "hotspot_id": h_info.get("id"),
+        "hotspot_info": h_info,
+        "connection_type": conn_type,
+        "specialist_result": result_data,
+        "confidence": conf,
+        "verdict": verdict,
+        "reasoning": reasoning,
+        "visual_description": visual_desc,
+        "roi_image_path": state.get("roi_image_path")
     }
-
-def step3_node(state: TrackingExpertState):
-    current_image_path = state.get("image_path")
-    agent = build_step3_react_agent(current_image_path)
     
-    common_prompt = get_common_system_prompt()
-    prompt_content = get_step3_react_prompt(current_image_path)
-    input_msg = HumanMessage(content=f"{common_prompt}\n\n{prompt_content}\n\n이미지에서 표면 침식을 분석하세요. 이미지 경로: {current_image_path}")
-    result = agent.invoke({"messages": [input_msg]})
-    step_messages = result.get("messages", [])
-    print_agent_process(step_messages)
-    updated_image_path = _update_image_path_from_messages(step_messages, current_image_path)
-    
-    step_result = None
-    for msg in reversed(step_messages):
-        if isinstance(msg, ToolMessage) and msg.name == "analyze_surface_erosion_internal":
-            try:
-                step_result = json.loads(msg.content)
-                break
-            except:
-                pass
-    if step_result is None and step_messages:
-        step_result = {"result_text": step_messages[-1].content}
+    print(f"📝 [Result Aggregator] ID {h_info.get('id')} 결과 기록 (Type: {conn_type}, Verdict: {verdict})")
+    return {"analysis_results": [final_entry]}
 
+def format_report_summary(analysis_results: list) -> str:
+    """
+    Node 3를 위한 구조화된 요약 보고서 생성 (Node 2 의견 강조)
+    """
+    summary = ""
+    for res in analysis_results:
+        hotspot = res.get('hotspot_info', {})
+        # result_aggregator에서 'analysis_result' 키 사용
+        specialist = res.get('specialist_result', {})
+        conn_type = res.get('connection_type', 'None')
+        
+        if not specialist:
+            summary += f"""
+--- [Spot ID: {hotspot.get('id')}] ---
+1. 발견된 특징 (Node 0 - Detection): {hotspot.get('suspected_feature', 'Unknown')}
+2. 전문가 정밀 분석 (Node 2 - Specialist): 
+   - 분석 불가 또는 특이사항 없음 ({conn_type})
+-----------------------------------
+"""
+            continue
+
+        summary += f"""
+--- [Spot ID: {hotspot.get('id')}] ---
+1. 발견된 특징 (Node 0 - Detection): {hotspot.get('suspected_feature', 'Unknown')}
+2. 전문가 정밀 분석 (Node 2 - Specialist): 
+   - **시각적 특징:** {specialist.get('visual_description', 'N/A')}
+   - **전문가 판정:** {specialist.get('verdict', 'N/A')} (신뢰도: {specialist.get('confidence', 0)}%)
+   - **판정 근거:** {specialist.get('reasoning', 'N/A')}
+-----------------------------------
+"""
+    return summary
+
+def verdict_node(state: TrackingExpertState) -> Dict[str, Any]:
+    """모든 Hotspot 분석 결과를 종합하여 최종 리포트 생성 (LLM-based Verdict)"""
+    results = state.get("analysis_results", [])
+    
+    if not results:
+        return {
+            "verdict_report": "트래킹 분석 결과 특이사항이 없습니다. (No Hotspots Detected)",
+            "verdict_confidence": 0,
+            "verdict_result": {}
+        }
+    
+    # 1. Report Summary 작성 (LLM 입력용)
+    report_summary = format_report_summary(results)
+    
+    # Max Confidence 찾기 (대표 결과 선정용)
+    max_confidence = 0
+    best_result = {}
+    
+    for res in results:
+        h_info = res.get("hotspot_info", {})
+        c_type = res.get("connection_type", "None")
+        s_res = res.get("analysis_result", {})
+        
+        conf = 0
+        if c_type != "None" and s_res:
+            conf = s_res.get("confidence", 0)
+        elif h_info:
+            conf = h_info.get("severity_score", 0) * 0.5
+            
+        if conf > max_confidence:
+            max_confidence = conf
+            best_result = s_res
+    
+    # 2. LLM 호출
+    prompt = get_final_verdict_prompt(report_summary)
+    response_text, thinking_info = call_gemini_text(
+        prompt=prompt,
+        step_name="Tracking Verdict",
+        verbose=True
+    )
+    
+    # 3. 결과 파싱
+    llm_result = parse_json_response(response_text)
+    
+    # 4. 최종 리포트 구성
+    conclusion = llm_result.get("conclusion", "판독 불가")
+    probability = llm_result.get("probability", "None")
+    key_evidence = llm_result.get("key_evidence", [])
+    reasoning = llm_result.get("reasoning", "")
+    
+    # 최종 리포트 문자열 생성
+    final_report_lines = [
+        "[Tracking 전문가 최종 판정]",
+        f"## 결론: {conclusion} ({probability})",
+        "",
+        "## 핵심 증거",
+    ]
+    for ev in key_evidence:
+        final_report_lines.append(f"- {ev}")
+    
+    final_report_lines.append("")
+    final_report_lines.append("## 종합 소견")
+    final_report_lines.append(reasoning)
+    
+    # 디버깅용 정보
+    final_report_lines.append("")
+    final_report_lines.append("---")
+    final_report_lines.append(f"(분석된 Spot 수: {len(results)}개, 최고 신뢰도: {max_confidence}%)")
+    
+    # 신뢰도 보정
+    final_confidence = 0
+    if "High" in probability:
+        final_confidence = max(80, max_confidence)
+    elif "Medium" in probability:
+        final_confidence = max(50, max_confidence)
+    else:
+        final_confidence = max_confidence
+        
     return {
-        "messages": step_messages,
-        "tracking_step3_result": step_result,
-        "image_path": updated_image_path
+        "verdict_report": "\n".join(final_report_lines),
+        "verdict_confidence": final_confidence,
+        "verdict_result": best_result # 대표 결과는 여전히 가장 점수 높은 Spot의 정보
     }

@@ -146,3 +146,79 @@ def save_image_safe(image: np.ndarray, output_path: str, quality: int = 95) -> N
     # 인코딩된 이미지를 파일로 저장 (한글 경로 지원)
     encoded_img.tofile(output_path)
 
+def crop_roi_from_box(
+    image_path: str, 
+    box_2d: list, 
+    output_path: Optional[str] = None,
+    padding_ratio: float = 0.1
+) -> str:
+    """
+    box_2d 좌표(0~1000 정규화)를 사용하여 ROI 크롭
+    
+    Args:
+        image_path: 원본 이미지 경로
+        box_2d: [ymin, xmin, ymax, xmax] (0~1000 정규화)
+        output_path: 출력 경로 (None이면 임시 파일 생성)
+        padding_ratio: 패딩 비율 (기본값: 0.1 = 10%)
+    
+    Returns:
+        크롭된 이미지 경로
+        
+    Note:
+        - box_2d가 [0,0,0,0]이거나 유효하지 않으면 원본 경로 반환
+        - 좌표는 0~1000 범위로 정규화되어 있다고 가정
+        - 변환 공식: x_pixel = xmin / 1000 * img_width
+    """
+    import tempfile
+    
+    # 유효하지 않은 box_2d 체크
+    if not box_2d or len(box_2d) != 4:
+        return image_path
+    
+    ymin, xmin, ymax, xmax = box_2d
+    
+    # [0,0,0,0] 체크 (None 케이스)
+    if ymin == 0 and xmin == 0 and ymax == 0 and xmax == 0:
+        return image_path
+    
+    # 좌표 유효성 체크
+    if xmin >= xmax or ymin >= ymax:
+        return image_path
+    
+    # 이미지 로드
+    img = load_image_safe(image_path)
+    img_height, img_width = img.shape[:2]
+    
+    # 정규화된 좌표(0~1000)를 픽셀 좌표로 변환
+    x1_pixel = int(xmin / 1000.0 * img_width)
+    y1_pixel = int(ymin / 1000.0 * img_height)
+    x2_pixel = int(xmax / 1000.0 * img_width)
+    y2_pixel = int(ymax / 1000.0 * img_height)
+    
+    # 패딩 계산
+    width = x2_pixel - x1_pixel
+    height = y2_pixel - y1_pixel
+    padding_x = int(width * padding_ratio)
+    padding_y = int(height * padding_ratio)
+    
+    # 패딩 적용 (이미지 경계 내에서)
+    x1_pixel = max(0, x1_pixel - padding_x)
+    y1_pixel = max(0, y1_pixel - padding_y)
+    x2_pixel = min(img_width, x2_pixel + padding_x)
+    y2_pixel = min(img_height, y2_pixel + padding_y)
+    
+    # ROI 크롭
+    cropped_img = img[y1_pixel:y2_pixel, x1_pixel:x2_pixel]
+    
+    # 출력 경로 설정
+    if output_path is None:
+        # 임시 파일 생성
+        ext = Path(image_path).suffix
+        fd, output_path = tempfile.mkstemp(suffix=ext, prefix="roi_crop_")
+        os.close(fd)
+    
+    # 크롭된 이미지 저장
+    save_image_safe(cropped_img, output_path)
+    
+    return output_path
+

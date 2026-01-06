@@ -118,14 +118,14 @@ def should_use_react_agent_contact_step4(state: InvestigationState) -> Literal["
     
     return "finalize"
 
-# Dielectric Expert 조건부 엣지 함수들
-def should_use_react_agent_dielectric_step1(state: InvestigationState) -> Literal["react_agent", "step2_swelling"]:
+# Aging Expert 조건부 엣지 함수들
+def should_use_react_agent_aging_step1(state: InvestigationState) -> Literal["react_agent", "step2_swelling"]:
     """
-    Dielectric Expert Step1 후 react_agent 호출 여부 결정
+    Aging Expert Step1 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step1_result = state.get("dielectric_step1_result", {})
+    step1_result = state.get("aging_step1_result", {})
     
     if step1_result.get("error"):
         return "step2_swelling"
@@ -138,13 +138,13 @@ def should_use_react_agent_dielectric_step1(state: InvestigationState) -> Litera
     
     return "step2_swelling"
 
-def should_use_react_agent_dielectric_step2(state: InvestigationState) -> Literal["react_agent", "step3_global_aging"]:
+def should_use_react_agent_aging_step2(state: InvestigationState) -> Literal["react_agent", "step3_global_aging"]:
     """
-    Dielectric Expert Step2 후 react_agent 호출 여부 결정
+    Aging Expert Step2 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step2_result = state.get("dielectric_step2_result", {})
+    step2_result = state.get("aging_step2_result", {})
     
     if step2_result.get("error"):
         return "step3_global_aging"
@@ -157,13 +157,13 @@ def should_use_react_agent_dielectric_step2(state: InvestigationState) -> Litera
     
     return "step3_global_aging"
 
-def should_use_react_agent_dielectric_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
+def should_use_react_agent_aging_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """
-    Dielectric Expert Step3 후 react_agent 호출 여부 결정
+    Aging Expert Step3 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step3_result = state.get("dielectric_step3_result", {})
+    step3_result = state.get("aging_step3_result", {})
     
     if step3_result.get("error"):
         return "finalize"
@@ -176,14 +176,14 @@ def should_use_react_agent_dielectric_step3(state: InvestigationState) -> Litera
     
     return "finalize"
 
-# Mechanical Expert 조건부 엣지 함수들
-def should_use_react_agent_mechanical_step1(state: InvestigationState) -> Literal["react_agent", "step2_splaying"]:
+# Deform Expert 조건부 엣지 함수들
+def should_use_react_agent_deform_step1(state: InvestigationState) -> Literal["react_agent", "step2_splaying"]:
     """
-    Mechanical Expert Step1 후 react_agent 호출 여부 결정
+    Deform Expert Step1 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step1_result = state.get("mechanical_step1_result", {})
+    step1_result = state.get("deform_step1_result", {})
     
     if step1_result.get("error"):
         return "step2_splaying"
@@ -196,13 +196,13 @@ def should_use_react_agent_mechanical_step1(state: InvestigationState) -> Litera
     
     return "step2_splaying"
 
-def should_use_react_agent_mechanical_step2(state: InvestigationState) -> Literal["react_agent", "step3_confinement"]:
+def should_use_react_agent_deform_step2(state: InvestigationState) -> Literal["react_agent", "step3_confinement"]:
     """
-    Mechanical Expert Step2 후 react_agent 호출 여부 결정
+    Deform Expert Step2 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step2_result = state.get("mechanical_step2_result", {})
+    step2_result = state.get("deform_step2_result", {})
     
     if step2_result.get("error"):
         return "step3_confinement"
@@ -215,13 +215,13 @@ def should_use_react_agent_mechanical_step2(state: InvestigationState) -> Litera
     
     return "step3_confinement"
 
-def should_use_react_agent_mechanical_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
+def should_use_react_agent_deform_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """
-    Mechanical Expert Step3 후 react_agent 호출 여부 결정
+    Deform Expert Step3 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step3_result = state.get("mechanical_step3_result", {})
+    step3_result = state.get("deform_step3_result", {})
     
     if step3_result.get("error"):
         return "finalize"
@@ -292,14 +292,14 @@ def should_use_react_agent_tracking_step3(state: InvestigationState) -> Literal[
     
     return "finalize"
 
-# StrandFracture Expert 조건부 엣지 함수들
-def should_use_react_agent_strand_fracture_step1(state: InvestigationState) -> Literal["react_agent", "step2_bead_distribution"]:
+# Necking Expert 조건부 엣지 함수들
+def should_use_react_agent_necking_step1(state: InvestigationState) -> Literal["react_agent", "step2_bead_distribution"]:
     """
-    StrandFracture Expert Step1 후 react_agent 호출 여부 결정
+    Necking Expert Step1 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step1_result = state.get("strand_fracture_step1_result", {})
+    step1_result = state.get("necking_step1_result", {})
     
     if step1_result.get("error"):
         return "step2_bead_distribution"
@@ -312,13 +312,13 @@ def should_use_react_agent_strand_fracture_step1(state: InvestigationState) -> L
     
     return "step2_bead_distribution"
 
-def should_use_react_agent_strand_fracture_step2(state: InvestigationState) -> Literal["react_agent", "step3_fatigue"]:
+def should_use_react_agent_necking_step2(state: InvestigationState) -> Literal["react_agent", "step3_fatigue"]:
     """
-    StrandFracture Expert Step2 후 react_agent 호출 여부 결정
+    Necking Expert Step2 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step2_result = state.get("strand_fracture_step2_result", {})
+    step2_result = state.get("necking_step2_result", {})
     
     if step2_result.get("error"):
         return "step3_fatigue"
@@ -331,13 +331,13 @@ def should_use_react_agent_strand_fracture_step2(state: InvestigationState) -> L
     
     return "step3_fatigue"
 
-def should_use_react_agent_strand_fracture_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
+def should_use_react_agent_necking_step3(state: InvestigationState) -> Literal["react_agent", "finalize"]:
     """
-    StrandFracture Expert Step3 후 react_agent 호출 여부 결정
+    Necking Expert Step3 후 react_agent 호출 여부 결정
     
     Step 결과가 불확실하거나 신뢰도가 낮을 때 react_agent 호출
     """
-    step3_result = state.get("strand_fracture_step3_result", {})
+    step3_result = state.get("necking_step3_result", {})
     
     if step3_result.get("error"):
         return "finalize"
@@ -349,4 +349,3 @@ def should_use_react_agent_strand_fracture_step3(state: InvestigationState) -> L
         return "react_agent"
     
     return "finalize"
-

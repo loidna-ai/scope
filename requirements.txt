@@ -5,8 +5,10 @@ opencv-python-headless>=4.8.0
 basicsr>=1.4.2
 realesrgan>=0.3.0
 scikit-image>=0.22.0
-numpy>=1.24.0
+numpy<2.0.0
 pillow>=10.0.0
+torch>=2.0.0
+torchvision<=0.16.1
 torch>=2.0.0
 torchvision>=0.15.0
 matplotlib>=3.7.0

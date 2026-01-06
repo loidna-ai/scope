@@ -164,39 +164,6 @@ class InvestigationState(TypedDict):
     # 에러 수집
     errors: Annotated[List[str], operator.add]
     
-    # Contact 전문가 Step별 중간 결과 (서브그래프 내부 사용)
-    contact_step1_result: Optional[dict]
-    contact_step2_result: Optional[dict]
-    contact_step3_result: Optional[dict]
-    contact_step4_result: Optional[dict]
-    
-    # Dielectric 전문가 Step별 중간 결과 (서브그래프 내부 사용)
-    dielectric_step1_result: Optional[dict]
-    dielectric_step2_result: Optional[dict]
-    dielectric_step3_result: Optional[dict]
-    
-    # Mechanical 전문가 Step별 중간 결과 (서브그래프 내부 사용)
-    mechanical_step1_result: Optional[dict]
-    mechanical_step2_result: Optional[dict]
-    mechanical_step3_result: Optional[dict]
-    
-    # StrandFracture 전문가 Step별 중간 결과 (서브그래프 내부 사용)
-    strand_fracture_step1_result: Optional[dict]
-    strand_fracture_step2_result: Optional[dict]
-    strand_fracture_step3_result: Optional[dict]
-    
-    # Tracking 전문가 Step별 중간 결과 (서브그래프 내부 사용)
-    tracking_step1_result: Optional[dict]
-    tracking_step2_result: Optional[dict]
-    tracking_step3_result: Optional[dict]
-    
-    # 이미지 캐시 (서브그래프별 독립 캐시 - 각 서브그래프가 독립적으로 관리)
-    contact_cached_image_data: Annotated[Optional[bytes], keep_last_bytes]  # Contact 전문가 서브그래프 캐시
-    dielectric_cached_image_data: Annotated[Optional[bytes], keep_last_bytes]  # Dielectric 전문가 서브그래프 캐시
-    mechanical_cached_image_data: Annotated[Optional[bytes], keep_last_bytes]  # Mechanical 전문가 서브그래프 캐시
-    tracking_cached_image_data: Annotated[Optional[bytes], keep_last_bytes]  # Tracking 전문가 서브그래프 캐시
-    strand_fracture_cached_image_data: Annotated[Optional[bytes], keep_last_bytes]  # StrandFracture 전문가 서브그래프 캐시
-    
     # ReAct 에이전트 메시지 히스토리 (도구 사용 과정 추적)
     react_agent_messages: Annotated[Optional[List[Dict[str, Any]]], keep_last_list]  # ReAct 에이전트의 전체 메시지 히스토리 (마지막 값만 유지)
     
@@ -221,4 +188,3 @@ class ReActState(MessagesState):
     # 추가 컨텍스트 (선택적)
     task: Optional[str]  # 수행할 작업 설명
     context: Optional[Dict[str, Any]]  # 컨텍스트 정보
-

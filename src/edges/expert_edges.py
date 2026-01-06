@@ -21,9 +21,9 @@ def add_contact_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step4_surface", "finalize")
     builder.add_edge("finalize", END)
 
-def add_dielectric_expert_edges(builder: StateGraph) -> None:
+def add_aging_expert_edges(builder: StateGraph) -> None:
     """
-    Dielectric 전문가 서브그래프에 엣지를 추가합니다.
+    Aging 전문가 서브그래프에 엣지를 추가합니다.
     
     그래프 구조:
     START -> step1_carbonization -> step2_swelling -> step3_global_aging -> finalize -> END
@@ -37,9 +37,9 @@ def add_dielectric_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step3_global_aging", "finalize")
     builder.add_edge("finalize", END)
 
-def add_mechanical_expert_edges(builder: StateGraph) -> None:
+def add_deform_expert_edges(builder: StateGraph) -> None:
     """
-    Mechanical 전문가 서브그래프에 엣지를 추가합니다.
+    Deform 전문가 서브그래프에 엣지를 추가합니다.
     
     그래프 구조:
     START -> step1_deformation -> step2_splaying -> step3_confinement -> finalize -> END
@@ -69,9 +69,9 @@ def add_tracking_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step3_erosion", "finalize")
     builder.add_edge("finalize", END)
 
-def add_strand_fracture_expert_edges(builder: StateGraph) -> None:
+def add_necking_expert_edges(builder: StateGraph) -> None:
     """
-    StrandFracture 전문가 서브그래프에 엣지를 추가합니다.
+    Necking 전문가 서브그래프에 엣지를 추가합니다.
     
     그래프 구조:
     START -> step1_tip_morphology -> step2_bead_distribution -> step3_fatigue -> finalize -> END
@@ -84,4 +84,3 @@ def add_strand_fracture_expert_edges(builder: StateGraph) -> None:
     builder.add_edge("step2_bead_distribution", "step3_fatigue")
     builder.add_edge("step3_fatigue", "finalize")
     builder.add_edge("finalize", END)
-

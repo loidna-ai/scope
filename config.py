@@ -4,7 +4,7 @@
 """
 
 # Real-ESRGAN 설정
-SR_SCALE = 4  # 초해상도 확대 배율
+SR_SCALE = 2  # 초해상도 확대 배율
 MODEL_PATH = "weights/RealESRGAN_x4plus.pth"  # 모델 가중치 경로
 
 # CLAHE 필터 설정

@@ -20,10 +20,10 @@ from src.nodes.arbiter_node import node_arbiter
 from src.edges.investigation_edges import add_investigation_edges
 from src.edges.preprocessing_edges import add_preprocessing_edges
 from src.graphs.contact_expert_graph import contact_expert_wrapper_node
-from src.graphs.dielectric_expert_graph import dielectric_expert_wrapper_node
-from src.graphs.mechanical_expert_graph import mechanical_expert_wrapper_node
+from src.graphs.aging_expert_graph import aging_expert_wrapper_node
+from src.graphs.deform_expert_graph import deform_expert_wrapper_node
 from src.graphs.tracking_expert_graph import tracking_expert_wrapper_node
-from src.graphs.strand_fracture_expert_graph import strand_fracture_expert_wrapper_node
+from src.graphs.necking_expert_graph import necking_expert_wrapper_node
 
 def build_graph() -> StateGraph:
     """
@@ -75,7 +75,7 @@ def build_investigation_graph() -> StateGraph:
     - 래퍼 노드를 통해 InvestigationState와 연결
     
     그래프 구조:
-    START → [contact, dielectric, mechanical, tracking, strand_fracture] (병렬)
+    START → [contact, aging, deform, tracking, necking] (병렬)
          → chief_investigator → END
     
     Returns:
@@ -85,10 +85,10 @@ def build_investigation_graph() -> StateGraph:
     
     # 전문가 래퍼 노드 추가 (ReAct 패턴 서브그래프를 InvestigationState와 연결)
     builder.add_node("contact", contact_expert_wrapper_node)
-    builder.add_node("dielectric", dielectric_expert_wrapper_node)
-    builder.add_node("mechanical", mechanical_expert_wrapper_node)
+    builder.add_node("aging", aging_expert_wrapper_node)
+    builder.add_node("deform", deform_expert_wrapper_node)
     builder.add_node("tracking", tracking_expert_wrapper_node)
-    builder.add_node("strand_fracture", strand_fracture_expert_wrapper_node)
+    builder.add_node("necking", necking_expert_wrapper_node)
     
     # Arbiter Agent 노드 추가
     builder.add_node("chief_investigator", node_arbiter)
@@ -108,7 +108,7 @@ def build_investigation_graph_with_react() -> StateGraph:
     - 래퍼 노드를 통해 InvestigationState와 연결
     
     그래프 구조:
-    START → [contact, dielectric, mechanical, tracking, strand_fracture] (병렬)
+    START → [contact, aging, deform, tracking, necking] (병렬)
          → chief_investigator → END
     
     Returns:
@@ -118,10 +118,10 @@ def build_investigation_graph_with_react() -> StateGraph:
     
     # 전문가 래퍼 노드 추가 (ReAct 패턴 서브그래프를 InvestigationState와 연결)
     builder.add_node("contact", contact_expert_wrapper_node)
-    builder.add_node("dielectric", dielectric_expert_wrapper_node)
-    builder.add_node("mechanical", mechanical_expert_wrapper_node)
+    builder.add_node("aging", aging_expert_wrapper_node)
+    builder.add_node("deform", deform_expert_wrapper_node)
     builder.add_node("tracking", tracking_expert_wrapper_node)
-    builder.add_node("strand_fracture", strand_fracture_expert_wrapper_node)
+    builder.add_node("necking", necking_expert_wrapper_node)
     
     # Arbiter Agent 노드 추가
     builder.add_node("chief_investigator", node_arbiter)
@@ -157,12 +157,6 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
         "expert_evidence": {},  # Annotated[dict, merge_dicts]이므로 빈 dict로 초기화
         "final_verdict": None,
         "errors": [],
-        # 각 서브그래프별 독립 캐시 초기화
-        "contact_cached_image_data": None,
-        "dielectric_cached_image_data": None,
-        "mechanical_cached_image_data": None,
-        "tracking_cached_image_data": None,
-        "strand_fracture_cached_image_data": None
     }
     
     invoke_start_time = time.time()

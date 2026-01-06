@@ -1,19 +1,28 @@
 """
 향상 노드
-Real-ESRGAN을 사용하여 이미지를 4배 초해상도로 향상시킵니다.
+Real-ESRGAN을 사용하여 이미지를 2배 초해상도로 향상시킵니다.
 """
 from typing import Dict, Any
 import os
 import cv2
 import numpy as np
 import torch
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
-from src.state import GraphState
-import config
+import torch
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    from basicsr.archs.rrdbnet_arch import RRDBNet
+    from realesrgan import RealESRGANer
+    HAS_REALESRGAN = True
+except ImportError:
+    HAS_REALESRGAN = False
+    RealESRGANer = None
+    RRDBNet = None
+    logger.warning("RealESRGANer or BasicSR not available (ImportError). Image enhancement will use simple resizing.")
+from src.state import GraphState
+import config
 
 class ImageEnhancer:
     """Real-ESRGAN 기반 이미지 향상 클래스"""
@@ -28,7 +37,9 @@ class ImageEnhancer:
         if model_path is None:
             model_path = config.MODEL_PATH
         
-        self.upscaler = self._load_model(model_path)
+        self.upscaler = None
+        if HAS_REALESRGAN:
+            self.upscaler = self._load_model(model_path)
     
     def _load_model(self, model_path: str) -> RealESRGANer:
         """
@@ -58,7 +69,7 @@ class ImageEnhancer:
             num_feat=64, 
             num_block=23, 
             num_grow_ch=32, 
-            scale=config.SR_SCALE
+            scale=4
         )
         
         # 디바이스 설정
@@ -83,9 +94,11 @@ class ImageEnhancer:
             img: 입력 이미지 (BGR 형식)
         
         Returns:
-            향상된 이미지 (4배 확대)
+            향상된 이미지 (2배 확대)
         """
         try:
+            if self.upscaler is None:
+                raise ImportError("RealESRGANer not initialized")
             output, _ = self.upscaler.enhance(img, outscale=config.SR_SCALE)
             return output
         except Exception as e:
