@@ -1,6 +1,6 @@
 """
 화재조사 AI 멀티 에이전트 시스템 메인 실행 파일
-Updated Workflow: Sequential Multi-Agent ReAct Architecture
+Updated Workflow: Fan-In/Fan-Out Multi-Agent Parallel Architecture
 """
 import sys
 import json
@@ -121,11 +121,13 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
         return
 
     # 2. 분석 실행
-    print("\n[2단계] 멀티 에이전트 협업 분석 시작")
-    print("  - 5인의 전문가 에이전트가 각자의 영역을 분석합니다.")
-    print("    (Contact, Dielectric, Mechanical, StrandFracture, Tracking)")
-    print("  - 각 에이전트는 ReAct 패턴을 사용하여 도구를 능동적으로 활용합니다.")
-    print("  - 수석 조사관(Arbiter)이 모든 분석을 종합하여 최종 결론을 내립니다.")
+    print("\n[2단계] 멀티 에이전트 병렬 분석 시작")
+    print("  - Hotspot Detector가 관심 영역을 탐지합니다.")
+    print("  - 5인의 전문가 에이전트가 병렬로 동시에 분석합니다. (Fan-Out)")
+    print("    (Contact, Aging, Deform, Necking, Tracking)")
+    print("  - 각 전문가는 독립적인 서브그래프로 동작하며 Map-Reduce 패턴을 사용합니다.")
+    print("  - 모든 분석 결과를 수집합니다. (Fan-In)")
+    print("  - 수석 조사관(Arbiter)이 종합하여 최종 결론을 도출합니다.")
     
     try:
         # 핵심 로직 호출
@@ -228,7 +230,7 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
 
 def main():
     parser = argparse.ArgumentParser(
-        description="화재조사 AI 멀티 에이전트 시스템 (Sequential Multi-Agent ReAct)"
+        description="화재조사 AI 멀티 에이전트 시스템 (Fan-In/Fan-Out Parallel Multi-Agent)"
     )
     parser.add_argument("image_path", nargs="?", help="분석할 이미지 파일 경로")
     parser.add_argument("--query", type=str, default="", help="사용자 질문 (현재 미사용)")

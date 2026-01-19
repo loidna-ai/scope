@@ -9,13 +9,12 @@ from langgraph.graph import StateGraph, START, END
 from src.state import InvestigationState
 from src.nodes.contact_nodes import (
     ContactExpertState,
-    hotspot_detector_node,
     hotspot_manager_node,
     roi_crop_node,
     component_classifier_node,
-    terminal_node,
-    splice_node,
-    plug_node,
+    contact_terminal_node,
+    contact_splice_node,
+    contact_plug_node,
     result_aggregator_node,
     verdict_node
 )
@@ -29,18 +28,18 @@ def route_loop_manager(state: ContactExpertState) -> Literal["process", "end"]:
         return "process"
     return "end"
 
-def route_component_type(state: ContactExpertState) -> Literal["terminal", "splice", "plug", "none"]:
+def route_component_type(state: ContactExpertState) -> Literal["contact_terminal", "contact_splice", "contact_plug", "none"]:
     """
     Component Classification 분기
     """
     conn_type = state.get("connection_type", "None")
     
     if "Terminal" in conn_type or "단자" in conn_type:
-        return "terminal"
+        return "contact_terminal"
     elif "Splice" in conn_type or "전선" in conn_type:
-        return "splice"
+        return "contact_splice"
     elif "Plug" in conn_type or "플러그" in conn_type:
-        return "plug"
+        return "contact_plug"
     
     return "none"
 
@@ -49,22 +48,20 @@ def build_contact_expert_graph():
     builder = StateGraph(ContactExpertState)
     
     # 노드 추가
-    builder.add_node("hotspot_detector", hotspot_detector_node)
     builder.add_node("hotspot_manager", hotspot_manager_node)
     builder.add_node("roi_crop", roi_crop_node)
     builder.add_node("component_classifier", component_classifier_node)
     
-    builder.add_node("terminal", terminal_node)
-    builder.add_node("splice", splice_node)
-    builder.add_node("plug", plug_node)
+    builder.add_node("contact_terminal", contact_terminal_node)
+    builder.add_node("contact_splice", contact_splice_node)
+    builder.add_node("contact_plug", contact_plug_node)
     
     builder.add_node("result_aggregator", result_aggregator_node)
     builder.add_node("verdict", verdict_node)
     
     # 엣지 연결
-    # 1. Start -> Detector -> Manager
-    builder.add_edge(START, "hotspot_detector")
-    builder.add_edge("hotspot_detector", "hotspot_manager")
+    # 1. Start -> Manager (hotspots는 메인 그래프에서 전달받음)
+    builder.add_edge(START, "hotspot_manager")
     
     # 2. Manager Loop Control
     builder.add_conditional_edges(
@@ -84,17 +81,17 @@ def build_contact_expert_graph():
         "component_classifier",
         route_component_type,
         {
-            "terminal": "terminal",
-            "splice": "splice",
-            "plug": "plug",
+            "contact_terminal": "contact_terminal",
+            "contact_splice": "contact_splice",
+            "contact_plug": "contact_plug",
             "none": "result_aggregator" # None도 결과를 기록해야 함
         }
     )
     
     # 5. Specialist -> Aggregator
-    builder.add_edge("terminal", "result_aggregator")
-    builder.add_edge("splice", "result_aggregator")
-    builder.add_edge("plug", "result_aggregator")
+    builder.add_edge("contact_terminal", "result_aggregator")
+    builder.add_edge("contact_splice", "result_aggregator")
+    builder.add_edge("contact_plug", "result_aggregator")
     
     # 6. Aggregator -> Manager (Loop Back)
     builder.add_edge("result_aggregator", "hotspot_manager")
@@ -105,51 +102,68 @@ def build_contact_expert_graph():
     return builder.compile()
 
 def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Dict[str, Any]]):
-    import tempfile
-    
-    # 원본 임시 파일 삭제
-    if temp_image_path and os.path.exists(temp_image_path):
-        try:
+    """임시 파일 정리"""
+    try:
+        # 1. 원본 임시 파일 삭제
+        if temp_image_path and os.path.exists(temp_image_path):
             os.remove(temp_image_path)
+    except Exception:
+        pass
+
+    if not final_state:
+        return
+
+    # 2. Loop 과정에서 생성된 모든 ROI 파일 정리
+    analysis_results = final_state.get("analysis_results", [])
+    for res in analysis_results:
+        roi_path = res.get("roi_image_path")
+        if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
+            try:
+                os.remove(roi_path)
+            except Exception:
+                pass
+    
+    # 3. State에 마지막으로 남아있는 ROI 경로 정리 (Fallback)
+    last_roi_path = final_state.get("roi_image_path")
+    if last_roi_path and last_roi_path != temp_image_path and os.path.exists(last_roi_path):
+        try:
+            os.remove(last_roi_path)
         except Exception:
             pass
-            
-    # Loop 과정에서 생성된 ROI 파일들 정리 (Best Effort)
-    # analysis_results에 있는 roi 경로 추적 가능성 있음?
-    # 일단 state에 마지막으로 남은 roi_image_path만이라도 정리
-    if final_state:
-        roi_path = final_state.get("roi_image_path")
-        if roi_path and os.path.exists(roi_path) and roi_path != temp_image_path:
-             try:
-                os.remove(roi_path)
-             except Exception:
-                pass
 
 
 def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
-    import json
-    import time
     temp_image_path = None
     final_state = None
     try:
         
-        image_data = extract_image_from_payload(state.get("payload", []))
-        if image_data is None:
-            return {
-                "errors": ["Contact 전문가: 이미지를 추출할 수 없습니다."],
-                "expert_reports": [],
-                "expert_analysis_results": {},
-                "expert_confidence_scores": {},
-                "expert_evidence": {}
-            }
+        # [Memory Optimization] Shared Image Path Check
+        shared_image_path = state.get("image_path")
+        should_cleanup_input = False
         
+        if shared_image_path and os.path.exists(shared_image_path):
+            temp_image_path = shared_image_path
+        else:
+            # Fallback for legacy payload
+            image_data = extract_image_from_payload(state.get("payload", []))
+            if image_data is None:
+                return {
+                    "errors": ["Contact 전문가: 이미지를 추출할 수 없습니다."],
+                    "expert_reports": [],
+                    "expert_analysis_results": {},
+                    "expert_confidence_scores": {},
+                    "expert_evidence": {}
+                }
+            temp_image_path = save_bytes_to_temp_file(image_data)
+            should_cleanup_input = True
         
-        temp_image_path = save_bytes_to_temp_file(image_data)
+        # InvestigationState에서 공통 hotspots 읽기
+        hotspots = state.get("hotspots", [])
         
         initial_state: ContactExpertState = {
             "messages": [],
             "image_path": temp_image_path,
-            "hotspots": [],
+            "hotspots": hotspots,  # 메인 그래프에서 생성된 공통 hotspots 사용
             "hotspot_queue": None, # Manager가 초기화함
             "analysis_results": [],
             
@@ -160,7 +174,10 @@ def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "connection_type": None,
             "terminal_result": None,
             "splice_result": None,
-            "plug_result": None
+            "plug_result": None,
+            "verdict_report": None,
+            "verdict_confidence": None,
+            "verdict_result": None
         }
         
         
@@ -207,4 +224,17 @@ def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "expert_evidence": {}
         }
     finally:
-        _cleanup_temp_files(temp_image_path, final_state)
+        # 입력 파일이 우리가 직접 생성한 경우(Fallback)에만 정리
+        if should_cleanup_input:
+            _cleanup_temp_files(temp_image_path, final_state)
+        # Shared Path인 경우, ROI 파일들만 정리 (입력 파일 제외)
+        elif final_state:
+             # _cleanup_temp_files 로직을 일부 차용하되 입력 파일 삭제 방지
+            analysis_results = final_state.get("analysis_results", [])
+            for res in analysis_results:
+                roi_path = res.get("roi_image_path")
+                if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
+                    try:
+                        os.remove(roi_path)
+                    except Exception:
+                        pass

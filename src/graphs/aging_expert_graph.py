@@ -10,7 +10,6 @@ from langgraph.graph import StateGraph, START, END
 from src.state import InvestigationState
 from src.nodes.aging_nodes import (
     AgingExpertState,
-    hotspot_detector_node,
     hotspot_manager_node,
     roi_crop_node,
     component_classifier_node,
@@ -27,7 +26,7 @@ def route_loop_manager(state: AgingExpertState) -> Literal["process", "end"]:
         return "process"
     return "end"
 
-def route_component_type(state: AgingExpertState) -> Literal["wire", "plug", "none"]:
+def route_component_type(state: AgingExpertState) -> Literal["wire", "pcb", "none"]:
     """Component Type에 따른 Specialist 분기"""
     conn_type = state.get("connection_type", "None")
     
@@ -46,7 +45,6 @@ def build_aging_expert_graph():
     """Aging 전문가 서브그래프 빌드"""
     builder = StateGraph(AgingExpertState)
     
-    builder.add_node("hotspot_detector", hotspot_detector_node)
     builder.add_node("hotspot_manager", hotspot_manager_node)
     builder.add_node("roi_crop", roi_crop_node)
     builder.add_node("component_classifier", component_classifier_node)
@@ -59,8 +57,8 @@ def build_aging_expert_graph():
     builder.add_node("verdict", verdict_node)
     
     # Edges
-    builder.add_edge(START, "hotspot_detector")
-    builder.add_edge("hotspot_detector", "hotspot_manager")
+    # Start -> Manager (hotspots는 메인 그래프에서 전달받음)
+    builder.add_edge(START, "hotspot_manager")
     
     builder.add_conditional_edges(
         "hotspot_manager",
@@ -89,41 +87,66 @@ def build_aging_expert_graph():
     return builder.compile()
 
 def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Dict[str, Any]]):
-    if temp_image_path and os.path.exists(temp_image_path):
-        try:
+    """임시 파일 정리"""
+    try:
+        # 1. 원본 임시 파일 삭제
+        if temp_image_path and os.path.exists(temp_image_path):
             os.remove(temp_image_path)
+    except Exception:
+        pass
+
+    if not final_state:
+        return
+
+    # 2. Loop 과정에서 생성된 모든 ROI 파일 정리
+    # analysis_results에 저장된 ROI 경로들
+    analysis_results = final_state.get("analysis_results", [])
+    for res in analysis_results:
+        roi_path = res.get("roi_image_path")
+        if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
+            try:
+                os.remove(roi_path)
+            except Exception:
+                pass
+    
+    # 3. State에 마지막으로 남아있는 ROI 경로 정리 (Fallback)
+    last_roi_path = final_state.get("roi_image_path")
+    if last_roi_path and last_roi_path != temp_image_path and os.path.exists(last_roi_path):
+        try:
+            os.remove(last_roi_path)
         except Exception:
             pass
-    if final_state:
-        # Loop에서 생성된 ROI 파일들 정리 (Best Effort)
-        roi_path = final_state.get("roi_image_path")
-        if roi_path and os.path.exists(roi_path) and roi_path != temp_image_path:
-             try:
-                os.remove(roi_path)
-             except Exception:
-                pass
 
 def aging_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
     import traceback
     temp_image_path = None
     final_state = None
     try:
-        image_data = extract_image_from_payload(state.get("payload", []))
-        if image_data is None:
-            return {
-                "errors": ["Aging 전문가: 이미지를 추출할 수 없습니다."],
-                "expert_reports": [],
-                "expert_analysis_results": {},
-                "expert_confidence_scores": {},
-                "expert_evidence": {}
-            }
-            
-        temp_image_path = save_bytes_to_temp_file(image_data)
+        shared_image_path = state.get("image_path")
+        should_cleanup_input = False
+        
+        if shared_image_path and os.path.exists(shared_image_path):
+            temp_image_path = shared_image_path
+        else:
+            image_data = extract_image_from_payload(state.get("payload", []))
+            if image_data is None:
+                return {
+                    "errors": ["Aging 전문가: 이미지를 추출할 수 없습니다."],
+                    "expert_reports": [],
+                    "expert_analysis_results": {},
+                    "expert_confidence_scores": {},
+                    "expert_evidence": {}
+                }
+            temp_image_path = save_bytes_to_temp_file(image_data)
+            should_cleanup_input = True
+        
+        # InvestigationState에서 공통 hotspots 읽기
+        hotspots = state.get("hotspots", [])
         
         initial_state: AgingExpertState = {
             "messages": [],
             "image_path": temp_image_path,
-            "hotspots": [],
+            "hotspots": hotspots,  # 메인 그래프에서 생성된 공통 hotspots 사용
             "hotspot_queue": None,
             "analysis_results": [],
             "current_hotspot": None,
@@ -177,4 +200,16 @@ def aging_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "expert_evidence": {}
         }
     finally:
-        _cleanup_temp_files(temp_image_path, final_state)
+        # 입력 파일이 우리가 직접 생성한 경우(Fallback)에만 정리
+        if should_cleanup_input:
+            _cleanup_temp_files(temp_image_path, final_state)
+        elif final_state:
+            # Shared Path인 경우, ROI 파일들만 정리
+            analysis_results = final_state.get("analysis_results", [])
+            for res in analysis_results:
+                roi_path = res.get("roi_image_path")
+                if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
+                    try:
+                        os.remove(roi_path)
+                    except Exception:
+                        pass

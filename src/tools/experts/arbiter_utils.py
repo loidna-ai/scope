@@ -266,14 +266,14 @@ def resolve_conflict_tracking_vs_aging(
     if luster_detected and graphitization:
         # 흑연 광택이 있으면 트래킹 우선
         adjusted_tracking = tracking_score * 1.2
-        adjusted_dielectric = dielectric_score * 0.8
+        adjusted_aging = aging_score * 0.8
         
         return {
             "resolved": True,
             "priority": "tracking",
             "adjusted_scores": {
                 "tracking": adjusted_tracking,
-                "aging": adjusted_dielectric
+                "aging": adjusted_aging
             },
             "reason": "흑연 광택은 트래킹의 강력한 증거이므로 절연열화(Aging)보다 우선순위가 높습니다."
         }
@@ -283,7 +283,7 @@ def resolve_conflict_tracking_vs_aging(
         "priority": None,
         "adjusted_scores": {
             "tracking": tracking_score,
-            "aging": dielectric_score
+            "aging": aging_score
         },
         "reason": "상충 없음"
     }

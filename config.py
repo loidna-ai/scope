@@ -29,3 +29,22 @@ DILATION_ITERATIONS = 2  # Dilation 반복 횟수
 # Arbiter Agent 설정
 ARBITER_CONFIDENCE_THRESHOLD = 0.6  # 전문가 신뢰도 평균 임계값 (60%). 이 값 미만일 경우 판단 불가(UNDETERMINED) 상태로 처리
 
+# === Analysis Configuration ===
+# Hotspot 선정 개수 설정
+TOP_N_HOTSPOTS = 5  # 각 Expert가 분석할 최대 Hotspot 개수 (기본값: 5)
+                     # 값이 클수록: 더 많은 증거 수집, 높은 비용/시간
+                     # 값이 작을수록: 빠른 처리, 낮은 비용, 증거 누락 위험
+
+# API Rate Limit 방지
+API_CALL_DELAY = 1.5  # Hotspot 간 대기 시간 (초)
+                      # Gemini API RPM 제한 방지용
+                      # 값이 클수록: 안정적이나 느림
+                      # 값이 작을수록: 빠르나 Rate Limit 위험
+
+# Media Resolution 설정
+MEDIA_RESOLUTION_DEFAULT = "MEDIA_RESOLUTION_HIGH"  # 기본값: HIGH 해상도
+                                                      # 옵션: MEDIA_RESOLUTION_LOW, MEDIA_RESOLUTION_MEDIUM,
+                                                      #       MEDIA_RESOLUTION_HIGH, MEDIA_RESOLUTION_ULTRA_HIGH
+MEDIA_RESOLUTION_ULTRA_HIGH_ENABLED = False  # ULTRA_HIGH 사용 여부 (향후 구현)
+                                              # True로 설정 시 특정 중요 Hotspot에만 ULTRA_HIGH 적용 가능
+                                              # 참고: ULTRA_HIGH는 비용이 2배 증가 (1120 → 2240 tokens/이미지)

@@ -5,8 +5,16 @@ from typing import Dict, Any, Optional, List, Annotated
 import json
 import os
 import operator
+import cv2
+import numpy as np
 
-from langgraph.graph import MessagesState
+from config import TOP_N_HOTSPOTS
+
+from src.utils import crop_roi_from_box
+from src.nodes.enhancement import ImageEnhancer
+
+
+
 from src.tools.experts.expert_utils import (
     call_gemini_vision,
     parse_json_response,
@@ -14,7 +22,6 @@ from src.tools.experts.expert_utils import (
     _load_image_data
 )
 from src.prompts.common_prompts import (
-    get_multi_hotspot_prompt,
     get_component_classifier_prompt
 )
 from src.prompts.contact_expert_prompts import (
@@ -25,74 +32,13 @@ from src.prompts.contact_expert_prompts import (
 )
 
 
-class ContactExpertState(MessagesState):
-    """
-    Contact Expert ReAct State
-    """
-    # 원본 이미지
-    image_path: Optional[str]
-    
-    # Phase 1: Hotspot Detection
-    hotspots: Optional[List[Dict[str, Any]]]  # Node 0 결과 (전체 리스트)
-    hotspot_queue: Optional[List[Dict[str, Any]]]  # 처리 대기중인 Hotspots
-    
-    # Loop Context
-    current_hotspot: Optional[Dict[str, Any]]  # 현재 처리 중인 Hotspot
-    detector_result: Optional[Dict[str, Any]]  # 호환성을 위해 current_hotspot 정보를 매핑
-    roi_image_path: Optional[str]  # 현재 ROI 이미지
-    connection_type: Optional[str]  # 현재 Crop의 분류 결과
-    
-    # Analysis Results
-    terminal_result: Optional[Dict[str, Any]]
-    splice_result: Optional[Dict[str, Any]]
-    plug_result: Optional[Dict[str, Any]]
-    
-    # Final Aggregation
-    analysis_results: Annotated[List[Dict[str, Any]], operator.add]  # 최종 결과 리스트 누적
-    
-    # Verdict Results
-    verdict_report: Optional[str]
-    verdict_confidence: Optional[int]
-    verdict_result: Optional[Dict[str, Any]]
-
-
+from src.states.contact_state import ContactExpertState
 
 # --------------------------------------------------------------------------------
 # 새 워크플로우 노드 구현
 # --------------------------------------------------------------------------------
 
-def hotspot_detector_node(state: ContactExpertState) -> Dict[str, Any]:
-    """Node 0: Hotspot Detector"""
-    image_path = state.get("image_path")
-    if not image_path:
-        return {"hotspots": []}
-    
-    print(f"\n📡 [Hotspot Detector] 다중 발화 지점 탐색 시작... (이미지: {image_path})")
-    
-    try:
-        image_data = _load_image_data(image_path)
-    except Exception as e:
-        print(f"Error loading image: {e}")
-        return {"hotspots": []}
-    
-    prompt = get_multi_hotspot_prompt(image_path)
-    response_text, _ = call_gemini_vision(prompt, image_data, "Hotspot Detector", verbose=True, temperature=0.0)
-    
-    result = parse_json_response(response_text)
-    hotspots = result.get("hotspots", [])
-    
-    # [Fix] Schema Mismatch Correction
-    for h in hotspots:
-        if "damage_type" not in h and "suspected_feature" in h:
-            h["damage_type"] = h["suspected_feature"]
-        if "severity_score" not in h:
-            h["severity_score"] = 50 
-            
-    print(f"✅ [Hotspot Detector] 발견된 Hotspots: {len(hotspots)}개")
-    for h in hotspots:
-        print(f"   - ID {h.get('id')}: {h.get('damage_type')} (Score: {h.get('severity_score')})")
-        
-    return {"hotspots": hotspots}
+# hotspot_detector_node는 이제 src/nodes/common_nodes.py에서 공통으로 사용됩니다.
 
 def hotspot_manager_node(state: ContactExpertState) -> Dict[str, Any]:
     """
@@ -107,14 +53,21 @@ def hotspot_manager_node(state: ContactExpertState) -> Dict[str, Any]:
     # 1. 초기화 로직 (큐가 없으면 생성)
     if queue is None:
         print("\n⚖️ [Hotspot Manager] Hotspot 우선순위 정렬 및 Top-N 선별")
+        # severity_score 0인 hotspot 제외 (분석 불가 상태)
+        valid_hotspots = [h for h in hotspots if h.get("severity_score", 0) > 0]
+        if len(valid_hotspots) < len(hotspots):
+            excluded_count = len(hotspots) - len(valid_hotspots)
+            excluded_ids = [h.get('id') for h in hotspots if h.get("severity_score", 0) == 0]
+            print(f"⏭️ [Hotspot Manager] severity_score 0인 Hotspot {excluded_count}개 제외: {excluded_ids}")
+        
         # Score 내림차순 정렬
         sorted_hotspots = sorted(
-            hotspots, 
+            valid_hotspots, 
             key=lambda x: x.get("severity_score", 0), 
             reverse=True
         )
-        # Top 3 선별
-        queue = sorted_hotspots[:3]
+        # Top N 선별 (config.py에서 설정)
+        queue = sorted_hotspots[:TOP_N_HOTSPOTS]
         print(f"✅ 선별된 Hotspots: {[h.get('id') for h in queue]}")
         
         # 첫 번째 Hotspot 바로 Pop (Loop 시작을 위해)
@@ -175,10 +128,6 @@ def roi_crop_node(state: ContactExpertState) -> Dict[str, Any]:
     detector_result(current_hotspot)에서 box_2d 추출하여 크롭
     후처리로 2배 초해상도 향상 적용
     """
-    from src.utils import crop_roi_from_box
-    from src.nodes.enhancement import enhancement_node
-    import cv2
-    import numpy as np
     
     detector_result = state.get("detector_result")
     image_path = state.get("image_path")
@@ -204,7 +153,6 @@ def roi_crop_node(state: ContactExpertState) -> Dict[str, Any]:
                 
             # 2. Enhancement Node 직접 호출 (State 구성 불필요)
             # ImageEnhancer 클래스 직접 사용이 더 깔끔할 수 있으나, 기존 구조 활용
-            from src.nodes.enhancement import ImageEnhancer
             enhancer = ImageEnhancer()
             enhanced_img = enhancer.upscale(cropped_img)
             
@@ -215,6 +163,8 @@ def roi_crop_node(state: ContactExpertState) -> Dict[str, Any]:
         except Exception as enh_err:
              print(f"⚠️ Enhancement Failed: {enh_err}")
              # 향상 실패해도 원본 크롭 이미지는 유지됨
+
+
              
         return {"roi_image_path": cropped_path}
     except Exception as e:
@@ -250,7 +200,9 @@ def component_classifier_node(state: ContactExpertState) -> Dict[str, Any]:
         prompt, 
         image_payload, 
         "Component Classifier", 
-        temperature=0.0
+        temperature=0.0,
+        thinking_level="high",
+        media_resolution="MEDIA_RESOLUTION_HIGH"
     )
     result = parse_json_response(response_text)
     
@@ -263,62 +215,96 @@ def component_classifier_node(state: ContactExpertState) -> Dict[str, Any]:
     print(f"👁️ [Observation] {visual_description}")
     print(f"✅ 판별 결과: {deduced_type} (신뢰도: {confidence}%)")
     
-    # [Standardization] raw deduced_type 사용 (Normalization 제거)
-    # 기존 코드: conn_type_norm = "None" ...
-    # 변경: Deduced Type 그대로 사용
+    # Deduced Type 그대로 사용
         
     return {
         "connection_type": deduced_type,
         "classifier_result": result
     }
 
-def terminal_node(state: ContactExpertState) -> Dict[str, Any]:
-    roi_image_path = state.get("roi_image_path")
-    print(f"\n🔧 [Terminal Specialist] 정밀 분석 수행...")
-    
-    # Dual Image Load
-    roi_image_data = _load_image_data(roi_image_path)
+def contact_terminal_node(state: ContactExpertState) -> Dict[str, Any]:
+    """Node 3A: Terminal Analysis (Loose Connection)"""
+    print(f"\n⚡ [Contact] Terminal Analysis (Dual Input: Context + Detail)")
+    roi_path = state.get("roi_image_path")
     original_image_path = state.get("image_path")
-    original_image_data = _load_image_data(original_image_path) if original_image_path else roi_image_data
     
-    prompt = get_terminal_prompt(roi_image_path)
-    # 순서: [Original(Context), Crop(Detail)]
-    response_text, _ = call_gemini_vision(prompt, [original_image_data, roi_image_data], "Terminal Analysis", verbose=True)
-    result = parse_json_response(response_text)
+    prompt = get_terminal_prompt(roi_path)
     
-    return {"terminal_result": result}
+    try:
+        roi_data = _load_image_data(roi_path)
+        original_data = _load_image_data(original_image_path)
+        image_payload = [original_data, roi_data]
+        
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_payload, 
+            "Contact Terminal Specialist", 
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
+        result = parse_json_response(response_text)
+        return {"terminal_result": result, "specialist_result": result}
+    except Exception as e:
+        print(f"⚠️ Terminal Specialist Error: {e}")
+        return {"terminal_result": {}, "specialist_result": {}}
 
-def splice_node(state: ContactExpertState) -> Dict[str, Any]:
-    roi_image_path = state.get("roi_image_path")
-    print(f"\n🔗 [Splice Specialist] 정밀 분석 수행...")
-    
-    # Dual Image Load
-    roi_image_data = _load_image_data(roi_image_path)
+def contact_splice_node(state: ContactExpertState) -> Dict[str, Any]:
+    """Node 3B: Splice Analysis (Twist/Sleeve)"""
+    print(f"\n⚡ [Contact] Splice Analysis (Dual Input: Context + Detail)")
+    roi_path = state.get("roi_image_path")
     original_image_path = state.get("image_path")
-    original_image_data = _load_image_data(original_image_path) if original_image_path else roi_image_data
     
-    prompt = get_splice_prompt(roi_image_path)
-    # 순서: [Original(Context), Crop(Detail)]
-    response_text, _ = call_gemini_vision(prompt, [original_image_data, roi_image_data], "Splice Analysis", verbose=True)
-    result = parse_json_response(response_text)
+    prompt = get_splice_prompt(roi_path)
     
-    return {"splice_result": result}
+    try:
+        roi_data = _load_image_data(roi_path)
+        original_data = _load_image_data(original_image_path)
+        image_payload = [original_data, roi_data]
+        
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_payload, 
+            "Contact Splice Specialist", 
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
+        result = parse_json_response(response_text)
+        return {"splice_result": result, "specialist_result": result}
+    except Exception as e:
+        print(f"⚠️ Splice Specialist Error: {e}")
+        return {"splice_result": {}, "specialist_result": {}}
 
-def plug_node(state: ContactExpertState) -> Dict[str, Any]:
-    roi_image_path = state.get("roi_image_path")
-    print(f"\n🔌 [Plug Specialist] 정밀 분석 수행...")
-    
-    # Dual Image Load
-    roi_image_data = _load_image_data(roi_image_path)
+def contact_plug_node(state: ContactExpertState) -> Dict[str, Any]:
+    """Node 3C: Plug/Socket Analysis (Spring/Blade)"""
+    print(f"\n⚡ [Contact] Plug Analysis (Dual Input: Context + Detail)")
+    roi_path = state.get("roi_image_path")
     original_image_path = state.get("image_path")
-    original_image_data = _load_image_data(original_image_path) if original_image_path else roi_image_data
     
-    prompt = get_plug_prompt(roi_image_path)
-    # 순서: [Original(Context), Crop(Detail)]
-    response_text, _ = call_gemini_vision(prompt, [original_image_data, roi_image_data], "Plug Analysis", verbose=True)
-    result = parse_json_response(response_text)
+    prompt = get_plug_prompt(roi_path)
     
-    return {"plug_result": result}
+    try:
+        roi_data = _load_image_data(roi_path)
+        original_data = _load_image_data(original_image_path)
+        image_payload = [original_data, roi_data]
+        
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_payload, 
+            "Contact Plug Specialist", 
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
+        result = parse_json_response(response_text)
+        return {"plug_result": result, "specialist_result": result} 
+    except Exception as e:
+        print(f"⚠️ Plug Specialist Error: {e}")
+        return {"plug_result": {}, "specialist_result": {}}
     
 def result_aggregator_node(state: ContactExpertState) -> Dict[str, Any]:
     """
@@ -423,7 +409,9 @@ def verdict_node(state: ContactExpertState) -> Dict[str, Any]:
     response_text, thinking_info = call_gemini_text(
         prompt=prompt,
         step_name="Contact Verdict",
-        verbose=True
+        verbose=True,
+        temperature=1.0,
+        thinking_level="high"
     )
     
     # 3. 결과 파싱

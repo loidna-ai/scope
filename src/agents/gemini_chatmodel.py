@@ -121,7 +121,6 @@ class GeminiChatModel(BaseChatModel):
             max_output_tokens=2048, # 충분한 길이 확보
             response_mime_type=user_config.response_mime_type if user_config and hasattr(user_config, "response_mime_type") else "text/plain",
             thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
                 thinking_level="medium"
             ),
             system_instruction=react_system_instruction,

@@ -10,6 +10,21 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+
+# MediaResolution enum import
+try:
+    MediaResolution = types.MediaResolution
+    # Check if ULTRA_HIGH is available (experimental feature)
+    _has_ultra_high = hasattr(MediaResolution, 'MEDIA_RESOLUTION_ULTRA_HIGH')
+except AttributeError:
+    # Fallback if enum is not available
+    class MediaResolution:
+        MEDIA_RESOLUTION_UNSPECIFIED = "MEDIA_RESOLUTION_UNSPECIFIED"
+        MEDIA_RESOLUTION_LOW = "MEDIA_RESOLUTION_LOW"
+        MEDIA_RESOLUTION_MEDIUM = "MEDIA_RESOLUTION_MEDIUM"
+        MEDIA_RESOLUTION_HIGH = "MEDIA_RESOLUTION_HIGH"
+        MEDIA_RESOLUTION_ULTRA_HIGH = "MEDIA_RESOLUTION_HIGH"  # Fallback to HIGH
+    _has_ultra_high = False
 # from src.tools.experts.system_instructions import SYSTEM_INSTRUCTION
 
 # .env 파일 로드
@@ -126,7 +141,14 @@ def call_gemini_vision(
     image_data: list[bytes] | bytes, 
     step_name: str = "",
     verbose: bool = False,
-    temperature: float = None
+    temperature: float = None,
+    thinking_level: str = "medium",
+    media_resolution: str | types.MediaResolution = None,
+    model_name: str = None,
+    safety_settings: Optional[List[Dict[str, str]]] = None,
+    top_p: float = None,
+    max_output_tokens: int = None,
+    response_mime_type: str = None
 ) -> tuple[str, Optional[Dict]]:
     """
     Gemini Vision API 호출 및 에러 핸들링
@@ -139,6 +161,14 @@ def call_gemini_vision(
         image_data: 이미지 바이트 데이터 (단일 bytes 또는 bytes 리스트)
         step_name: 단계 이름 (로깅용)
         verbose: 상세 로그 출력 여부
+        temperature: 온도 파라미터 (기본값: None, 이 경우 0.7 사용)
+        thinking_level: 추론 레벨 ("high", "medium", "low", "minimal") 기본값: "medium"
+        media_resolution: 이미지 해상도 ("MEDIA_RESOLUTION_ULTRA_HIGH", "MEDIA_RESOLUTION_HIGH", etc.) 기본값: None
+        model_name: 사용할 모델 이름 (기본값: None, 이 경우 전역 MODEL_NAME 사용)
+        safety_settings: 안전 설정 리스트 (기본값: None, 이 경우 사용 안 함)
+        top_p: Top-p 샘플링 파라미터 (기본값: None, 이 경우 사용 안 함)
+        max_output_tokens: 최대 출력 토큰 수 (기본값: None, 이 경우 사용 안 함)
+        response_mime_type: 응답 MIME 타입 (기본값: None, 이 경우 사용 안 함)
         
     Returns:
         tuple: (response_text, thinking_info)
@@ -148,57 +178,167 @@ def call_gemini_vision(
         error_msg = f"❌ [{step_name}] Client가 초기화되지 않았습니다."
         return f"Error: {error_msg}", None
 
-    try:
-        # contents 구성
-        contents = [prompt]
-        
-        # image_data가 리스트가 아니면 리스트로 변환
-        if not isinstance(image_data, list):
-            image_data = [image_data]
+    # 🔥 Retry Logic with Exponential Backoff
+    MAX_RETRIES = 3
+    response = None
+    
+    for retry_attempt in range(MAX_RETRIES):
+        try:
+            # contents 구성
+            contents = [prompt]
             
-        # 각 이미지 처리
-        for img_bytes in image_data:
-            if not img_bytes:
-                continue
+            # image_data가 리스트가 아니면 리스트로 변환
+            if not isinstance(image_data, list):
+                image_data = [image_data]
                 
-            # 이미지 MIME 타입 자동 감지 (PNG/JPEG)
-            if len(img_bytes) >= 4 and img_bytes[:4] == b'\x89PNG':
-                mime_type = "image/png"
-            elif len(img_bytes) >= 3 and img_bytes[:3] == b'\xff\xd8\xff':
-                mime_type = "image/jpeg"
-            else:
-                mime_type = "image/png"  # 기본값
+            # 각 이미지 처리
+            for img_bytes in image_data:
+                if not img_bytes:
+                    continue
+                    
+                # 이미지 MIME 타입 자동 감지 (PNG/JPEG)
+                if len(img_bytes) >= 4 and img_bytes[:4] == b'\x89PNG':
+                    mime_type = "image/png"
+                elif len(img_bytes) >= 3 and img_bytes[:3] == b'\xff\xd8\xff':
+                    mime_type = "image/jpeg"
+                else:
+                    mime_type = "image/png"  # 기본값
+                
+                # Base64 인코딩
+                image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                
+                # contents에 이미지 파트 추가
+                contents.append({
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": image_base64
+                    }
+                })
             
-            # Base64 인코딩
-            image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+            # 최신 SDK 방식: Client를 사용하여 콘텐츠 생성
+            # Config 구성
+            config_params = {
+                "temperature": temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7),
+                "thinking_config": types.ThinkingConfig(
+                    thinking_level=thinking_level
+                )
+            }
             
-            # contents에 이미지 파트 추가
-            contents.append({
-                "inline_data": {
-                    "mime_type": mime_type,
-                    "data": image_base64
-                }
-            })
-        
-        # 최신 SDK 방식: Client를 사용하여 콘텐츠 생성
-        config_with_system = types.GenerateContentConfig(
-            temperature=temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7),
-            # system_instruction=SYSTEM_INSTRUCTION, # Removed per user request
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_level="medium"
+            # top_p가 지정된 경우 추가
+            if top_p is not None:
+                config_params["top_p"] = top_p
+            
+            # max_output_tokens가 지정된 경우 추가
+            if max_output_tokens is not None:
+                config_params["max_output_tokens"] = max_output_tokens
+            
+            # response_mime_type이 지정된 경우 추가
+            if response_mime_type is not None:
+                config_params["response_mime_type"] = response_mime_type
+            
+            # media_resolution이 지정된 경우에만 추가
+            if media_resolution:
+                # 문자열을 enum으로 변환
+                if isinstance(media_resolution, str):
+                    # 문자열을 MediaResolution enum 값으로 변환
+                    # "high" 문자열도 지원 (Gemini 3 Pro 가이드)
+                    resolution_map = {
+                        "high": MediaResolution.MEDIA_RESOLUTION_HIGH,  # Gemini 3 Pro 가이드 형식
+                        "MEDIA_RESOLUTION_LOW": MediaResolution.MEDIA_RESOLUTION_LOW,
+                        "MEDIA_RESOLUTION_MEDIUM": MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+                        "MEDIA_RESOLUTION_HIGH": MediaResolution.MEDIA_RESOLUTION_HIGH,
+                        "MEDIA_RESOLUTION_ULTRA_HIGH": getattr(
+                            MediaResolution, 
+                            'MEDIA_RESOLUTION_ULTRA_HIGH', 
+                            MediaResolution.MEDIA_RESOLUTION_HIGH  # Fallback if not available
+                        ),
+                    }
+                    config_params["media_resolution"] = resolution_map.get(media_resolution, MediaResolution.MEDIA_RESOLUTION_HIGH)
+                else:
+                    config_params["media_resolution"] = media_resolution
+            
+            # safety_settings가 지정된 경우에만 추가
+            if safety_settings is not None:
+                config_params["safety_settings"] = safety_settings
+            
+            config_with_system = types.GenerateContentConfig(**config_params)
+            
+            # 모델 이름 결정: 파라미터로 전달된 경우 사용, 없으면 전역 MODEL_NAME 사용
+            used_model_name = model_name if model_name else MODEL_NAME
+            
+            call_start_time = time.time()
+            response = client.models.generate_content(
+                model=used_model_name,
+                contents=contents,
+                config=config_with_system
             )
-        )
-        
-        call_start_time = time.time()
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=contents,
-            config=config_with_system
-        )
-        call_duration_ms = (time.time() - call_start_time) * 1000
-        
-        
+            call_duration_ms = (time.time() - call_start_time) * 1000
+            
+            # Rate Limit 헤더 모니터링 (있는 경우)
+            if verbose:
+                # Gemini SDK 응답 객체에서 헤더 접근 시도
+                # SDK 버전에 따라 헤더 접근 방식이 다를 수 있음
+                try:
+                    # 일반적인 헤더 접근 방식들 시도
+                    headers = None
+                    if hasattr(response, 'headers'):
+                        headers = response.headers
+                    elif hasattr(response, '_headers'):
+                        headers = response._headers
+                    elif hasattr(response, 'metadata') and hasattr(response.metadata, 'headers'):
+                        headers = response.metadata.headers
+                    
+                    if headers:
+                        # 딕셔너리 형태인 경우
+                        if isinstance(headers, dict):
+                            rate_limit_remaining = headers.get('X-RateLimit-Remaining') or headers.get('x-ratelimit-remaining')
+                            rate_limit_reset = headers.get('X-RateLimit-Reset') or headers.get('x-ratelimit-reset')
+                            rate_limit_limit = headers.get('X-RateLimit-Limit') or headers.get('x-ratelimit-limit')
+                        else:
+                            # 다른 형태의 헤더 객체인 경우
+                            rate_limit_remaining = getattr(headers, 'X-RateLimit-Remaining', None) or getattr(headers, 'x-ratelimit-remaining', None)
+                            rate_limit_reset = getattr(headers, 'X-RateLimit-Reset', None) or getattr(headers, 'x-ratelimit-reset', None)
+                            rate_limit_limit = getattr(headers, 'X-RateLimit-Limit', None) or getattr(headers, 'x-ratelimit-limit', None)
+                        
+                        if rate_limit_remaining is not None:
+                            print(f"📊 [Rate Limit] Remaining: {rate_limit_remaining}/{rate_limit_limit or 'N/A'}")
+                            if rate_limit_reset:
+                                print(f"📊 [Rate Limit] Reset at: {rate_limit_reset}")
+                except Exception as header_err:
+                    # 헤더 접근 실패는 무시 (SDK 버전 차이로 인한 정상적인 경우)
+                    pass
+            
+            # 성공 시 루프 탈출
+            break
+            
+        except Exception as e:
+            error_msg = str(e)
+            # 재시도 가능한 오류 판별
+            is_retriable = any(code in error_msg for code in ["503", "429", "UNAVAILABLE", "overloaded"])
+            
+            if is_retriable and retry_attempt < MAX_RETRIES - 1:
+                import random
+                wait_time = 2 ** retry_attempt  # 1초, 2초, 4초
+                jitter = random.uniform(0, wait_time * 0.1)  # 최대 10% 랜덤 추가
+                total_wait = wait_time + jitter
+                print(f"⚠️ [{step_name}] Retry {retry_attempt + 1}/{MAX_RETRIES}: {error_msg}")
+                print(f"⏰ Waiting {total_wait:.2f}s (base: {wait_time}s + jitter: {jitter:.2f}s)...")
+                time.sleep(total_wait)
+            else:
+                # 재시도 불가능하거나 최종 실패
+                error_msg = f"❌ [{step_name}] API 호출 오류: {e}"
+                if verbose:
+                    import traceback
+                    traceback.print_exc()
+                return f"Error: {error_msg}", None
+    
+    # 모든 재시도 실패
+    if response is None:
+        error_msg = f"❌ [{step_name}] All retries exhausted"
+        return f"Error: {error_msg}", None
+    
+    # 정상 응답 처리
+    try:
         # Thinking 과정 추출 및 출력
         thinking_info = None
         response_text = ""
@@ -236,7 +376,7 @@ def call_gemini_vision(
         executed_thought = ""
         if hasattr(response, 'candidates') and response.candidates:
             for candidate in response.candidates:
-                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                if hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts:
                     for part in candidate.content.parts:
                         # part.thought가 존재하는지 확인
                         if hasattr(part, 'thought') and part.thought:
@@ -262,39 +402,41 @@ def call_gemini_vision(
                 # JSON 부분이 response_text에 있다면 출력
                 json_start = response_text.find('{')
                 if json_start >= 0:
-                    print(response_text[json_start:json_start+1000]) # JSON 부분만 출력
+                    print(response_text[json_start:json_start+1000])
                     if len(response_text[json_start:]) > 1000:
                         print(f"... (총 {len(response_text[json_start:])}자)")
                 else:
-                    # JSON을 못 찾았으면 text 전체 출력 (이미 thought는 출력했으므로)
                     print(response_text[:1000])
                     if len(response_text) > 1000:
-                         print(f"... (총 {len(response_text)}자)")
+                        print(f"... (총 {len(response_text)}자)")
 
             # 2. 없으면 기존 방식으로 텍스트에서 파싱 시도
             else:
+                # 마크다운 코드 블록 제거 후 JSON 찾기
+                cleaned_text = response_text.replace("```json", "").replace("```", "").strip()
+                
                 # JSON 시작 전까지의 텍스트 확인 (thinking 과정일 수 있음)
-                json_start = response_text.find('{')
+                json_start = cleaned_text.find('{')
                 if json_start > 0:
-                    thinking_part = response_text[:json_start].strip()
-                    # 마크다운 코드 블록 잔여물 제거 (```json 등)
-                    thinking_part = thinking_part.replace("```json", "").replace("```", "").strip()
+                    thinking_part = cleaned_text[:json_start].strip()
                     
                     if thinking_part:
                         print("📝 [Thinking 과정]:")
                         print(thinking_part)
                         print("\n📄 [JSON 응답]:")
-                        print(response_text[json_start:json_start+500])
-                        if len(response_text[json_start:]) > 500:
-                            print(f"... (총 {len(response_text[json_start:])}자)")
+                        print(cleaned_text[json_start:json_start+500])
+                        if len(cleaned_text[json_start:]) > 500:
+                            print(f"... (총 {len(cleaned_text[json_start:])}자)")
                     else:
-                        print(response_text[:1000])
-                        if len(response_text) > 1000:
-                            print(f"... (총 {len(response_text)}자)")
+                        # thinking이 없고 바로 JSON만 있는 경우
+                        print(cleaned_text[:1000])
+                        if len(cleaned_text) > 1000:
+                            print(f"... (총 {len(cleaned_text)}자)")
                 else:
-                    print(response_text[:1000])
-                    if len(response_text) > 1000:
-                        print(f"... (총 {len(response_text)}자)")
+                    print(cleaned_text[:1000])
+                    if len(cleaned_text) > 1000:
+                        print(f"... (총 {len(cleaned_text)}자)")
+
             print("-" * 60)
         
         # 추출된 Thinking 과정 반환 (JSON 앞부분 텍스트)
@@ -314,8 +456,7 @@ def call_gemini_vision(
 
         return response_text, thinking_info
     except Exception as e:
-        
-        error_msg = f"❌ [{step_name}] API 호출 오류: {e}"
+        error_msg = f"❌ [{step_name}] 응답 처리 오류: {e}"
         if verbose:
             import traceback
             traceback.print_exc()
@@ -351,7 +492,8 @@ def call_gemini_text(
     prompt: str,
     step_name: str = "",
     verbose: bool = False,
-    temperature: float = None
+    temperature: float = None,
+    thinking_level: str = "medium"
 ) -> tuple[str, Optional[Dict]]:
     """
     Gemini Text API 호출 및 에러 핸들링 (이미지 없이 텍스트만)
@@ -360,6 +502,8 @@ def call_gemini_text(
         prompt: 분석 프롬프트
         step_name: 단계 이름 (로깅용)
         verbose: 상세 로그 출력 여부
+        temperature: 온도 파라미터 (기본값: None, 이 경우 0.7 사용)
+        thinking_level: 추론 레벨 ("high", "medium", "low", "minimal") 기본값: "medium"
         
     Returns:
         tuple: (response_text, thinking_info)
@@ -369,25 +513,94 @@ def call_gemini_text(
         error_msg = f"❌ [{step_name}] Client가 초기화되지 않았습니다."
         return f"Error: {error_msg}", None
 
-    try:
-        # 시스템 인스트럭션을 config에 포함
-        config_with_system = types.GenerateContentConfig(
-            temperature=temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7),
-            # system_instruction=SYSTEM_INSTRUCTION, # Removed per user request
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_level="medium"
+    # 🔥 Retry Logic with Exponential Backoff
+    MAX_RETRIES = 3
+    response = None
+    
+    for retry_attempt in range(MAX_RETRIES):
+        try:
+            # 시스템 인스트럭션을 config에 포함
+            config_with_system = types.GenerateContentConfig(
+                temperature=temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7),
+                # system_instruction=SYSTEM_INSTRUCTION, # Removed per user request
+                thinking_config=types.ThinkingConfig(
+                    thinking_level=thinking_level
+                )
             )
-        )
-        
-        call_start_time = time.time()
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=[prompt],
-            config=config_with_system
-        )
-        call_duration_ms = (time.time() - call_start_time) * 1000
-        
+            
+            call_start_time = time.time()
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=[prompt],
+                config=config_with_system
+            )
+            call_duration_ms = (time.time() - call_start_time) * 1000
+            
+            # Rate Limit 헤더 모니터링 (있는 경우)
+            if verbose:
+                # Gemini SDK 응답 객체에서 헤더 접근 시도
+                # SDK 버전에 따라 헤더 접근 방식이 다를 수 있음
+                try:
+                    # 일반적인 헤더 접근 방식들 시도
+                    headers = None
+                    if hasattr(response, 'headers'):
+                        headers = response.headers
+                    elif hasattr(response, '_headers'):
+                        headers = response._headers
+                    elif hasattr(response, 'metadata') and hasattr(response.metadata, 'headers'):
+                        headers = response.metadata.headers
+                    
+                    if headers:
+                        # 딕셔너리 형태인 경우
+                        if isinstance(headers, dict):
+                            rate_limit_remaining = headers.get('X-RateLimit-Remaining') or headers.get('x-ratelimit-remaining')
+                            rate_limit_reset = headers.get('X-RateLimit-Reset') or headers.get('x-ratelimit-reset')
+                            rate_limit_limit = headers.get('X-RateLimit-Limit') or headers.get('x-ratelimit-limit')
+                        else:
+                            # 다른 형태의 헤더 객체인 경우
+                            rate_limit_remaining = getattr(headers, 'X-RateLimit-Remaining', None) or getattr(headers, 'x-ratelimit-remaining', None)
+                            rate_limit_reset = getattr(headers, 'X-RateLimit-Reset', None) or getattr(headers, 'x-ratelimit-reset', None)
+                            rate_limit_limit = getattr(headers, 'X-RateLimit-Limit', None) or getattr(headers, 'x-ratelimit-limit', None)
+                        
+                        if rate_limit_remaining is not None:
+                            print(f"📊 [Rate Limit] Remaining: {rate_limit_remaining}/{rate_limit_limit or 'N/A'}")
+                            if rate_limit_reset:
+                                print(f"📊 [Rate Limit] Reset at: {rate_limit_reset}")
+                except Exception as header_err:
+                    # 헤더 접근 실패는 무시 (SDK 버전 차이로 인한 정상적인 경우)
+                    pass
+            
+            # 성공 시 루프 탈출
+            break
+            
+        except Exception as e:
+            error_msg = str(e)
+            # 재시도 가능한 오류 판별
+            is_retriable = any(code in error_msg for code in ["503", "429", "UNAVAILABLE", "overloaded"])
+            
+            if is_retriable and retry_attempt < MAX_RETRIES - 1:
+                import random
+                wait_time = 2 ** retry_attempt  # 1초, 2초, 4초
+                jitter = random.uniform(0, wait_time * 0.1)  # 최대 10% 랜덤 추가
+                total_wait = wait_time + jitter
+                print(f"⚠️ [{step_name}] Retry {retry_attempt + 1}/{MAX_RETRIES}: {error_msg}")
+                print(f"⏰ Waiting {total_wait:.2f}s (base: {wait_time}s + jitter: {jitter:.2f}s)...")
+                time.sleep(total_wait)
+            else:
+                # 재시도 불가능하거나 최종 실패
+                error_msg = f"❌ [{step_name}] API 호출 오류: {e}"
+                if verbose:
+                    import traceback
+                    traceback.print_exc()
+                return f"Error: {error_msg}", None
+    
+    # 모든 재시도 실패
+    if response is None:
+        error_msg = f"❌ [{step_name}] All retries exhausted"
+        return f"Error: {error_msg}", None
+    
+    # 정상 응답 처리
+    try:
         # Thinking 과정 추출 및 출력 (Vision 함수와 동일 로직)
         thinking_info = None
         response_text = ""
@@ -421,7 +634,7 @@ def call_gemini_text(
         executed_thought = ""
         if hasattr(response, 'candidates') and response.candidates:
             for candidate in response.candidates:
-                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                if hasattr(candidate, 'content') and candidate.content and hasattr(candidate.content, 'parts') and candidate.content.parts:
                     for part in candidate.content.parts:
                         # part.thought가 존재하는지 확인
                         if hasattr(part, 'thought') and part.thought:
@@ -492,7 +705,7 @@ def call_gemini_text(
 
         return response_text, thinking_info
     except Exception as e:
-        error_msg = f"❌ [{step_name}] API 호출 오류: {e}"
+        error_msg = f"❌ [{step_name}] 응답 처리 오류: {e}"
         if verbose:
             import traceback
             traceback.print_exc()

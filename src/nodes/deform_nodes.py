@@ -6,7 +6,9 @@ import json
 import os
 from typing import Dict, Any, List, Optional, TypedDict, Annotated
 import operator
+import cv2
 
+from config import TOP_N_HOTSPOTS
 from src.utils import crop_roi_from_box
 from src.nodes.enhancement import ImageEnhancer
 from src.tools.experts.expert_utils import (
@@ -16,7 +18,6 @@ from src.tools.experts.expert_utils import (
     _load_image_data
 )
 from src.prompts.common_prompts import (
-    get_multi_hotspot_prompt,
     get_component_classifier_prompt,
 )
 from src.prompts.deform_expert_prompts import (
@@ -58,37 +59,7 @@ class DeformExpertState(TypedDict):
 
 # --- Nodes ---
 
-def hotspot_detector_node(state: DeformExpertState) -> Dict[str, Any]:
-    """Node 0: Hotspot Detector"""
-    image_path = state.get("image_path")
-    if not image_path:
-        return {"hotspots": []}
-    
-    print(f"\n📡 [Deform/Hotspot Detector] 다중 발화 지점 탐색 시작... (이미지: {image_path})")
-    
-    try:
-        image_data = _load_image_data(image_path)
-    except Exception as e:
-        print(f"Error loading image: {e}")
-        return {"hotspots": []}
-    
-    prompt = get_multi_hotspot_prompt(image_path)
-    response_text, _ = call_gemini_vision(prompt, image_data, "Hotspot Detector", verbose=True, temperature=0.0)
-    
-    result = parse_json_response(response_text)
-    hotspots = result.get("hotspots", [])
-    
-    # Schema Fix
-    for h in hotspots:
-        if "damage_type" not in h and "suspected_feature" in h:
-            h["damage_type"] = h["suspected_feature"]
-        if "severity_score" not in h:
-            h["severity_score"] = 50
-            
-    print(f"✅ [Detector] 발견된 Hotspots: {len(hotspots)}개")
-    for h in hotspots:
-        print(f"   - ID {h.get('id')}: {h.get('damage_type')} (Score: {h.get('severity_score')})")
-    return {"hotspots": hotspots}
+# hotspot_detector_node는 이제 src/nodes/common_nodes.py에서 공통으로 사용됩니다.
 
 def hotspot_manager_node(state: DeformExpertState) -> Dict[str, Any]:
     """Middleware: Hotspot Manager"""
@@ -96,10 +67,17 @@ def hotspot_manager_node(state: DeformExpertState) -> Dict[str, Any]:
     queue = state.get("hotspot_queue")
     
     if queue is None:
-        # 초기화: Score 내림차순 정렬 및 Top 3 선별
+        # 초기화: Score 내림차순 정렬 및 Top N 선별 (config.py에서 설정)
         print("\n⚖️ [Manager] Hotspot 우선순위 정렬")
-        sorted_hotspots = sorted(hotspots, key=lambda x: x.get("severity_score", 0), reverse=True)
-        queue = sorted_hotspots[:3]
+        # severity_score 0인 hotspot 제외 (분석 불가 상태)
+        valid_hotspots = [h for h in hotspots if h.get("severity_score", 0) > 0]
+        if len(valid_hotspots) < len(hotspots):
+            excluded_count = len(hotspots) - len(valid_hotspots)
+            excluded_ids = [h.get('id') for h in hotspots if h.get("severity_score", 0) == 0]
+            print(f"⏭️ [Manager] severity_score 0인 Hotspot {excluded_count}개 제외: {excluded_ids}")
+        
+        sorted_hotspots = sorted(valid_hotspots, key=lambda x: x.get("severity_score", 0), reverse=True)
+        queue = sorted_hotspots[:TOP_N_HOTSPOTS]
         
         if not queue:
              print("\n🏁 [Manager] 처리할 Hotspot이 없습니다.")
@@ -160,13 +138,14 @@ def roi_crop_node(state: DeformExpertState) -> Dict[str, Any]:
         cropped_path = crop_roi_from_box(image_path, box_2d)
         
         # Enhancement
-        import cv2
         cropped_img = cv2.imread(cropped_path)
         if cropped_img is not None:
              enhancer = ImageEnhancer()
              enhanced_img = enhancer.upscale(cropped_img)
              cv2.imwrite(cropped_path, enhanced_img)
              print(f"✨ [Enhancement] 향상 완료")
+
+
              
         return {"roi_image_path": cropped_path}
     except Exception as e:
@@ -188,7 +167,14 @@ def component_classifier_node(state: DeformExpertState) -> Dict[str, Any]:
         return {"connection_type": "None"}
         
     prompt = get_component_classifier_prompt(roi_image_path)
-    response_text, _ = call_gemini_vision(prompt, image_payload, "Component Classifier", temperature=0.0)
+    response_text, _ = call_gemini_vision(
+        prompt, 
+        image_payload, 
+        "Component Classifier", 
+        temperature=0.0,
+        thinking_level="high",
+        media_resolution="MEDIA_RESOLUTION_HIGH"
+    )
     result = parse_json_response(response_text)
     
     deduced_type = result.get("deduced_type", "None")
@@ -209,7 +195,15 @@ def deform_wire_node(state: DeformExpertState) -> Dict[str, Any]:
         original_data = _load_image_data(original_image_path)
         image_payload = [original_data, roi_data]
         
-        response_text, _ = call_gemini_vision(prompt, image_payload, "Deform Wire Specialist", verbose=True)
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_payload, 
+            "Deform Wire Specialist", 
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
         result = parse_json_response(response_text)
         return {"specialist_result": result}
     except Exception as e:
@@ -229,7 +223,15 @@ def deform_plug_node(state: DeformExpertState) -> Dict[str, Any]:
         original_data = _load_image_data(original_image_path)
         image_payload = [original_data, roi_data]
         
-        response_text, _ = call_gemini_vision(prompt, image_payload, "Deform Plug Specialist", verbose=True)
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_payload, 
+            "Deform Plug Specialist", 
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
         result = parse_json_response(response_text)
         return {"specialist_result": result}
     except Exception as e:
@@ -300,7 +302,13 @@ def verdict_node(state: DeformExpertState) -> Dict[str, Any]:
             best_res = s_res
             
     prompt = get_final_verdict_prompt(report_summary)
-    response_text, _ = call_gemini_text(prompt, step_name="Deform Final Verdict", verbose=True)
+    response_text, _ = call_gemini_text(
+        prompt, 
+        step_name="Deform Final Verdict", 
+        verbose=True,
+        temperature=1.0,
+        thinking_level="high"
+    )
     
     llm_result = parse_json_response(response_text)
     

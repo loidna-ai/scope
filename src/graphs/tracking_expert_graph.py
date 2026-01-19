@@ -11,7 +11,6 @@ from langgraph.graph import StateGraph, START, END
 from src.state import InvestigationState
 from src.nodes.tracking_nodes import (
     TrackingExpertState,
-    hotspot_detector_node,
     hotspot_manager_node,
     roi_crop_node,
     component_classifier_node,
@@ -48,7 +47,6 @@ def build_tracking_expert_graph():
     builder = StateGraph(TrackingExpertState)
     
     # 노드 추가
-    builder.add_node("hotspot_detector", hotspot_detector_node)
     builder.add_node("hotspot_manager", hotspot_manager_node)
     builder.add_node("roi_crop", roi_crop_node)
     builder.add_node("component_classifier", component_classifier_node)
@@ -61,9 +59,8 @@ def build_tracking_expert_graph():
     builder.add_node("verdict", verdict_node)
     
     # 엣지 연결
-    # 1. Start -> Detector -> Manager
-    builder.add_edge(START, "hotspot_detector")
-    builder.add_edge("hotspot_detector", "hotspot_manager")
+    # 1. Start -> Manager (hotspots는 메인 그래프에서 전달받음)
+    builder.add_edge(START, "hotspot_manager")
     
     # 2. Manager Loop Control
     builder.add_conditional_edges(
@@ -105,15 +102,32 @@ def build_tracking_expert_graph():
 def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Dict[str, Any]]):
     """임시 파일 정리"""
     try:
+        # 1. 원본 임시 파일 삭제
         if temp_image_path and os.path.exists(temp_image_path):
             os.remove(temp_image_path)
-            
-        if final_state:
-            roi_path = final_state.get("roi_image_path")
-            if roi_path and os.path.exists(roi_path) and roi_path != temp_image_path:
-                os.remove(roi_path)
     except Exception:
         pass
+
+    if not final_state:
+        return
+
+    # 2. Loop 과정에서 생성된 모든 ROI 파일 정리
+    analysis_results = final_state.get("analysis_results", [])
+    for res in analysis_results:
+        roi_path = res.get("roi_image_path")
+        if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
+            try:
+                os.remove(roi_path)
+            except Exception:
+                pass
+    
+    # 3. State에 마지막으로 남아있는 ROI 경로 정리 (Fallback)
+    last_roi_path = final_state.get("roi_image_path")
+    if last_roi_path and last_roi_path != temp_image_path and os.path.exists(last_roi_path):
+        try:
+            os.remove(last_roi_path)
+        except Exception:
+            pass
 
 def tracking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
     """InvestigationState와 전문가 서브그래프를 연결하는 래퍼 노드"""
@@ -121,25 +135,35 @@ def tracking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
     final_state = None
     
     try:
-        # 1. 이미지 추출
-        image_data = extract_image_from_payload(state.get("payload", []))
-        if image_data is None:
-            return {
-                "errors": ["Tracking 전문가: 이미지를 추출할 수 없습니다."],
-                "expert_reports": [],
-                "expert_analysis_results": {},
-                "expert_confidence_scores": {},
-                "expert_evidence": {}
-            }
+        # [Memory Optimization] Shared Image Path Check
+        shared_image_path = state.get("image_path")
+        should_cleanup_input = False
         
-        # 2. 임시 파일 저장
-        temp_image_path = save_bytes_to_temp_file(image_data)
+        if shared_image_path and os.path.exists(shared_image_path):
+            temp_image_path = shared_image_path
+        else:
+            # 1. 이미지 추출 (Fallback)
+            image_data = extract_image_from_payload(state.get("payload", []))
+            if image_data is None:
+                return {
+                    "errors": ["Tracking 전문가: 이미지를 추출할 수 없습니다."],
+                    "expert_reports": [],
+                    "expert_analysis_results": {},
+                    "expert_confidence_scores": {},
+                    "expert_evidence": {}
+                }
+            # 2. 임시 파일 저장
+            temp_image_path = save_bytes_to_temp_file(image_data)
+            should_cleanup_input = True
         
-        # 3. 초기 상태 설정
+        # 3. InvestigationState에서 공통 hotspots 읽기
+        hotspots = state.get("hotspots", [])
+        
+        # 4. 초기 상태 설정
         initial_state: TrackingExpertState = {
             "messages": [],
             "image_path": temp_image_path,
-            "hotspots": [],
+            "hotspots": hotspots,  # 메인 그래프에서 생성된 공통 hotspots 사용
             "hotspot_queue": None,
             "analysis_results": [],
             "current_hotspot": None,
@@ -170,10 +194,8 @@ def tracking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
              visual_desc = verdict_result.get("visual_description", "")
              reasoning = verdict_result.get("reasoning", "")
              if visual_desc or reasoning:
-                 # Contact Expert style matches: evidence field name can be flexible but "Tracking Signs" is a good generic header if specific feature name isn't available easily
-                 # Actually in verdict_node of tracking, it selects 'best_entry'. 
                  evidence.append({
-                     "evidence": "Tracking Signs", # This could be refined if verdict_result has 'feature_name'
+                     "evidence": "Tracking Signs",
                      "details": f"{visual_desc}\n\nReasoning: {reasoning}"
                  })
         
@@ -199,4 +221,15 @@ def tracking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "expert_evidence": {}
         }
     finally:
-        _cleanup_temp_files(temp_image_path, final_state)
+        if should_cleanup_input:
+            _cleanup_temp_files(temp_image_path, final_state)
+        elif final_state:
+            # Shared Path인 경우, ROI 파일들만 정리
+            analysis_results = final_state.get("analysis_results", [])
+            for res in analysis_results:
+                roi_path = res.get("roi_image_path")
+                if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
+                    try:
+                        os.remove(roi_path)
+                    except Exception:
+                        pass

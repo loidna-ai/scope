@@ -1,86 +1,32 @@
 """
-전문가 서브그래프 엣지 정의
-각 전문가의 서브그래프 노드 간 연결을 정의합니다.
+[DEPRECATED] Expert 서브그래프 엣지 정의
+
+⚠️ 이 파일은 더 이상 사용되지 않습니다.
+
+이유:
+- 모든 Expert 그래프가 Map-Reduce 패턴으로 재설계되었습니다.
+- Step-based 노드 구조가 존재하지 않습니다.
+- 각 Expert 그래프가 자체적으로 엣지를 정의합니다.
+
+현재 아키텍처:
+- contact_expert_graph.py: 자체 엣지 정의 (route_loop_manager, route_component_type)
+- aging_expert_graph.py: 자체 엣지 정의 (route_loop_manager, route_component_type)
+- deform_expert_graph.py: 자체 엣지 정의 (route_loop_manager, route_component_type)
+- necking_expert_graph.py: 자체 엣지 정의 (route_loop_manager, route_component_type, route_verdict_debate)
+- tracking_expert_graph.py: 자체 엣지 정의 (route_loop_manager, route_component_type)
+
+Legacy 구조 (더 이상 사용 안 함):
+- START -> step1 -> step2 -> step3 -> finalize -> END
+
+현재 구조:
+- START -> hotspot_manager -> [Loop] -> verdict -> END
+
+백업:
+- expert_edges.py.deprecated (87 lines, 3.15 KB)
+
+변경 일시:
+- 2026-01-15: Map-Reduce 패턴 전환 완료
 """
-from langgraph.graph import START, END, StateGraph
 
-def add_contact_expert_edges(builder: StateGraph) -> None:
-    """
-    Contact 전문가 서브그래프에 엣지를 추가합니다.
-    
-    그래프 구조:
-    START -> step1_location -> step2_spectral -> step3_thermal -> step4_surface -> finalize -> END
-    
-    Args:
-        builder: StateGraph 빌더 객체
-    """
-    builder.add_edge(START, "step1_location")
-    builder.add_edge("step1_location", "step2_spectral")
-    builder.add_edge("step2_spectral", "step3_thermal")
-    builder.add_edge("step3_thermal", "step4_surface")
-    builder.add_edge("step4_surface", "finalize")
-    builder.add_edge("finalize", END)
-
-def add_aging_expert_edges(builder: StateGraph) -> None:
-    """
-    Aging 전문가 서브그래프에 엣지를 추가합니다.
-    
-    그래프 구조:
-    START -> step1_carbonization -> step2_swelling -> step3_global_aging -> finalize -> END
-    
-    Args:
-        builder: StateGraph 빌더 객체
-    """
-    builder.add_edge(START, "step1_carbonization")
-    builder.add_edge("step1_carbonization", "step2_swelling")
-    builder.add_edge("step2_swelling", "step3_global_aging")
-    builder.add_edge("step3_global_aging", "finalize")
-    builder.add_edge("finalize", END)
-
-def add_deform_expert_edges(builder: StateGraph) -> None:
-    """
-    Deform 전문가 서브그래프에 엣지를 추가합니다.
-    
-    그래프 구조:
-    START -> step1_deformation -> step2_splaying -> step3_confinement -> finalize -> END
-    
-    Args:
-        builder: StateGraph 빌더 객체
-    """
-    builder.add_edge(START, "step1_deformation")
-    builder.add_edge("step1_deformation", "step2_splaying")
-    builder.add_edge("step2_splaying", "step3_confinement")
-    builder.add_edge("step3_confinement", "finalize")
-    builder.add_edge("finalize", END)
-
-def add_tracking_expert_edges(builder: StateGraph) -> None:
-    """
-    Tracking 전문가 서브그래프에 엣지를 추가합니다.
-    
-    그래프 구조:
-    START -> step1_dendritic_pattern -> step2_luster -> step3_erosion -> finalize -> END
-    
-    Args:
-        builder: StateGraph 빌더 객체
-    """
-    builder.add_edge(START, "step1_dendritic_pattern")
-    builder.add_edge("step1_dendritic_pattern", "step2_luster")
-    builder.add_edge("step2_luster", "step3_erosion")
-    builder.add_edge("step3_erosion", "finalize")
-    builder.add_edge("finalize", END)
-
-def add_necking_expert_edges(builder: StateGraph) -> None:
-    """
-    Necking 전문가 서브그래프에 엣지를 추가합니다.
-    
-    그래프 구조:
-    START -> step1_tip_morphology -> step2_bead_distribution -> step3_fatigue -> finalize -> END
-    
-    Args:
-        builder: StateGraph 빌더 객체
-    """
-    builder.add_edge(START, "step1_tip_morphology")
-    builder.add_edge("step1_tip_morphology", "step2_bead_distribution")
-    builder.add_edge("step2_bead_distribution", "step3_fatigue")
-    builder.add_edge("step3_fatigue", "finalize")
-    builder.add_edge("finalize", END)
+# 이 파일은 향후 필요 시 새로운 공통 엣지 함수를 정의하기 위해 유지됩니다.
+# 현재는 각 Expert 그래프가 자체적으로 조건부 엣지를 정의합니다.

@@ -5,8 +5,11 @@ from typing import Dict, Any, Optional, List, Annotated
 import os
 import operator
 import json
+import cv2
+import numpy as np
 
-from langgraph.graph import MessagesState
+from config import TOP_N_HOTSPOTS
+
 from src.tools.experts.expert_utils import (
     call_gemini_vision,
     parse_json_response,
@@ -14,9 +17,11 @@ from src.tools.experts.expert_utils import (
     _load_image_data
 )
 
+from src.utils import crop_roi_from_box
+from src.nodes.enhancement import ImageEnhancer
+
 # Prompts Import
 from src.prompts.common_prompts import (
-    get_multi_hotspot_prompt,
     get_component_classifier_prompt
 )
 from src.prompts.tracking_expert_prompts import (
@@ -26,35 +31,7 @@ from src.prompts.tracking_expert_prompts import (
     get_final_verdict_prompt
 )
 
-class TrackingExpertState(MessagesState):
-    """
-    Tracking Expert State
-    """
-    # 원본 이미지
-    image_path: Optional[str]
-    
-    # Phase 1: Hotspot Detection
-    hotspots: Optional[List[Dict[str, Any]]]
-    hotspot_queue: Optional[List[Dict[str, Any]]]
-    
-    # Loop Context
-    current_hotspot: Optional[Dict[str, Any]]
-    detector_result: Optional[Dict[str, Any]] # roi_crop_node 호환용
-    roi_image_path: Optional[str]
-    connection_type: Optional[str] # Component Classification 결과
-    
-    # Analysis Results (Specific Components)
-    tracking_terminal_result: Optional[Dict[str, Any]]
-    tracking_plug_result: Optional[Dict[str, Any]]
-    tracking_pcb_result: Optional[Dict[str, Any]]
-    
-    # Final Aggregation
-    analysis_results: Annotated[List[Dict[str, Any]], operator.add]
-    
-    # Verdict Results
-    verdict_report: Optional[str]
-    verdict_confidence: Optional[int]
-    verdict_result: Optional[Dict[str, Any]]
+from src.states.tracking_state import TrackingExpertState
 
 
 
@@ -62,41 +39,7 @@ class TrackingExpertState(MessagesState):
 # 워크플로우 노드 구현 (Contact Expert 구조 도입)
 # --------------------------------------------------------------------------------
 
-def hotspot_detector_node(state: TrackingExpertState) -> Dict[str, Any]:
-    """
-    Node 0: Hotspot Detector
-    - 전체 이미지에서 다중 발화 지점(Hotspots) 탐색
-    """
-    image_path = state.get("image_path")
-    if not image_path:
-        return {"hotspots": []}
-    
-    print(f"\n📡 [Hotspot Detector] 다중 발화 지점 탐색 시작... (이미지: {image_path})")
-    
-    try:
-        image_data = _load_image_data(image_path)
-    except Exception as e:
-        print(f"Error loading image: {e}")
-        return {"hotspots": []}
-    
-    prompt = get_multi_hotspot_prompt(image_path)
-    response_text, _ = call_gemini_vision(prompt, image_data, "Hotspot Detector", verbose=True, temperature=0.0)
-    
-    result = parse_json_response(response_text)
-    hotspots = result.get("hotspots", [])
-    
-    # [Fix] Schema Mismatch Correction
-    for h in hotspots:
-        if "damage_type" not in h and "suspected_feature" in h:
-            h["damage_type"] = h["suspected_feature"]
-        if "severity_score" not in h:
-            h["severity_score"] = 50 
-            
-    print(f"✅ [Hotspot Detector] 발견된 Hotspots: {len(hotspots)}개")
-    for h in hotspots:
-        print(f"   - ID {h.get('id')}: {h.get('damage_type')} (Score: {h.get('severity_score')})")
-        
-    return {"hotspots": hotspots}
+# hotspot_detector_node는 이제 src/nodes/common_nodes.py에서 공통으로 사용됩니다.
 
 def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
     """
@@ -111,14 +54,21 @@ def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
     # 1. 초기화 로직 (큐가 없으면 생성)
     if queue is None:
         print("\n⚖️ [Hotspot Manager] Hotspot 우선순위 정렬 및 Top-N 선별")
+        # severity_score 0인 hotspot 제외 (분석 불가 상태)
+        valid_hotspots = [h for h in hotspots if h.get("severity_score", 0) > 0]
+        if len(valid_hotspots) < len(hotspots):
+            excluded_count = len(hotspots) - len(valid_hotspots)
+            excluded_ids = [h.get('id') for h in hotspots if h.get("severity_score", 0) == 0]
+            print(f"⏭️ [Hotspot Manager] severity_score 0인 Hotspot {excluded_count}개 제외: {excluded_ids}")
+        
         # Score 내림차순 정렬
         sorted_hotspots = sorted(
-            hotspots, 
+            valid_hotspots, 
             key=lambda x: x.get("severity_score", 0), 
             reverse=True
         )
-        # Top 3 선별
-        queue = sorted_hotspots[:3]
+        # Top N 선별 (config.py에서 설정)
+        queue = sorted_hotspots[:TOP_N_HOTSPOTS]
         print(f"✅ 선별된 Hotspots: {[h.get('id') for h in queue]}")
         
         # 첫 번째 Hotspot 바로 Pop (Loop 시작을 위해)
@@ -181,11 +131,6 @@ def roi_crop_node(state: TrackingExpertState) -> Dict[str, Any]:
     detector_result(current_hotspot)에서 box_2d 추출하여 크롭
     후처리로 2배 초해상도 향상 적용
     """
-    from src.utils import crop_roi_from_box
-    from src.nodes.enhancement import enhancement_node
-    import cv2
-    import numpy as np
-    
     detector_result = state.get("detector_result")
     image_path = state.get("image_path")
     
@@ -210,7 +155,6 @@ def roi_crop_node(state: TrackingExpertState) -> Dict[str, Any]:
                 
             # 2. Enhancement Node 직접 호출 (State 구성 불필요)
             # ImageEnhancer 클래스 직접 사용이 더 깔끔할 수 있으나, 기존 구조 활용
-            from src.nodes.enhancement import ImageEnhancer
             enhancer = ImageEnhancer()
             enhanced_img = enhancer.upscale(cropped_img)
             
@@ -221,6 +165,8 @@ def roi_crop_node(state: TrackingExpertState) -> Dict[str, Any]:
         except Exception as enh_err:
              print(f"⚠️ Enhancement Failed: {enh_err}")
              # 향상 실패해도 원본 크롭 이미지는 유지됨
+
+
              
         return {"roi_image_path": cropped_path}
     except Exception as e:
@@ -258,7 +204,9 @@ def component_classifier_node(state: TrackingExpertState) -> Dict[str, Any]:
             prompt, 
             image_payload, 
             "Component Classifier", 
-            temperature=0.0
+            temperature=0.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
         )
         result = parse_json_response(response_text)
         
@@ -298,7 +246,15 @@ def tracking_terminal_node(state: TrackingExpertState) -> Dict[str, Any]:
         image_data_list = [original_data, roi_data]
         
         prompt = get_tracking_terminal_prompt(roi_image_path)
-        response_text, _ = call_gemini_vision(prompt, image_data_list, "Tracking Terminal Expert", verbose=True)
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_data_list, 
+            "Tracking Terminal Expert", 
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
         result = parse_json_response(response_text)
         return {"tracking_terminal_result": result}
     except Exception as e:
@@ -323,7 +279,15 @@ def tracking_plug_node(state: TrackingExpertState) -> Dict[str, Any]:
         image_data_list = [original_data, roi_data]
         
         prompt = get_tracking_plug_prompt(roi_image_path)
-        response_text, _ = call_gemini_vision(prompt, image_data_list, "Tracking Plug Expert")
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_data_list, 
+            "Tracking Plug Expert",
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
         result = parse_json_response(response_text)
         return {"tracking_plug_result": result}
     except Exception as e:
@@ -346,7 +310,15 @@ def tracking_pcb_node(state: TrackingExpertState) -> Dict[str, Any]:
         image_data_list = [original_data, roi_data]
         
         prompt = get_tracking_pcb_prompt(roi_image_path)
-        response_text, _ = call_gemini_vision(prompt, image_data_list, "Tracking PCB Expert", verbose=True)
+        response_text, _ = call_gemini_vision(
+            prompt, 
+            image_data_list, 
+            "Tracking PCB Expert", 
+            verbose=True,
+            temperature=1.0,
+            thinking_level="high",
+            media_resolution="MEDIA_RESOLUTION_HIGH"
+        )
         result = parse_json_response(response_text)
         return {"tracking_pcb_result": result}
     except Exception as e:
@@ -457,7 +429,9 @@ def verdict_node(state: TrackingExpertState) -> Dict[str, Any]:
     response_text, thinking_info = call_gemini_text(
         prompt=prompt,
         step_name="Tracking Verdict",
-        verbose=True
+        verbose=True,
+        temperature=1.0,
+        thinking_level="high"
     )
     
     # 3. 결과 파싱

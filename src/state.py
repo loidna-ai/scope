@@ -146,6 +146,12 @@ class InvestigationState(TypedDict):
     """
     payload: Annotated[List[Any], keep_first]  # LLM 입력 데이터 (이미지 + 텍스트) - 읽기 전용
     
+    # [Memory Optimization] 이미지 경로 (바이너리 대신 경로 전달)
+    image_path: Annotated[Optional[str], keep_last]
+    
+    # 공통 Hotspot 탐지 결과 (메인 그래프에서 생성)
+    hotspots: Annotated[Optional[List[Dict[str, Any]]], keep_last]  # 마지막에 설정된 값만 유지
+    
     # 최종 전문가 리포트
     expert_reports: Annotated[List[str], operator.add]
     

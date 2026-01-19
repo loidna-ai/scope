@@ -172,18 +172,29 @@ def crop_roi_from_box(
     import tempfile
     
     # 유효하지 않은 box_2d 체크
-    if not box_2d or len(box_2d) != 4:
+    if not box_2d:
         return image_path
     
-    ymin, xmin, ymax, xmax = box_2d
+    # 1. Dictionary 형식 처리 (Pydantic model_dump 결과)
+    if isinstance(box_2d, dict):
+        ymin = box_2d.get('ymin', 0)
+        xmin = box_2d.get('xmin', 0)
+        ymax = box_2d.get('ymax', 0)
+        xmax = box_2d.get('xmax', 0)
+    # 2. List 형식 처리 (기존 방식)
+    elif isinstance(box_2d, list) and len(box_2d) == 4:
+        ymin, xmin, ymax, xmax = box_2d
+    else:
+        return image_path
     
     # [0,0,0,0] 체크 (None 케이스)
     if ymin == 0 and xmin == 0 and ymax == 0 and xmax == 0:
         return image_path
     
-    # 좌표 유효성 체크
+    # 좌표 유효성 체크 (정규화 좌표 0~1000)
     if xmin >= xmax or ymin >= ymax:
         return image_path
+
     
     # 이미지 로드
     img = load_image_safe(image_path)

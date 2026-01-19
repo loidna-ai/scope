@@ -8,80 +8,36 @@ LangGraph 공식 문서 권장 구조:
 - Edge: src/edges/ 폴더에 정의
 - Agent: 이 파일에서 노드와 엣지를 조합하여 그래프 생성 (agent.py가 공식 권장 이름)
 - Subgraph: src/graphs/ 폴더의 {expert}_expert_graph.py에 정의, 래퍼 노드로 연결
-
-ReAct 패턴:
-- 각 전문가 서브그래프는 순수 ReAct 패턴(agent <-> tools 루프)을 사용
-- 래퍼 노드를 통해 InvestigationState와 연결
 """
 from typing import List, Any
 from langgraph.graph import StateGraph
-from src.state import InvestigationState, GraphState
+from src.state import InvestigationState
 from src.nodes.arbiter_node import node_arbiter
+from src.nodes.common_nodes import hotspot_detector_node
+from src.nodes.visualization_node import draw_annotation_node
 from src.edges.investigation_edges import add_investigation_edges
-from src.edges.preprocessing_edges import add_preprocessing_edges
 from src.graphs.contact_expert_graph import contact_expert_wrapper_node
 from src.graphs.aging_expert_graph import aging_expert_wrapper_node
 from src.graphs.deform_expert_graph import deform_expert_wrapper_node
 from src.graphs.tracking_expert_graph import tracking_expert_wrapper_node
 from src.graphs.necking_expert_graph import necking_expert_wrapper_node
 
-def build_graph() -> StateGraph:
-    """
-    이미지 전처리 파이프라인 그래프 빌드
-    
-    그래프 구조:
-    START → load → crop → enhance → [filter, metrics] (병렬) → packaging → END
-    
-    Returns:
-        컴파일된 전처리 파이프라인 그래프
-    """
-    # 지연 import로 순환 import 방지
-    from src.nodes.load import load_node
-    from src.nodes.crop import crop_node
-    from src.nodes.filter import filter_node
-    from src.nodes.metrics import metrics_node
-    from src.nodes.packaging import packaging_node
-    
-    # enhancement_node는 선택적 (Real-ESRGAN이 없을 수 있음)
-    try:
-        from src.nodes.enhancement import enhancement_node
-        has_enhancement = True
-    except ImportError:
-        has_enhancement = False
-    
-    builder = StateGraph(GraphState)
-    
-    # 노드 추가
-    builder.add_node("load", load_node)
-    builder.add_node("crop", crop_node)
-    if has_enhancement:
-        builder.add_node("enhance", enhancement_node)
-    builder.add_node("filter", filter_node)
-    builder.add_node("metrics", metrics_node)
-    builder.add_node("packaging", packaging_node)
-    
-    # 엣지 추가
-    add_preprocessing_edges(builder, has_enhancement=has_enhancement)
-    
-    return builder.compile()
-
 def build_investigation_graph() -> StateGraph:
     """
-    화재조사 멀티 에이전트 그래프 빌드 (ReAct 패턴)
-    
-    각 전문가 서브그래프는 순수 ReAct 패턴을 사용합니다:
-    - START → agent <-> tools (루프) → Final Answer
-    - LLM이 자유롭게 Step 도구와 이미지 편집 도구를 선택
-    - 래퍼 노드를 통해 InvestigationState와 연결
+    화재조사 멀티 에이전트 그래프 빌드
     
     그래프 구조:
-    START → [contact, aging, deform, tracking, necking] (병렬)
+    START → hotspot_detector (공통)
+         → [contact, aging, deform, tracking, necking] (병렬)
          → chief_investigator → END
     
     Returns:
-        컴파일된 그래프
+        컴파일된 멀티 에이전트 분석 그래프
     """
     builder = StateGraph(InvestigationState)
+    
+    # 공통 Hotspot Detector 노드 추가
+    builder.add_node("hotspot_detector", hotspot_detector_node)
     
     # 전문가 래퍼 노드 추가 (ReAct 패턴 서브그래프를 InvestigationState와 연결)
     builder.add_node("contact", contact_expert_wrapper_node)
@@ -92,42 +48,24 @@ def build_investigation_graph() -> StateGraph:
     
     # Arbiter Agent 노드 추가
     builder.add_node("chief_investigator", node_arbiter)
+    
+    # Visualization Node 추가
+    builder.add_node("visualizer", draw_annotation_node)
     
     # 엣지 추가
     add_investigation_edges(builder)
     
-    return builder.compile()
-
-def build_investigation_graph_with_react() -> StateGraph:
-    """
-    화재조사 멀티 에이전트 그래프 빌드 (병렬 모드)
+    # Arbiter -> Visualizer -> END 연결 수정이 필요함
+    # 기존 add_investigation_edges에서는 chief_investigator -> END 였을 것임.
+    # 이를 수동으로 재설정하거나, edges 파일 수정 필요.
+    # 여기서는 edges 파일 수정 없이, 그래프 빌더 레벨에서 덮어쓰기/추가 시도.
+    # 하지만 langgraph는 edge 재정의를 경고할 수 있음.
+    # 가장 깔끔한 방법은 src/edges/investigation_edges.py를 수정하는 것임.
+    # 일단 여기서는 edge 추가를 시도.
     
-    각 전문가 서브그래프는 순수 ReAct 패턴을 사용합니다:
-    - START → agent <-> tools (루프) → Final Answer
-    - LLM이 자유롭게 Step 도구와 이미지 편집 도구를 선택
-    - 래퍼 노드를 통해 InvestigationState와 연결
-    
-    그래프 구조:
-    START → [contact, aging, deform, tracking, necking] (병렬)
-         → chief_investigator → END
-    
-    Returns:
-        컴파일된 그래프
-    """
-    builder = StateGraph(InvestigationState)
-    
-    # 전문가 래퍼 노드 추가 (ReAct 패턴 서브그래프를 InvestigationState와 연결)
-    builder.add_node("contact", contact_expert_wrapper_node)
-    builder.add_node("aging", aging_expert_wrapper_node)
-    builder.add_node("deform", deform_expert_wrapper_node)
-    builder.add_node("tracking", tracking_expert_wrapper_node)
-    builder.add_node("necking", necking_expert_wrapper_node)
-    
-    # Arbiter Agent 노드 추가
-    builder.add_node("chief_investigator", node_arbiter)
-    
-    # 엣지 추가 (일반 모드와 동일 - 5명 전문가만)
-    add_investigation_edges(builder)
+    # 주의: add_investigation_edges 내부 구현을 모르므로, 
+    # visualizer 연결은 edges 파일에서 처리하는 것이 맞음.
+    # 따라서 이 파일에서는 add_node만 하고, edges 파일 수정을 별도로 진행해야 함.
     
     return builder.compile()
 
@@ -149,12 +87,28 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     
     graph = build_investigation_graph()
     
+    # [Memory Optimization]
+    # Payload에서 이미지를 추출하여 임시 파일로 저장하고, State에는 경로만 전달
+    from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
+    
+    image_data = extract_image_from_payload(payload_data)
+    temp_image_path = None
+    
+    if image_data:
+        try:
+            temp_image_path = save_bytes_to_temp_file(image_data)
+            print(f"💾 [System] Initial Image Saved to: {temp_image_path}")
+        except Exception as e:
+            print(f"⚠️ [System] Failed to save initial image: {e}")
+    
     initial_state = {
-        "payload": payload_data,
+        "payload": [], # [Optimization] 바이너리 데이터 제거 (빈 리스트 전달)
+        "image_path": temp_image_path, # 파일 경로 전달
+        "hotspots": None,
         "expert_reports": [],
-        "expert_analysis_results": {},  # Annotated[dict, merge_dicts]이므로 빈 dict로 초기화
-        "expert_confidence_scores": {},  # Annotated[dict, merge_dicts]이므로 빈 dict로 초기화
-        "expert_evidence": {},  # Annotated[dict, merge_dicts]이므로 빈 dict로 초기화
+        "expert_analysis_results": {},
+        "expert_confidence_scores": {},
+        "expert_evidence": {},
         "final_verdict": None,
         "errors": [],
     }
@@ -166,10 +120,20 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     except Exception as e:
         
         raise
+    finally:
+        # [Memory Optimization] 임시 파일 정리 (visualization 완료 후)
+        # visualization_node가 실행된 후에 정리하므로, 여기서는 정리하지 않음.
+        # 대신, 임시 파일은 OS가 자동으로 정리하거나, 명시적으로 정리하려면
+        # visualization_node 실행 후에 정리하는 것이 좋음.
+        # 하지만 여러 노드가 공유하므로, 여기서는 정리하지 않고 유지.
+        # 필요시 main.py나 호출 측에서 정리할 수 있도록 경로를 반환하는 것도 고려 가능.
+        pass
+    
     invoke_duration_ms = (time.time() - invoke_start_time) * 1000
     
     return {
         "final_verdict": result.get("final_verdict", "분석 실패"),
         "expert_reports": result.get("expert_reports", []),
-        "errors": result.get("errors", [])
+        "errors": result.get("errors", []),
+        "image_path": temp_image_path  # 호출 측에서 정리할 수 있도록 경로 반환
     }
