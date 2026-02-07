@@ -69,8 +69,12 @@ def extract_visual_features(
     """
     전문가 분석 결과에서 시각적 특징 추출
     
+    실제 반환 구조에 맞게 수정:
+    - expert_analysis_results["contact"] = {"multi_hotspot_results": [...], "final_verdict_result": {...}}
+    - 각 결과에서 visual_description 텍스트를 분석하여 특징 추출
+    
     Args:
-        expert_analysis_results: 각 전문가의 단계별 분석 결과
+        expert_analysis_results: 각 전문가의 분석 결과
         expert_evidence: 각 전문가의 증거 리스트
         
     Returns:
@@ -85,9 +89,36 @@ def extract_visual_features(
         "surface_texture": None
     }
     
-    # Tracking 전문가에서 광택 정보 추출
+    def extract_text_from_results(expert_name: str) -> str:
+        """전문가 결과에서 모든 텍스트를 추출"""
+        expert_data = expert_analysis_results.get(expert_name, {})
+        if not expert_data:
+            return ""
+        
+        texts = []
+        
+        # final_verdict_result에서 visual_description 추출
+        final_result = expert_data.get("final_verdict_result", {})
+        if final_result:
+            visual_desc = final_result.get("visual_description", "")
+            if visual_desc:
+                texts.append(visual_desc.lower())
+        
+        # multi_hotspot_results에서 visual_description 추출
+        multi_results = expert_data.get("multi_hotspot_results", [])
+        for result in multi_results:
+            specialist_result = result.get("specialist_result", {})
+            if specialist_result:
+                visual_desc = specialist_result.get("visual_description", "")
+                if visual_desc:
+                    texts.append(visual_desc.lower())
+        
+        return " ".join(texts)
+    
+    # Tracking 전문가에서 광택 정보 추출 (비활성화되어 있지만 코드 유지)
     tracking_results = expert_analysis_results.get("tracking", {})
     if tracking_results:
+        # 기존 구조 지원 (향후 활성화 시)
         step2 = tracking_results.get("step2", {})
         if step2:
             luster_type = step2.get("luster_type", "unknown")
@@ -101,20 +132,10 @@ def extract_visual_features(
             else:
                 features["luster"] = "matte"
     
-    # Dielectric 전문가에서 기공 정보 추출
-    dielectric_results = expert_analysis_results.get("dielectric", {})
-    if dielectric_results:
-        step2 = dielectric_results.get("step2", {})
-        if step2:
-            spongy = step2.get("spongy_texture_detected", False)
-            porous = step2.get("porous_structure_detected", False)
-            
-            if spongy or porous:
-                features["porosity"] = "high"
-            else:
-                features["porosity"] = "low"
-        
-        # 탄화 위치 정보 추출
+    # Aging 전문가에서 기공 및 탄화 위치 정보 추출 (비활성화되어 있지만 코드 유지)
+    aging_results = expert_analysis_results.get("aging", {})
+    if aging_results:
+        # 기존 구조 지원 (향후 활성화 시)
         step1 = aging_results.get("step1", {})
         step3 = aging_results.get("step3", {})
         if step1:
@@ -127,25 +148,36 @@ def extract_visual_features(
                 features["carbonization_location"] = "widespread"
     
     # Deform 전문가에서 형상 정보 추출
-    deform_results = expert_analysis_results.get("deform", {})
-    if deform_results:
-        step2 = deform_results.get("step2", {})
-        if step2:
-            bead_shape = step2.get("bead_shape", "unknown")
-            if bead_shape == "spherical":
-                features["shape"] = "spherical"
-            elif bead_shape in ["elongated", "irregular"]:
-                features["shape"] = "irregular"
+    deform_text = extract_text_from_results("deform")
+    if deform_text:
+        # 비드 형상 키워드 검색
+        if any(keyword in deform_text for keyword in ["spherical", "구형", "round", "원형", "bead"]):
+            features["shape"] = "spherical"
+        elif any(keyword in deform_text for keyword in ["elongated", "elongation", "늘어남", "irregular", "불규칙"]):
+            features["shape"] = "irregular"
+        elif any(keyword in deform_text for keyword in ["taper", "tapering", "테이퍼", "가늘어짐"]):
+            features["shape"] = "irregular"  # Tapering은 irregular로 분류
     
     # Contact 전문가에서 표면 질감 정보 추출
-    contact_results = expert_analysis_results.get("contact", {})
-    if contact_results:
-        step4 = contact_results.get("step4", {})
-        if step4:
-            surface_texture = step4.get("surface_texture", "unknown")
-            features["surface_texture"] = surface_texture
+    contact_text = extract_text_from_results("contact")
+    if contact_text:
+        # 표면 질감 키워드 검색
+        if any(keyword in contact_text for keyword in ["smooth", "매끄러운", "glossy", "광택"]):
+            features["surface_texture"] = "smooth"
+        elif any(keyword in contact_text for keyword in ["rough", "거친", "roughness", "거칠기"]):
+            features["surface_texture"] = "rough"
+        elif any(keyword in contact_text for keyword in ["porous", "다공성", "spongy", "스펀지"]):
+            features["surface_texture"] = "rough"
+            features["porosity"] = "high"
     
-    # Tracking 전문가에서 경계 정보 추출
+    # Necking 전문가에서 형상 정보 추출 (Deform과 유사하지만 별도 처리)
+    necking_text = extract_text_from_results("necking")
+    if necking_text and not features["shape"]:
+        # Necking은 일반적으로 irregular 형상을 가짐
+        if any(keyword in necking_text for keyword in ["necking", "반단선", "taper", "tapering", "가늘어짐"]):
+            features["shape"] = "irregular"
+    
+    # Tracking 전문가에서 경계 정보 추출 (비활성화되어 있지만 코드 유지)
     if tracking_results:
         step1 = tracking_results.get("step1", {})
         if step1:
@@ -297,6 +329,10 @@ def resolve_conflict_deform_vs_necking(
     """
     Case B: 압착 vs 반단선(Necking) 상충 해결
     
+    실제 반환 구조에 맞게 수정:
+    - deform_result = {"multi_hotspot_results": [...], "final_verdict_result": {...}}
+    - final_verdict_result에서 conclusion과 visual_description을 확인
+    
     Args:
         deform_result: Deform 전문가 분석 결과
         necking_result: Necking 전문가 분석 결과
@@ -306,11 +342,41 @@ def resolve_conflict_deform_vs_necking(
     Returns:
         {"resolved": bool, "priority": str, "adjusted_scores": dict, "reason": str}
     """
-    deform_step1 = deform_result.get("step1", {})
-    deformation_detected = deform_step1.get("deformation_detected", False)
-    causal_relationship = deform_step1.get("causal_relationship", False)
+    def extract_conclusion_and_text(expert_data: dict) -> tuple:
+        """전문가 결과에서 결론과 텍스트 추출"""
+        if not expert_data:
+            return None, ""
+        
+        # final_verdict_result에서 추출
+        final_result = expert_data.get("final_verdict_result", {})
+        conclusion = final_result.get("conclusion", "")
+        visual_desc = final_result.get("visual_description", "")
+        
+        # multi_hotspot_results에서도 추출
+        multi_results = expert_data.get("multi_hotspot_results", [])
+        texts = [visual_desc.lower()] if visual_desc else []
+        for result in multi_results:
+            specialist_result = result.get("specialist_result", {})
+            if specialist_result:
+                desc = specialist_result.get("visual_description", "")
+                if desc:
+                    texts.append(desc.lower())
+        
+        return conclusion, " ".join(texts)
     
-    if deformation_detected and causal_relationship:
+    deform_conclusion, deform_text = extract_conclusion_and_text(deform_result)
+    necking_conclusion, necking_text = extract_conclusion_and_text(necking_result)
+    
+    # 압착 흔적이 명확한지 확인
+    deformation_keywords = ["압착", "압축", "deform", "deformation", "compression", "기계적"]
+    deformation_detected = any(keyword in deform_text for keyword in deformation_keywords) or \
+                          (deform_conclusion and "압착" in str(deform_conclusion))
+    
+    # 인과관계 확인 (압착이 원인인지)
+    causal_keywords = ["원인", "cause", "causal", "직접적"]
+    causal_relationship = any(keyword in deform_text for keyword in causal_keywords)
+    
+    if deformation_detected and (causal_relationship or deform_score > necking_score):
         # 압착 흔적이 명확하면 압착 우선
         adjusted_deform = deform_score * 1.3
         adjusted_necking = necking_score * 0.7

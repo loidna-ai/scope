@@ -1,13 +1,20 @@
 """
 Necking 전문가 서브그래프 빌더 (Map-Reduce Pattern with Send API)
 """
-from typing import Dict, Any, Optional, Literal, List, Union
+# Standard library imports
 import os
+import asyncio
+import traceback
+from typing import Dict, Any, Optional, Literal, List, Union
 
+# Third-party imports
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 
+# Local imports
+from config import TOP_N_HOTSPOTS
 from src.state import InvestigationState
+from src.utils.logging_config import setup_logger
 from src.nodes.necking_nodes import (
     NeckingExpertState,
     WorkerState,
@@ -17,8 +24,13 @@ from src.nodes.necking_nodes import (
     verdict_critic_node,
     verdict_finalize_node
 )
-from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
-from config import TOP_N_HOTSPOTS
+
+logger = setup_logger(__name__)
+from src.tools.experts.expert_utils import (
+    extract_image_from_payload,
+    save_bytes_to_temp_file
+)
+
 
 # ===== Send API Fan-Out Function =====
 
@@ -30,7 +42,13 @@ def distribute_work(state: NeckingExpertState) -> Union[str, List[Send]]:
         - List[Send]: If hotspots exist, fan-out to workers
         - str: If no hotspots, skip to supervisor
     """
-    hotspots = state.get("hotspots", [])
+    # [Fast Path] analysis_status 체크 (빠른 종료)
+    analysis_status = state.get("analysis_status")
+    if analysis_status == "NO_HOTSPOTS_DETECTED":
+        logger.info("Necking Expert: No hotspots detected by detector, skipping analysis")
+        return "supervisor_verdict"
+    
+    hotspots = state.get("hotspots") or []  # None-safe: None일 경우 빈 리스트로 처리
     image_path = state.get("image_path")
     
     # Filter and sort hotspots (Top-N Selection Logic)
@@ -74,10 +92,10 @@ def route_supervisor_decision(state: NeckingExpertState) -> Literal["debate", "f
     debate_context = state.get("debate_context")
     
     if debate_context and debate_context.get("requires_debate"):
-        print("[Router] 🔄 Supervisor: Debate 필요 → Analyst 호출")
+        logger.info("Router: Supervisor requested debate -> Proceeding to Analyst")
         return "debate"
     
-    print("[Router] ✅ Supervisor: Fast Path 결론 → Finalize")
+    logger.info("Router: Supervisor Fast Path verdict -> Proceeding to Finalize")
     return "finalize"
 
 
@@ -91,28 +109,21 @@ def route_verdict_debate(state: NeckingExpertState) -> Literal["back_to_analyst"
     debate_iter = state.get("debate_iteration", 0)
     MAX_ITERATIONS = 3
     
-    # 🔥 Phase 2: Pydantic 객체 우선, 문자열은 Fallback
+    # 🔥 Pydantic 객체 우선 사용 (Legacy 문자열 로직 제거)
     critique_result = state.get("critique_result")
-    critique_points = state.get("critique_points", "")
-    
-    # 1. Critic 합의 체크 (is_approved bool 우선)
-    if critique_result is not None:
-        # Pydantic 객체가 있으면 is_approved bool 직접 체크
-        if critique_result.is_approved:
-            print("[Debate Supervisor] ✅ Critic agreed (is_approved=True). Proceeding to finalize.")
-            return "finalize"
-    elif "NO_OBJECTION" in critique_points:
-        # Fallback: Legacy 문자열 검색
-        print("[Debate Supervisor] ✅ Critic agreed (NO_OBJECTION found). Proceeding to finalize.")
+
+    # 1. Critic 합의 체크 (is_approved bool 직접 체크)
+    if critique_result and critique_result.is_approved:
+        logger.info("Debate Supervisor: Critic agreed (is_approved=True). Proceeding to finalize.")
         return "finalize"
     
     # 2. Timeout
     if debate_iter >= MAX_ITERATIONS:
-        print(f"[Debate Supervisor] ⏱️ Max iterations ({MAX_ITERATIONS}) reached. Forcing finalize.")
+        logger.warning(f"Debate Supervisor: Max iterations ({MAX_ITERATIONS}) reached. Forcing finalize.")
         return "finalize"
     
     # 3. 계속 토론
-    print(f"[Debate Supervisor] 🔄 Debate continues (Round {debate_iter + 1}/{MAX_ITERATIONS})")
+    logger.info(f"Debate Supervisor: Debate continues (Round {debate_iter + 1}/{MAX_ITERATIONS})")
     return "back_to_analyst"
 
 
@@ -172,19 +183,30 @@ def build_necking_expert_graph():
     
     return builder.compile()
 
-def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Dict[str, Any]]):
-    """임시 파일 정리"""
-    try:
-        # 1. 원본 임시 파일 삭제
-        if temp_image_path and os.path.exists(temp_image_path):
+def _cleanup_temp_files(
+    temp_image_path: Optional[str], 
+    final_state: Optional[Dict[str, Any]],
+    cleanup_original: bool = True
+):
+    """
+    임시 파일 정리
+    
+    Args:
+        temp_image_path: 원본 이미지 경로
+        final_state: 최종 상태 (ROI 경로 추출용)
+        cleanup_original: True이면 원본도 삭제, False면 ROI만 삭제
+    """
+    # 1. 원본 임시 파일 삭제 (cleanup_original=True일 때만)
+    if cleanup_original and temp_image_path and os.path.exists(temp_image_path):
+        try:
             os.remove(temp_image_path)
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     if not final_state:
         return
 
-    # 2. Loop 과정에서 생성된 모든 ROI 파일 정리
+    # 2. ROI 파일 정리 (항상 실행)
     analysis_results = final_state.get("analysis_results", [])
     for res in analysis_results:
         roi_path = res.get("roi_image_path")
@@ -204,11 +226,10 @@ def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Di
 
 
 def necking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
-    import traceback
+    """Necking Expert wrapper node for main investigation graph"""
     temp_image_path = None
     final_state = None
     try:
-        
         # [Memory Optimization] Shared Image Path Check
         shared_image_path = state.get("image_path")
         should_cleanup_input = False
@@ -234,11 +255,10 @@ def necking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
         initial_state: NeckingExpertState = {
             "messages": [],
             "image_path": temp_image_path,
-            "hotspots": hotspots,  # 메인 그래프에서 생성된 공통 hotspots 사용
-            "hotspot_queue": None, # Manager가 초기화함
+            "hotspots": hotspots,
+            "hotspot_queue": None,
             "analysis_results": [],
-            "preliminary_assessments": [], # 병렬 증거 수집 결과 (Annotated List)
-            
+            "preliminary_assessments": [],
             # Hotspot Loop 필드 (매 Loop마다 갱신)
             "current_hotspot": None,
             "detector_result": None,
@@ -252,19 +272,58 @@ def necking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "current_hypothesis": None,
             "critique_points": None,
 
-            
             # 최종 결과
             "verdict_report": None,
             "verdict_confidence": None,
             "verdict_result": None
         }
-        
-        
         graph = build_necking_expert_graph()
-        # 🔥 LangGraph 공식 권장: Send API 병렬 처리를 위해 ainvoke 사용 필수
-        # invoke는 순차 실행되지만, ainvoke는 병렬 실행을 보장합니다
+        # 🔥 LangGraph 공식 권장: astream으로 실시간 진행 상황 모니터링
+        # Send API 병렬 처리와 max_concurrency 제한 적용
         import asyncio
-        final_state = asyncio.run(graph.ainvoke(initial_state, config={"recursion_limit": 50}))
+        
+        logger.info("Necking Expert: Starting analysis with streaming...")
+        
+        async def run_with_streaming():
+            """Streaming으로 실행하며 진행 상황 출력"""
+            final_state = None
+            last_event_value = None
+            
+            async for event in graph.astream(
+                initial_state,
+                config={
+                    "recursion_limit": 50,
+                    "max_concurrency": 3  # 동시 실행 worker 제한
+                }
+            ):
+                # 최종 상태 추출
+                if "__end__" in event:
+                    final_state = event["__end__"]
+                else:
+                    # 중간 노드 완료 시 로그 출력 및 마지막 이벤트 값 저장
+                    for node_name in event.keys():
+                        if node_name not in ["__start__", "__end__"]:
+                            print(f"  ✓ Completed: {node_name}")
+                            # 마지막 노드의 출력이 최종 상태일 수 있음
+                            last_event_value = event.get(node_name)
+            
+            # __end__ 이벤트가 없으면 마지막 이벤트 값을 최종 상태로 사용
+            if final_state is None and last_event_value is not None:
+                final_state = last_event_value
+            
+            return final_state
+        
+        final_state = asyncio.run(run_with_streaming())
+        
+        # final_state가 None인 경우 처리
+        if final_state is None:
+            logger.warning("Necking Expert: final_state is None, using empty state")
+            final_state = {
+                "verdict_report": "",
+                "verdict_confidence": 0,
+                "verdict_result": {},
+                "analysis_results": []
+            }
         
         # 결과 추출
         verdict_report = final_state.get("verdict_report", "")
@@ -305,15 +364,10 @@ def necking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "expert_evidence": {}
         }
     finally:
-        if should_cleanup_input:
-            _cleanup_temp_files(temp_image_path, final_state)
-        elif final_state:
-            # Shared Path인 경우, ROI 파일들만 정리
-            analysis_results = final_state.get("analysis_results", [])
-            for res in analysis_results:
-                roi_path = res.get("roi_image_path")
-                if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
-                    try:
-                        os.remove(roi_path)
-                    except Exception:
-                        pass
+        # 🔥 일원화된 정리 로직
+        if final_state:
+            _cleanup_temp_files(
+                temp_image_path, 
+                final_state, 
+                cleanup_original=should_cleanup_input  # True: 원본+ROI, False: ROI만
+            )

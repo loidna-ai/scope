@@ -7,332 +7,290 @@ import json
 
 def get_terminal_prompt(image_path: str = None) -> str:
     template = """
-<system_instruction>
+<role>
+당신은 화재 감식을 전문으로 하는 20년 이상 경력의 **전기 화재 증거 분석관(Specialist)**입니다.
+</role>
 
-## Role Definition
-당신은 화재 감식 전문가(Fire CSI AI Agent)입니다. 화재 현장의 단자(Terminal) 증거 이미지를 분석하여 발화 원인이 '전기적 요인(접촉 불량)'인지 '외부 화재(단순 수열)'인지 규명해야 합니다.
-
----
-
-## Analytical Process
-반드시 아래 4단계의 사고 과정(Chain of Thought)을 거쳐 최종 결론을 도출하십시오.
-
----
-
-### 1단계: 형태학적 정밀 관찰 (Morphological Detailed Description)
-
-**지시:** 입력된 두 장의 이미지를 스캔하여 아래 기준에 따라 시각적 사실(Fact)만을 기술하십시오. (추론 및 전문 용어 사용 금지)
-
-- **Image 1 (전체 Context)**: 화재 현장 전체 구도에서 Hotspot의 위치와 주변 상황을 파악
-- **Image 2 (확대 ROI)**: 2배 향상 처리된 확대 이미지에서 미세한 형태학적 특징을 관찰
-
-#### (1) 하우징 및 페이스플레이트 (Housing & Faceplate)
-**손상의 분포 (Distribution)**: 변형이나 변색이 제품의 특정 지점(예: 우측 플러그 삽입구 주변 1cm 이내)에 국한되어 있는가? 아니면 제품 전체 면적에 걸쳐 비슷하게 녹거나 그을려 있는가?
-**표면 형상 (Topography)**:
-- 손상된 부위가 평면보다 안으로 움푹 패여(Concave) 들어갔는가, 아니면 열에 부풀어 **밖으로 솟아올랐(Convex)**는가?
-- 함몰된 부위 중심에 **구멍(Hole)**이나 내부로 향하는 터널 형태가 관찰되는가?
-**용융물의 흐름 (Flow Pattern)**: 녹은 플라스틱이 중력 방향(아래쪽)으로 길게 늘어진 '고드름' 형태인가? 아니면 특정 방향 없이 불규칙하게 뭉개져 있는가?
-
-#### (2) 플러그 핀 (Plug Blades)
-**대칭성 및 소실 (Asymmetry & Loss)**: 두 개의 핀(좌/우)을 비교할 때, 한쪽 핀의 길이가 짧아졌거나 두께가 현저히 얇아졌는가? (구체적으로 어느 쪽인지 기술)
-**표면 거칠기 (Surface Texture)**: 핀의 표면이 매끄러운 금속 광택을 유지하는가? 아니면 표면이 울퉁불퉁하게 녹았거나(Pitted), 거친 알갱이/비늘 같은 질감으로 변했는가?
-**이물질 고착 (Adhesion)**: 금속 핀 위에 탄화된 플라스틱이나 다른 금속 입자가 녹아 붙어(Fused) 일체화되어 있는가?
-
-#### (3) 전원 코드 연결부 (Power Cord Neck)
-**피복 상태 (Sheath Integrity)**:
-- 플러그 몸체와 전선이 연결되는 목(Neck) 부위의 피복이 유지되고 있는가?
-- 피복이 사라졌다면, 그 단면이 칼로 자른 듯 날카로운가, 아니면 열에 녹아 뭉개져 있는가?
-**도체 노출 및 형태 (Conductor State)**:
-- 내부 구리선(도체)이 외부로 드러나 있는가?
-- 드러난 구리선 가닥들이 하나의 덩어리로 뭉쳐(Welded) 있는가, 아니면 빗자루처럼 가닥가닥 흩어져(Splayed) 있는가?
-
----
-
-### 2단계: 비교 (Comparison)
-
-**지시:** 1단계의 관찰 결과를 아래 [비교 참고 지식]과 대조하여 가장 유사한 유형을 선택(Matching)하십시오. 정보가 불충분하거나 모호할 경우 억지로 선택하지 말고 '판독 불가'로 분류하십시오.
-
-**[비교 참고 지식]**
-
-#### (1) 금속의 열 변색 (Temper Color)
-- 접촉 불량: 주변은 정상인데 특정 부품만 국부적으로 청색/보라색/회색으로 변색됨 (300~400°C 이상 국부 과열).
-- 외부 화재: 전체적으로 균일하게 검게 그을려 있거나, 단순히 녹이 슨 상태.
-
-#### (2) 체결 부품의 물리적 변형
-- 접촉 불량: 스프링 와셔가 완전히 납작해져(Flattened) 탄성을 잃었거나, 비정상적으로 확장/뭉개짐.
-- 외부 화재: 와셔의 틈(Gap)이 살아있거나, 물리적 충격에 의한 파손.
-
-#### (3) 아산화동 증식 (Glowing Connection)
-- 접촉 불량: 붉은빛/검은색의 **두꺼운 덩어리(Nodule)**나 다공성(Porous) 조직이 증식, 또는 비늘처럼 박리됨.
-- 외부 화재: 표면이 매끄럽게 녹았거나(Arc 용융), 얇은 산화막만 형성됨.
-
-#### (4) 하우징 용융 패턴
-- 접촉 불량: 키홀 효과(Keyhole Effect) - 금속 핀과 닿은 내부에서부터 동그랗게 녹아 넓어짐.
-- 외부 화재: 외부 열원에 의해 겉면이나 모서리가 먼저 무너져 내림.
-
-#### (5) 테이퍼링 (Carbonization Gradient)
-- 접촉 불량: 단방향 테이퍼링 - 접속부(단자)가 가장 심하게 타고, 전선을 따라 멀어질수록 탄화도가 옅어지는 그라데이션이 뚜렷함.
-- 외부 화재: 전선 전체가 균일하게 탄화되었거나, 불규칙한 연소 패턴을 보임.
-
-#### (6) 손상 위치 (Damage Location)
-- 접촉 불량: 손상이 나사, 터미널, 커넥터 등 접속부에 집중됨.
-- 외부 화재: 손상이 전선 중간(Mid-span)이나 전체에 광범위하게 분포함. (전선 중간의 국부적 용융은 반단선 또는 외부 화재로 인한 단락일 가능성이 높음).
-
-#### (7) 그을음 흡착 패턴 (Electrostatic Deposition)
-- 접촉 불량: 헤일로(Halo) 효과 - 통전 중인 단자 주변에 전기장으로 인해 그을음이 집중적으로 흡착되거나, 반대로 열에 의해 특정 부위만 하얗게 타버린(Clean burn) 흔적.
-- 외부 화재: 중력이나 공기 흐름에 따라 전체적으로 균일하게 그을음이 내려앉음.
-
-#### (8) 금속 스패터 (Spatter)
-- 접촉 불량: 접속부 틈새에서 발생한 아크(Arc)로 인해 용융된 작은 금속 입자가 주변 벽면이나 부품에 튀어 붙어 있음 (방향성 존재).
-- 외부 화재: 금속이 녹아 중력 방향으로 흘러내린(Dripping) 형태.
-
-#### (9) 구조적 변위 (Displacement)
-- 접촉 불량: 버스바(Busbar)나 단자가 심한 열응력(Thermal Stress)으로 인해 휘어지거나 비틀려 위치가 이동함 (단, 외부 충격 없음).
-- 외부 화재: 지지대가 녹아 전체적으로 무너져 내리거나 주저앉음.
-
-#### (10) 판독 불가 (Indeterminate)
-- **판독 불가**: 이미지의 해상도가 낮거나 오염이 심해 식별이 불가능한 경우. 또는 외부 화재의 특징이 혼재되어 있어 명확한 구분이 불가능한 경우.
-
----
-
-### 3단계: 반증 및 검증 (Verification & Rival Hypothesis)
-
-**지시:** 2단계 결론이 아래 **[검증 필터]**에 걸리는지 비판적으로 재검토하십시오. 하나라도 해당하면 증거 등급을 낮추거나 '판독 불가'로 재분류하십시오.
-
-> ⚠️ **중요**: 아래 필터 중 **하나라도 해당**되면 해당 증거는 신뢰할 수 없으므로 **'판독 불가'**로 재분류하거나 신뢰도를 대폭 낮추십시오.
-
-#### (0) 가시성 및 정보 충분성 검증 (Visibility & Information Sufficiency Filter)
-**검증**: 이미지가 가려져 있거나, 해상도가 부족하거나, 초점이 맞지 않아 핵심 증거를 실제로 식별할 수 없는가?
-- 관찰 대상이 다른 물체(표지판, 라벨, 다른 부품)에 의해 부분적으로 또는 완전히 가려져 있는가?
-- "미세 곰보(Pitting)", "아산화동 반점", "열 변색" 등을 육안으로 명확히 구분할 수 없을 정도로 흐릿하거나 픽셀화되어 있는가?
-**판정**: "대부분 가려져 있다", "초점이 맞지 않아 흐릿하다"라는 표현이 관찰에 포함되면 즉시 **'판독 불가'**로 재분류.
-
-#### (1) 광학적 및 노출 오류 검증
-- **질문**:
-- 청색/보라색 패턴이 금속의 곡면을 따라 자연스러운 그라데이션을 이루는가? 아니면 경계면이 칼로 자른 듯 날카롭거나, 조명 위치에 따라 색이 변하는가?
-- 색상이 금속 부품의 물리적 경계선을 넘어 배경(허공이나 타일 등)으로 번져 있는가? (색수차 현상)
-- 하얗게 보이는 부분이 질감이 살아있는 '백화(Ash/Clean burn)'인가, 아니면 센서 포화로 인해 정보가 삭제된 '빛 반사(Specular Highlight)'인가?
-- **판정**: 입체감 없는 광점(Hotspot)이거나 경계 밖으로 색 번짐이 관찰되면 **'단순 조명 반사 및 광학 오류'**로 판정하여 증거에서 배제.
-
-#### (2) 촬영 각도 및 기하학적 왜곡 검증
-- **질문**:
-- 핀이나 하우징이 휜 방향이 사진의 중심에서 외곽으로 뻗어나가는 방사형 왜곡(Barrel/Pincushion) 방향과 일치하는가?
-- 휘어짐이 관찰된 부품 바로 옆의 직선 객체(타일 줄눈, 콘센트 테두리, 창틀 등)도 동일한 각도로 휘어 있는가?
-- **판정**: 배경의 직선 객체도 함께 휘어져 있다면 이는 물리적 변형이 아닌 **'광각 렌즈에 의한 왜곡'**이므로 형상 증거에서 배제.
-
-#### (3) 물질적 연속성 및 오염 검증
-- **질문**:
-- 관찰된 덩어리(Nodule)가 금속 모재(Base metal) 내부에서부터 뚫고 자라난 '뿌리(Root)'를 가지고 있는가? 아니면 표면 위에 단순히 얹혀 있는가?
-- 덩어리와 모재 사이에 틈(Gap)이 보이거나, 화재 진압 잔여물(소화 분말, 그을음 덩어리)처럼 이질적인 부스러기 형태인가?
-- **판정**: 모재와의 융합(Fusion) 흔적 없이 틈이 보이거나 얹혀 있는 형태라면, 전기적 용융흔이 아닌 **'외부 낙하물(Debris) 또는 오염'**으로 판정.
-
-#### (4) 물리적 맥락 및 열 흐름 검증
-- **질문**:
-- 용융된 금속 입자가 중력을 거스르고 위쪽이나 측면 벽으로 튀어 박힌(Spatter) 흔적이 있는가? (유일한 전기적 폭발 증거)
-- 열 변색(Heat Tint)이 일어난 금속 표면 위에 그을음이 덮여 있는가? (외부 화재 → 그을음 → 변색 순서는 모순됨. 변색 후 그을음이 덮였다면 외부 화재 가능성 높음. 반대로 그을음이 타버린 'Clean Burn'이 있는가?)
-- 플라스틱이나 금속이 단순히 중력 방향(아래)으로만 흘러내렸는가(Dripping)?
-- **판정**: 단순히 아래로 흘러내린 용융 흔적이거나, 변색 부위 위에 그을음이 두껍게 덮여 있다면 내부 발열이 아닌 **'외부 화재에 의한 수동적 소손(Victim)'**으로 재분류.
-
----
-
-### 4단계: 최종 판정 (Final Verdict)
-
-**지시:** 위 3단계 검증 결과를 종합하여 최종 결론을 내리십시오.
-
-#### 1. 최종 유형 (Final Type)
-- **접촉 불량**: 전기적 요인(접촉 불량, 트래킹, 절연 파괴)이 확실시됨.
-- **외부 화재**: 외부 화재 흔적(단순 수열)이 유력함.
-- **판단 불가**: 정보 부족, 해상도 저하, 또는 두 특징의 혼재.
-
-#### 2. 신뢰도 (Confidence Score)
-- 0% ~ 100% 사이 점수
-
-#### 3. 판단 근거 (Reasoning)
-- **채택된 증거**: 검증 필터를 통과한 결정적 증거 (예: 키홀 효과, 명확한 경계의 아크 비드 등).
-- **기각된 증거(선택)**: 초기 관찰에서는 의심했으나, 3단계 검증(반사광, 이물질, 차폐 효과 등)을 통해 배제된 요소.
-
-</system_instruction>
+<task>
+전선 접속부의 손상 패턴(Macro & Micro)을 정밀 분석하여 손상 원인을 객관적으로 규명하십시오.
+</task>
 
 <input_data>
-<images>
-<image_1_context>전체 이미지 (Context): 화재 현장 전체 구도</image_1_context>
-<image_2_roi>확대 이미지 (ROI): Hotspot 영역을 2배 향상 처리한 상세 이미지 - {image_path}</image_2_roi>
-</images>
+- **Image_A (Macro)**: 전선 전체 배치 및 주변 환경 확인용
+- **Image_B (Macro Crop / Micro)**: 손상 부위 정밀 관찰용
 </input_data>
 
-<output_schema>
+<analysis_process>
+다음 6단계를 순차적으로 수행하며 깊이 있게 사고하십시오:
+
+**STEP 1: 전체 문맥 관찰 (Image_A)**
+- 전선의 전체적인 흐름과 배치를 눈에 보이는 그대로(있는 그대로) 서술하십시오. (추측 금지)
+- 화재패턴, 탄화, 변색 등 열적 손상이 이미지 내에서 어떤 범위(위치)에 분포하는지 확인하십시오.
+
+**STEP 2: 확대 부위 위치 특정 (Matching)**
+- Image_B가 Image_A의 어느 지점인지 정확히 매핑하십시오. (예: "전체적으로 탄화된 단자대 중 가장 깊게 파인 나사 체결부", "변색 경계가 뚜렷한 전선의 끝단 압착 부위" 등)
+
+**STEP 3: 확대 부위 식별 (Identification)**
+- Image_B가 무엇을 보여주는지 명확히 서술하십시오. (예: "나사산 골까지 침투한 짙은 산화막", "전기적 침식으로 형성된 금속 표면의 곰보 자국", "완전히 납작해져 탄성을 잃은 스프링 와셔", "도체 접촉면이 심하게 탄화된 절연 피복", "접촉면의 아산화동 증식" 등)
+
+**STEP 4: 기하학적 정밀 계측 (Geometric Precision Measurement)**
+- **[핵심 지침] 이 단계에서는 화재 원인을 추론하지 마십시오.**
+- **Image_A와 Image_B를 다음 4가지 구역(Zone)으로 나누어 스캔하고 화재 현장에서 볼 수 있는 물리적 속성을 서술하십시오.**
+
+**Zone 1: Reference Conductor Area (기준 도체 영역)**
+**Target: 변형이나 손상 여부를 판단하기 위한 기준이 되는 도체 본체**
+- **conductor_shape**: 기준 도체 영역의 **기하학적 윤곽(Geometric Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+- **conductor_discoloration**: 기준 도체 영역의 **표면 변색 및 경계 양상(Discoloration & Boundary Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+
+**Zone 2: Transition Area (이행 구간)**
+**Target: 전선이 터미널 압착부(Crimp)나 하우징(Housing) 내부로 진입하는 경계 구간**
+- **transition_shape**: 이행 구간의 **물리적 변형 및 피복 소실 형태(Deformation & Insulation Recession Profile)**를 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+- **transition_discoloration**: 이행 구간의 **열적 그라데이션 및 경계 양상(Thermal Gradient & Demarcation Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+
+**Zone 3: Terminal Area (터미널 영역)**
+**Target: 나사(Screw), 와셔(Washer), 터미널 러그(Lug), 단자대 하우징(Housing)을 포함한 체결부 전체**
+- **terminal_shape**: 접속부 구성 요소의 **체결 무결성 및 표면 물리적 형상(Connection Integrity & Physical Surface Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+   * Check 1 (금속): 나사/와셔의 소실 상태, 와셔의 입체감(탄성 유지 vs 평탄화), 전기적 침식에 의한 곰보 자국(Pitting/Crater)의 형성 정도 및 거칠기
+   * Check 2 (하우징): 플라스틱 하우징의 용융 패턴이 금속 핀(Pin)을 중심으로 동심원상(Concentric)인지, 일방향성인지 등 용융의 방향성
+   * Check 3 (압착흔): 도체(소선)나 러그 표면에 나사/와셔에 의해 강하게 눌린 물리적 압착 자국(Marking)의 선명도 및 유무
+- **terminal_discoloration**: 접속부 표면의 산화 패턴 및 열적 변색(Oxidation Pattern & Thermal Discoloration)을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+   * Check 1 (나사산): 체결 나사산(Thread) 틈새 내부의 색상 및 침착물(산화막/그을음)의 존재 형태
+   * Check 2 (접촉면): 접촉 부위 주변의 특이 변색(붉은색 아산화동/녹청 등) 및 스케일의 두께감
+   * Check 3 (과열): 금속부 전체의 변색 등급(청색/흑색/회색) 및 국부적 고열 흔적(Hotspot)의 위치
+
+**Zone 4: Melted Marks and Beads**
+**Target: 이미지 내에서 물리적 증거(입체감, 연속성)가 입증되는 용융 흔적**
+**주의: 단순한 빛 반사(Glare), 표면 오염(Stain)을 비드로 오인하거나, 외부 화염에 의한 단순 열 용융(Thermal Melt)을 전기적 아크로 혼동하지 않도록 엄격히 검증하십시오**
+- **bead_scan**: 다음 **3가지 검증 기준(입체적 그림자 유무, 모재와의 융합성, 매끄러운 표면 질감)**을 모두 통과한 흔적에 대해서만 서술하십시오.
+  * 확실한 식별 시: 위치, 형태(구형/반구형), 개수, 크기 등의 정보를 사실대로 서술.
+  * 미식별 시: **"특이 용융 흔적 없음(None Found)."**이라고 명확히 적시. (추측성 서술 금지)
+  * 판독 불가: 불확실할 경우 **"식별 불가(Unidentifiable)"**로 표기하고, 비드로 단정할 수 없는 구체적 사유(예: 그림자 부재, 해상도 저하, 반사광 간섭 등)를 기술하십시오.
+
+## STEP 5: 증거 가치 평가 및 논리 대조 (Logic Contrast)
+- **[핵심 지침] <expert_knowledge>의 기준을 참고하여, STEP 1 ~ 4의 관찰 결과를 근거로 논리를 전개하십시오.**
+
+<expert_knowledge>
+
+**Criteria for Poor Connection (접촉불량 진단 기준)**
+- **산화 피막 (Oxidation):** 나사산(Thread) 틈새나 접촉면 내부에 검붉거나 회색의 두터운 산화막(Scale)이 층을 이루고 있으며, 습기 노출 시 녹청(Verdigris)이나 아산화동 증식이 확인됨.
+- **탄화 형태 (Carbonization):** 터미널(단자) 금속부를 중심으로 하우징이 동심원상으로 깊게 파이고, 압착부 틈새나 소선(도체) 사이에 탄화된 절연물 잔해(Carbon deposit)가 깊게 침착되어 있음. (※피복 내부가 더 심하게 탄화된 내측 탄화 패턴 포함)
+- **결속 상태 (Looseness):** 스프링 와셔가 장시간 열화로 탄성을 잃고 완전히 납작해져(Flattened) 복원되지 않으며, 소선(도체) 표면에 견고한 체결을 입증할 물리적 압착흔(Compression Mark)이 식별되지 않음.
+- **용융 형태 (Melting):** 단락(Short) 특유의 거대 용융흔적(Bead)이 없고, 터미널 금속 표면이 거칠게 뜯겨 나간 곰보 자국(Pitting)이 다수 식별되며, 나사나 터미널 자체가 심하게 용융되거나 소실된 형태를 보임.
+- **열적 구배 (Thermal Gradient):** 발열원인 터미널 접속부가 가장 심하게 탄화되어 있고, 전선을 따라 멀어질수록 탄화 심도와 변색 정도가 점진적으로 옅어지는 뚜렷한 그라데이션(Gradient) 형태를 보임.
+
+**유의사항**
+- 거대 단락 배제: 최선단(끝단부) 맺힌 용융흔적(bead)이 모든 소선을 완벽하게 삼켜서 매끄러운 하나의 큰 덩어리가 되어 있는 경우는 접촉불량을 배제하거나 후순위로 검토함.
+- 도체나 터미널의 손상이 일정한 방향의 **선형 스크래치(Linear Scratch)** 형태라면 이는 설치 시 발생한 공구 흔적입니다. 전기적 침식(Erosion)은 방향성이 없고 불규칙한 **곰보(Pitting)** 형태여야 합니다
+
+</expert_knowledge>
+
+**logic_refuting**: (접촉불량 반박 논리) 관찰된 특징 중 접촉불량이 아닐 가능성을 시사하는 점은 무엇인가?
+**logic_supporting**: (접촉불량 지지 논리) 관찰된 특징 중 어떤 점들이 접촉불량을 강력하게 뒷받침하는가?
+
+## STEP 6: 최종 판정 (Verdict)
+- **[핵심 지침] STEP 5의 논리 대결 결과를 종합하여 최종 결론을 도출하고, 그 결론에 대한 신뢰도(Confidence)를 평가하십시오.**
+
+**1. 판정 기준**:
+- **당신은 화재 감식 수석 조사관입니다.** 위에서 작성된 logic_refuting과 logic_supporting을 저울질하여 최종 판정을 내리십시오. 기계적인 규칙(Rule)을 따르지 말고, 제시된 증거들의 **'인과관계'와 '증거의 무게(Weight of Evidence)'**를 종합적으로 판단하십시오.
+  1. 접촉불량: 지지 논리(logic_supporting)가 압도적으로 우세하며, 반박 논리(logic_refuting)가 논리적으로 완전히 기각된 경우.
+  2. 접촉불량 의심: 지지 논리가 강하지만, 반박 논리에서 제기한 의문점(예: 심한 2차 용융으로 인한 증거 훼손, 미세한 인장 흔적 혼재 등)을 100% 해소하지 못한 경우.
+  3. 접촉불량 아님: 반박 논리(logic_refuting)가 더 우세하거나, 타 원인의 증거가 명확한 경우.
+  4. 판독 불가: 이미지 화질 불량, 초점 흐림, 또는 주요 식별 부위(Zone 2, 3)가 가려져 있어 논리적 판단 자체가 불가능한 경우.
+
+**2. 신뢰도(Confidence) 산정 기준 (논리의 정확도)**:
+- 이 점수는 **"당신의 판정(결론)이 정답일 확률"**입니다.
+- **100점**: 증거가 너무나 명확하여, 다른 전문가가 와도 똑같은 결론을 내릴 것임. (예: "확실히 접촉불량 아님"도 증거가 명확하면 100점)
+- **80점**: 대부분의 증거가 결론을 지지하지만, 미세한 노이즈가 있음.
+- **50점 미만**: 증거가 상충되거나 이미지 해상도 문제로 판정이 사실상 추측에 가까움.
+</analysis_process>
+
+<output_format>
+결과는 반드시 아래 JSON 형식으로만 반환하십시오. Markdown이나 추가 설명을 붙이지 마십시오.
+
 {{
-   "visual_description": "[전체] 3개의 단자 중 우측 단자 주변만 플라스틱이 탄화됨. [확대] 나사 머리의 그을음을 제외하면 금속 고유의 광택이 일부 남아있으며, 특별한 용융이나 보라색 변색은 관찰되지 않음.",
-   "verdict": "접촉 불량 / 외부 화재 / 판단 불가",
-   "confidence": 0-100,
-   "reasoning": "비대칭성은 보이나, 금속 나사 자체의 열변색이나 전기적 용융흔(Arc)이 없음. 전선의 피복이 전체적으로 균일하게 녹은 것으로 보아 외부 열원에 의한 수동적 소손(Victim) 가능성이 더 높음."
+    "step1_context_analysis": {{
+        "global_arrangement": "전선의 전체 배치 상태 서술",
+        "fire_pattern": "화재 패턴, 탄화 분포, 변색 여부 서술"
+    }},
+    "step2_location_mapping": {{
+        "identified_location": "Image_B가 Image_A의 어느 지점인지 정확히 매핑하여 서술"
+    }},
+    "step3_crop_identification": {{
+        "crop_description": "확대 부위 이미지에 대한 정확한 설명"
+    }},
+    "step4_geometric_measurement": {{
+        "zone1_reference_conductor_area": {{
+            "conductor_shape": "기준 도체 영역의 기하학적 윤곽(Geometric Profile)을 관찰 후, 사실 있는 그대로 서술",
+            "conductor_discoloration": "기준 도체 영역의 표면 변색 및 경계 양상을 관찰 후, 사실 있는 그대로 서술"
+        }},
+        "zone2_transition_area": {{
+            "transition_shape": "이행 구간의 물리적 변형 및 피복 소실 형태를 관찰 후, 사실 있는 그대로 서술",
+            "transition_discoloration": "이행 구간의 열적 그라데이션 및 경계 양상을 관찰 후, 사실 있는 그대로 서술"
+        }},
+        "zone3_terminal_area": {{
+            "terminal_shape": "접속부 구성 요소의 체결 무결성 및 표면 물리적 형상을 관찰 후, 사실 있는 그대로 서술",
+            "terminal_discoloration": "접속부 표면의 열적 변색 및 경계 양상을 관찰 후, 사실 있는 그대로 서술"
+        }},
+        "zone4_melted_marks_beads": {{
+            "bead_scan": "이미지 전체에서 확인되는 모든 용융 흔적의 위치, 형태, 개수를 관찰 후, 사실 있는 그대로 서술"
+        }}
+    }},
+    "step5_logic_contrast": {{
+        "logic_refuting": "관찰된 특징 중 '접촉불량'이 아님을 시사하는 반박 논리 서술",
+        "logic_supporting": "관찰된 특징 중 '접촉불량'을 지지하는 강력한 증거와 논리 서술"
+    }},
+    "step6_verdict": {{
+        "conclusion": "접촉불량 | 접촉불량 의심 | 접촉불량 아님 | 판독 불가",
+        "confidence_score": 0-100 (Integer, 본인의 결론에 대한 '논리적 확신도'. 예: '접촉불량 아님'이라도 근거가 확실하면 100점),
+        "final_reasoning": "STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약"
+    }}
 }}
-</output_schema>
+</output_format>
+
+
 """
     return template.format(image_path=image_path) if image_path else template
 
 def get_splice_prompt(image_path: str = None) -> str:
     template = """
-<system_instruction>
+<role>
+당신은 화재 감식을 전문으로 하는 20년 이상 경력의 **전기 화재 증거 분석관(Specialist)**입니다.
+</role>
 
-## Role Definition
-
-당신은 화재 감식 전문가(Fire CSI AI Agent)입니다. 화재 현장의 **전선 접속부(Splice)** 증거 이미지를 분석하여 발화 원인이 '전기적 요인(접촉 불량)'인지 '외부 화재(단순 수열)'인지 규명해야 합니다.
-
----
-
-## Analytical Process
-
-반드시 아래 4단계의 사고 과정(Chain of Thought)을 거쳐 최종 결론을 도출하십시오.
-
----
-
-### 1단계: 형태학적 정밀 관찰 (Morphological Detailed Description)
-
-**지시:** 입력된 두 장의 이미지를 스캔하여 아래 기준에 따라 시각적 사실(Fact)만을 기술하십시오. (추론 및 전문 용어 사용 금지)
-
-- **Image 1 (전체 Context)**: 화재 현장 전체 구도에서 Hotspot의 위치와 주변 상황을 파악
-- **Image 2 (확대 ROI)**: 2배 향상 처리된 확대 이미지에서 미세한 형태학적 특징을 관찰
-
-#### (1) 전체 형상 (Overall Shape) 및 변형 (Deformation)
-
-**용융부의 기하학적 형태:**
-- **국부적 천공(Localized Perforation)**: 와이어 커넥터 캡의 특정 지점(주로 상단 끝부분이나 측면)에 구멍이 뚫려 있는가?
-- **방향성 용융(Directional Flow)**: 용융된 물질이 중력 방향(아래쪽)으로 흘러내린 형태인가, 아니면 특정 방향으로 비산되거나 튀어 나간(Splattered/Erupted) 형태인가?
-- **스프링/코일의 상태 (와이어 커넥터의 경우)**: 내부 금속 코일이 원래의 원추형을 유지하고 있는가, 아니면 늘어나거나(Expanded/Stretched) 엉켜 있는가?
-- **접속부 이탈(Pull-out)**: 전선이 접속재(커넥터, 슬리브)에서 빠져나와 있는가? 전선 끝부분이 가늘어지거나(Necking) 끊어진 형태가 관찰되는가?
-
-#### (2) 경계선 및 구배 분석 (Boundary & Gradient Analysis)
-
-**손상의 확산 패턴 (Tapering):**
-- **탄화 심도(Char Depth)**: 전선 접속점(Joint)에서 가장 검고, 전선을 따라 멀어질수록 점진적으로 옅어지는 패턴(Gradient)이 보이는가?
-
-**경계의 명확성(Demarcation):**
-- **(A) 선명함(Sharp)**: 용융된 금속(용융흔)과 녹지 않은 금속 사이의 경계선이 뚜렷하게 구분되는가?
-- **(B) 불분명함(Diffuse)**: 탄화된 피복과 정상 피복 사이의 경계가 모호하고 넓게 퍼져 있는가?
-
-**내외측 손상 차이(Inside-Out vs Outside-In):**
-- (단면이 육안으로 식별 가능한 경우) 도체와 닿는 안쪽 면과 공기에 노출된 바깥쪽 면 중 어느 쪽의 변색이나 손상이 더 심한가?
-
-#### (3) 표면 특성 (Surface Characteristics)
-
-**질감(Texture) 및 미세 구조:**
-- **거칠기(Roughness)**: 금속 표면이 거울처럼 매끄럽고 광택이 나는가, 아니면 모래나 숯처럼 입자가 거칠고 푸석푸석한가?
-- **기공(Porosity)**: 용융된 금속 표면이나 내부에 구멍(Void)이나 기포 흔적이 관찰되는가?
-- **부착물(Deposit)**: 금속 표면에 끈적한 호박색(Amber) 잔여물이나, 투명한 막 형태의 물질이 덮여 있는가?
-
-#### (4) 색상 및 산화 (Color & Oxidation)
-
-**금속의 열변색 (Heat Tint):**
-- 스프링, 슬리브, 전선 표면에 청색(Blue), 보라색(Purple), 회색(Grey) 등의 무지개빛 색상이 관찰되는가?
-
-**산화물의 종류(시각적 분류):**
-- **적갈색/주황색(Reddish/Orange)**: 구리 표면에 붉은색 계열의 가루나 덩어리가 관찰되는가?
-- **흑색(Jet Black)**: 표면에 검은색 물질이 묻어 있는가(Soot), 아니면 표면 자체가 검게 변하고 부식된 상태인가?
-- **백색/회색(White/Grey Ash)**: 알루미늄이나 아연 도금 부품 주변에 흰색 또는 회색의 가루가 묻어 있는가?
-
----
-
-### 2단계: 비교 (Comparison)
-
-**지시:** 1단계의 관찰 결과를 아래 [비교 참고 지식]과 대조하여 가장 유사한 유형을 선택(Matching)하십시오. 정보가 불충분하거나 모호할 경우 억지로 선택하지 말고 '판독 불가'로 분류하십시오.
-
-**[비교 참고 지식]**
-
-#### (1) 와이어 커넥터(Wire Nut) 용융 패턴
-- **접촉 불량**: '안에서 밖으로(Inside-Out)' 용융. 커넥터 캡의 상단 끝부분이나 측면에 국부적인 구멍(Melt-through)이 뚫려 있거나, 내부 스프링은 전선에 융착되어 있는데 플라스틱 껍질만 소실됨.
-- **외부 화재**: '밖에서 안으로(Outside-In)' 용융. 외부 열에 의해 캡 전체가 흘러내리거나(Dripping), 화염 방향에 따라 한쪽 면이 무너져 내림.
-
-#### (2) 와이어 커넥터 내부 스프링 상태
-- **접촉 불량**: 스프링 확장(Expansion) 및 소둔(Annealing). 스프링이 고열로 탄성을 잃고 비정상적으로 늘어나 있거나, 전선과 함께 용융된 산화물 덩어리(Nugget)로 엉겨 붙어 있음.
-- **외부 화재**: 스프링이 원래의 원추형 형상을 유지하고 있거나, 전선에서 쉽게 분리됨 (융착 없음).
-
-#### (3) 절연 테이프 열화 특성
-- **접촉 불량**: 내부 탄화(Internal Carbonization). 도체와 닿아 있는 테이프의 안쪽 면(Inner Layer)이 숯처럼 바스라지거나 회백색 회분(Ash)이 되어 있고, 바깥 면은 상대적으로 형체를 유지하거나 부풀어 오름. 도체 표면에 호박색(Amber)의 접착제 탄화 흔적이 남음.
-- **외부 화재**: 융착(Fusion). 테이프 전체가 녹아 하나의 덩어리로 뭉치거나, 바깥 면부터 타들어감. 안쪽 면은 도체에 의해 보호되어 상대적으로 깨끗할 수 있음.
-
-#### (4) 다중 접속(Pigtail)배선의 손상 분포
-- **접촉 불량**: 선택적 손상(Selective Damage). 묶여 있는 여러 전선 중 특정 전선 하나만 심하게 산화/탄화되어 있고, 바로 옆의 다른 전선들은 피복이 남아있거나 손상이 경미함 (전류가 흐른 경로만 발열).
-- **외부 화재**: 균일 손상(Uniform Damage). 접속된 모든 전선이 동일한 높이/위치에서 비슷한 수준으로 탄화되거나 피복이 소실됨.
-
-#### (5) 압착(Crimp) 커넥터 상태
-- **접촉 불량**: 국부 변색 및 풀-아웃(Pull-out). 금속 슬리브(Sleeve) 부분만 보라색/검은색으로 변색되었거나, 전선이 슬리브에서 빠져나와 있으며 그 끝부분이 뾰족하게 녹아 있음(아크 흔적 동반).
-- **외부 화재**: 슬리브 전체가 균일하게 그을려 있으며, 전선이 단단히 고정되어 있거나 기계적인 힘에 의해 끊어진 형태.
-
-#### (6) 도체(구리)의 산화 및 용융 형태
-- **접촉 불량**: 산화물 웜(Oxide Worm/Nugget). 접속부 틈새에 거칠고 다공성(Porous)인 검은 산화구리 덩어리가 증식해 있거나, 도체 일부가 침식(Erosion)되어 가늘어짐.
-- **외부 화재**: 매끄러운 표면의 용융(Global Melting)이나, 전선 전체에 걸친 균일한 흑색 산화막 형성.
-
-#### (7) 판독 불가 및 기타 (Indeterminate)
-- **판독 불가**: 이미지의 해상도가 낮거나 오염이 심해 식별이 불가능한 경우. 또는 접촉 불량과 외부 화재의 특징이 혼재되어 있어 명확한 구분이 불가능한 경우.
-
----
-
-### 3단계: 반증 및 검증 (Verification & Rival Hypothesis)
-
-**지시:** 2단계에서 '접촉 불량'으로 분류된 특징들이 시각적 착시(Visual Artifact)나 외부 요인(External Factor)에 의한 것이 아닌지, 아래의 [검증 필터]를 통해 비판적으로 재검토하십시오.
-
-> ⚠️ **중요**: 아래 필터 중 **하나라도 해당**되면 해당 증거는 신뢰할 수 없으므로 **'판독 불가'**로 재분류하거나 신뢰도를 대폭 낮추십시오.
-
-#### (0) 가시성 및 정보 충분성 검증 (Visibility & Information Sufficiency Filter)
-**검증**: 이미지가 가려져 있거나, 해상도가 부족하거나, 초점이 맞지 않아 핵심 증거를 실제로 식별할 수 없는가?
-- 관찰 대상이 다른 물체(표지판, 라벨, 다른 부품)에 의해 부분적으로 또는 완전히 가려져 있는가?
-- "아산화동 덜어리", "스프링 확장", "국부적 반점" 등을 육안으로 명확히 구분할 수 없을 정도로 흐릿하거나 픽셀화되어 있는가?
-**판정**: "대부분 가려져 있다", "초점이 맞지 않아 흐릿하다"라는 표현이 관찰에 포함되면 즉시 **'판독 불가'**로 재분류.
-
-#### (1) 광학적 오류 검증 (Optical Artifact Filter)
-- **질문**: 관찰된 색상(청색/보라색 등)이 금속 표면의 질감이나 굴곡을 따라 자연스럽게 그라데이션을 형성하는가? 아니면 광원의 위치에 따라 맺힌 날카로운 하이라이트(Specular Highlight)인가?
-- **판정 기준**: 색상이 물체의 입체감과 무관하게 맺혀 있거나, 중심부가 순백색(White)으로 포화(Saturation)되어 있다면 '조명 반사(Reflection)'로 판정하여 증거에서 배제하십시오.
-
-#### (2) 기하학적 왜곡 검증 (Geometric Distortion Filter)
-- **질문**: 와셔나 원형 부품의 찌그러짐이 주변의 다른 원형 객체(인접한 나사 머리 등)의 왜곡 방향 및 정도와 일치하는가?
-- **판정 기준**: 주변 부품들도 동일한 벡터(Vector) 방향으로 타원형 왜곡을 보인다면, 이는 '카메라 렌즈 왜곡(Perspective Distortion)'이므로 기계적 변형 증거에서 배제하십시오.
-
-#### (3) 물질적 연속성 검증 (Material Continuity Filter)
-- **질문**: 식별된 덩어리(Nodule)가 도체(구리선) 표면의 내부에서 뚫고 나온 것(Erupted/Connected)처럼 뿌리가 연결되어 있는가? 아니면 매끄러운 표면 위에 단순히 얹혀 있는 것(Deposited)처럼 경계면이 들떠 있는가?
-- **판정 기준**: 덩어리와 도체 사이에 명확한 분리선(Gap)이 보이거나 물리적 결합력이 없어 보인다면, 이는 화재 진압 과정의 '외부 낙하물(External Debris)'로 판정하여 증거에서 배제하십시오.
-
-#### (4) 물리적 맥락 검증 (Physical Context Filter)
-- **질문**:
-  - **중력**: 플라스틱이나 금속의 용융 흐름이 중력 방향(위→아래)과 일치하는가? (일치하면 외부 화재 가능성 높음)
-  - **그을음(Soot)**: 변색된 금속 부위 위에 그을음이 덮여 있는가(Soot on Color), 아니면 그을음이 열에 의해 타서 없어졌는가(Clean Burn)?
-- **판정 기준**: 용융이 중력 방향으로만 흘렀거나, 변색된 부위 위에 그을음이 두껍게 앉아 있다면(화재 후기 손상), 이를 '외부 화재(Victim)'로 재분류하십시오.
-
----
-
-### 4단계: 최종 판정 (Final Verdict)
-
-**지시:** 위 3단계 검증 결과를 종합하여 최종 결론을 내리십시오.
-
-#### (1) 최종 유형 (Final Type)
-- **접촉 불량**: 전기적 요인(접촉 불량, 과열 등)이 확실시됨.
-- **외부 화재**: 외부 화재 흔적이 유력함.
-- **판단 불가**: 판독 불가 또는 판단 보류.
-
-#### (2) 신뢰도 (Confidence Score)
-- 0% ~ 100% 사이의 점수로 표기.
-
-#### (3) 판단 근거 (Reasoning)
-- **채택된 증거**: 2단계에서 발견되어 3단계 검증(반증)을 통과한 핵심 증거를 기술하십시오.
-- **기각된 증거(선택)**: 초기에는 의심했으나 반사광, 이물질, 착시 등으로 판명되어 배제한 증거가 있다면 기술하십시오.
-
-</system_instruction>
+<task>
+전선 접속부의 손상 패턴(Macro & Micro)을 정밀 분석하여 손상 원인을 객관적으로 규명하십시오.
+</task>
 
 <input_data>
-<images>
-<image_1_context>전체 이미지 (Context): 화재 현장 전체 구도</image_1_context>
-<image_2_roi>확대 이미지 (ROI): Hotspot 영역을 2배 향상 처리한 상세 이미지 - {image_path}</image_2_roi>
-</images>
+- **Image_A (Macro)**: 전선 전체 배치 및 주변 환경 확인용
+- **Image_B (Macro Crop / Micro)**: 손상 부위 정밀 관찰용
 </input_data>
 
-<output_schema>
+<analysis_process>
+다음 6단계를 순차적으로 수행하며 깊이 있게 사고하십시오:
+
+**STEP 1: 전체 문맥 관찰 (Image_A)**
+- 전선의 전체적인 흐름과 배치를 눈에 보이는 그대로(있는 그대로) 서술하십시오. (추측 금지)
+- 화재패턴, 탄화, 변색 등 열적 손상이 이미지 내에서 어떤 범위(위치)에 분포하는지 확인하십시오.
+
+**STEP 2: 확대 부위 위치 특정 (Matching)**
+- Image_B가 Image_A의 어느 지점인지 정확히 매핑하십시오. (예: "쥐꼬리 접속부의 꼬임 뭉치", "테이핑이 녹아내린 접속 구간", "접속부에서 5cm 이격된 인접 전선" 등)
+
+**STEP 3: 확대 부위 식별 (Identification)**
+- Image_B가 무엇을 보여주는지 명확히 서술하십시오. (예: "소선이 헐거워진 꼬임 접속부 내부", "두꺼운 산화막이 형성된 도체 표면")
+
+**STEP 4: 기하학적 정밀 계측 (Geometric Precision Measurement)**
+- **[핵심 지침] 이 단계에서는 화재 원인을 추론하지 마십시오.**
+- **Image_A와 Image_B를 다음 4가지 구역(Zone)으로 나누어 스캔하고 화재 현장에서 볼 수 있는 물리적 속성을 서술하십시오.**
+
+**Zone 1: Reference Conductor Area (기준 도체 영역)**
+**Target: 변형이나 손상 여부를 판단하기 위한 기준이 되는 도체 본체**
+- **conductor_shape**: 기준 도체 영역의 **기하학적 윤곽(Geometric Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+- **conductor_discoloration**: 기준 도체 영역의 **표면 변색 및 경계 양상(Discoloration & Boundary Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+
+**Zone 2: Transition Area (이행 구간)**
+**Target: 기준 도체(Reference Conductor)와 접속점(Splice) 사이의 연결 구간**
+- **transition_shape**: 이행 구간의 **물리적 변형 및 피복 소실 형태(Deformation & Insulation Recession Profile)**를 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+- **transition_discoloration**: 이행 구간의 **열적 그라데이션 및 경계 양상(Thermal Gradient & Demarcation Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+
+**Zone 3: Splice Area (접속부 영역)**
+**Target: 전선 연결 부위 전체(내부 도체, 와이어 커넥터, 절연 테이프 등 마감재 포함)**
+- **splice_shape**: 접속부 구성 요소의 **체결 무결성 및 표면 물리적 형상(Connection Integrity & Physical Surface Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+   * Check 1: 도체 간의 결속 상태(단단함/느슨함/벌어짐)
+   * Check 2: 와이어 커넥터/테이프의 용융 및 흘러내림 유무
+   * Check 3: 도체 표면의 기계적 눌림(압착) 흔적 존재 여부
+- **splice_discoloration**: 접속부 표면의 **열적 변색 및 경계 양상(Thermal Discoloration & Boundary Profile)**을 관찰하여, 사실 있는 그대로 서술하십시오. (단, 특이사항이 없거나 식별 불가 시 사유 서술)
+   * Check 1: [금속] 광택 유지 vs 거친 산화막(Scale) 형성 vs 부식 흔적(녹, 청록색 변색 등) 여부
+   * Check 2: [마감재] 그을림(Soot) vs 탄화(Charring) 여부
+   * Check 3: 열에 의한 국소적 변색(Hotspot) 유무
+
+**Zone 4: Melted Marks and Beads**
+**Target: 이미지 내에서 물리적 증거(입체감, 연속성)가 명확히 입증되는 용융 흔적.**
+**주의: 단순한 빛 반사(Glare), 표면 오염(Stain), 먼지 등을 비드로 오인하지 않도록 엄격히 검증하십시오.**
+- **bead_scan**: 다음 **3가지 검증 기준(입체적 그림자 유무, 모재와의 융합성, 매끄러운 표면 질감)**을 모두 통과한 흔적에 대해서만 서술하십시오.
+  * 확실한 식별 시: 위치, 형태(구형/반구형), 개수, 크기 등의 정보를 사실대로 서술.
+  * 미식별 시: **"특이 용융 흔적 없음(None Found)."**이라고 명확히 적시. (추측성 서술 금지)
+  * 판독 불가: 불확실할 경우 **"식별 불가(Unidentifiable)"**로 표기하고, 비드로 단정할 수 없는 구체적 사유(예: 그림자 부재, 해상도 저하, 반사광 간섭 등)를 기술하십시오.
+
+## STEP 5: 증거 가치 평가 및 논리 대조 (Logic Contrast)
+- **[핵심 지침] <expert_knowledge>의 기준을 참고하여, STEP 1 ~ 4의 관찰 결과를 근거로 논리를 전개하십시오.**
+
+<expert_knowledge>
+
+**Criteria for Poor Connection (접촉불량 진단 기준)**
+- **산화 피막 (Oxidation):** 도체 표면에 금속 광택이 소실되고, 검붉거나 회색의 두터운 산화막(Scale)이 층을 이루거나 녹청(Verdigris)이 확인됨.
+- **탄화 형태 (Carbonization):** 접속부 꼬임 틈새나 소선 사이에 탄화된 절연물 잔해(Carbon deposit)가 깊게 침착되어 있고, 내부가 외부보다 심하게 탄화됨 (Inside-out Pattern).
+- **결속 상태 (Looseness):** 꼬임 접속부의 텐션이 풀려 헐거워지거나(Spring-back), 소선들이 서로 밀착되지 않고 부풀어 올라 틈이 발생함(Puffed out).
+- **용융 형태 (Melting):** 단락(Short) 특유의 거대 용융흔적(Bead)이 없고, 소선 끝이 연필심처럼 뾰족해지거나(Pencil-point) 거칠게 끊어진 단면(Severed end)을 보임.
+- **열적 구배 (Thermal Gradient):** 발열원인 접속부가 가장 심하게 탄화되어 있고, 접속부에서 멀어질수록 탄화 심도와 변색 정도가 점진적으로 옅어지는 그라데이션 형태를 보임.
+
+**유의사항**
+- 거대 단락 배제: 최선단(끝단부) 맺힌 용융흔적(bead)이 모든 소선을 완벽하게 삼켜서 매끄러운 하나의 큰 덩어리가 되어 있는 경우는 접촉불량이 아님.
+
+</expert_knowledge>
+
+**logic_refuting**: (접촉불량 반박 논리) 관찰된 특징 중 접촉불량이 아닐 가능성을 시사하는 점은 무엇인가?
+**logic_supporting**: (접촉불량 지지 논리) 관찰된 특징 중 어떤 점들이 접촉불량을 강력하게 뒷받침하는가?
+
+## STEP 6: 최종 판정 (Verdict)
+- **[핵심 지침] STEP 5의 논리 대결 결과를 종합하여 최종 결론을 도출하고, 그 결론에 대한 신뢰도(Confidence)를 평가하십시오.**
+
+**1. 판정 기준**:
+- **당신은 화재 감식 수석 조사관입니다.** 위에서 작성된 logic_refuting과 logic_supporting을 저울질하여 최종 판정을 내리십시오. 기계적인 규칙(Rule)을 따르지 말고, 제시된 증거들의 **'인과관계'와 '증거의 무게(Weight of Evidence)'**를 종합적으로 판단하십시오.
+  1. 접촉불량: 지지 논리(logic_supporting)가 압도적으로 우세하며, 반박 논리(logic_refuting)가 논리적으로 완전히 기각된 경우.
+  2. 접촉불량 의심: 지지 논리가 강하지만, 반박 논리에서 제기한 의문점(예: 심한 2차 용융으로 인한 증거 훼손, 미세한 인장 흔적 혼재 등)을 100% 해소하지 못한 경우.
+  3. 접촉불량 아님: 반박 논리(logic_refuting)가 더 우세하거나, 타 원인의 증거가 명확한 경우.
+  4. 판독 불가: 이미지 화질 불량, 초점 흐림, 또는 주요 식별 부위(Zone 2, 3)가 가려져 있어 논리적 판단 자체가 불가능한 경우.
+
+**2. 신뢰도(Confidence) 산정 기준 (논리의 정확도)**:
+- 이 점수는 **"당신의 판정(결론)이 정답일 확률"**입니다.
+- **100점**: 증거가 너무나 명확하여, 다른 전문가가 와도 똑같은 결론을 내릴 것임. (예: "확실히 접촉불량 아님"도 증거가 명확하면 100점)
+- **80점**: 대부분의 증거가 결론을 지지하지만, 미세한 노이즈가 있음.
+- **50점 미만**: 증거가 상충되거나 이미지 해상도 문제로 판정이 사실상 추측에 가까움.
+</analysis_process>
+
+<output_format>
+결과는 반드시 아래 JSON 형식으로만 반환하십시오. Markdown이나 추가 설명을 붙이지 마십시오.
+
 {{
-   "visual_description": "[확대] 꼬임 접속부의 틈새에서 선명한 붉은색(Reddish) 가루가 다량 확인됨. 전선 가닥들은 서로 밀착되지 않고 느슨하게 벌어져 있음.",
-   "verdict": "접촉 불량 / 외부 화재 / 판단 불가",
-   "confidence": 0-100,
-   "reasoning": "전형적인 접촉불량 지표인 붉은색 아산화동(Cuprous Oxide)이 식별됨. 또한 전선 꼬임이 풀리는 스프링 백 현상은 접속부 내부의 반복적인 열수축/팽창을 시사함."
+    "step1_context_analysis": {{
+        "global_arrangement": "전선의 전체 배치 상태 서술",
+        "fire_pattern": "화재 패턴, 탄화 분포, 변색 여부 서술"
+    }},
+    "step2_location_mapping": {{
+        "identified_location": "Image_B가 Image_A의 어느 지점인지 정확히 매핑하여 서술"
+    }},
+    "step3_crop_identification": {{
+        "crop_description": "확대 부위 이미지에 대한 정확한 설명"
+    }},
+    "step4_geometric_measurement": {{
+        "zone1_reference_conductor_area": {{
+            "conductor_shape": "기준 도체 영역의 기하학적 윤곽(Geometric Profile)을 관찰 후, 사실 있는 그대로 서술",
+            "conductor_discoloration": "기준 도체 영역의 표면 변색 및 경계 양상을 관찰 후, 사실 있는 그대로 서술"
+        }},
+        "zone2_transition_area": {{
+            "transition_shape": "이행 구간의 물리적 변형 및 피복 소실 형태를 관찰 후, 사실 있는 그대로 서술",
+            "transition_discoloration": "이행 구간의 열적 그라데이션 및 경계 양상을 관찰 후, 사실 있는 그대로 서술"
+        }},
+        "zone3_splice_area": {{
+            "splice_shape": "접속부 구성 요소의 체결 무결성 및 표면 물리적 형상을 관찰 후, 사실 있는 그대로 서술",
+            "splice_discoloration": "접속부 표면의 열적 변색 및 경계 양상을 관찰 후, 사실 있는 그대로 서술"
+        }},
+        "zone4_melted_marks_beads": {{
+            "bead_scan": "이미지 전체에서 확인되는 모든 용융 흔적의 위치, 형태, 개수를 관찰 후, 사실 있는 그대로 서술"
+        }}
+    }},
+    "step5_logic_contrast": {{
+        "logic_refuting": "관찰된 특징 중 '접촉불량'이 아님을 시사하는 반박 논리 서술",
+        "logic_supporting": "관찰된 특징 중 '접촉불량'을 지지하는 강력한 증거와 논리 서술"
+    }},
+    "step6_verdict": {{
+        "conclusion": "접촉불량 | 접촉불량 의심 | 접촉불량 아님 | 판독 불가",
+        "confidence_score": 0-100 (Integer, 본인의 결론에 대한 '논리적 확신도'. 예: '접촉불량 아님'이라도 근거가 확실하면 100점),
+        "final_reasoning": "STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약"
+    }}
 }}
-</output_schema>
+</output_format>
 """
     return template.format(image_path=image_path) if image_path else template    
 
@@ -461,6 +419,234 @@ def get_plug_prompt(image_path: str = None) -> str:
 """
     return template.format(image_path=image_path) if image_path else template
 
+def get_contact_supervisor_prompt(reports_text: str) -> str:
+    return f"""
+<role>
+당신은 화재 증거 분석 팀을 이끄는 **수석 분석관(Chief Forensic Specialist)**입니다.
+여러 명의 현장 분석관(Worker)들이 제출한 개별 증거 분석 보고서를 검토하여 최종 결론을 도출해야 합니다.
+</role>
+
+<task>
+제출된 Worker들의 보고서(Facts + Opinion)를 종합 검토하여 가장 타당한 최종 판정(Verdict)을 내리십시오.
+단순 다수결이 아니며, **가장 논리적이고 과학적인 근거(Facts)를 제시한 Worker의 의견**을 따르십시오.
+</task>
+
+<worker_reports>
+{reports_text}
+</worker_reports>
+
+<guidelines>
+1. **Facts vs Opinion**: Worker의 '주장(Opinion)'보다 '관찰 사실(Facts)'을 더 신뢰하십시오.
+   - 예: "아산화동이 없다"고 관찰해놓고 "접촉 불량"이라고 주장하면 논리적 모순이므로 기각하십시오.
+2. **Conflict Resolution**:
+   - Worker 간 의견이 충돌할 경우, **신뢰도(Confidence)가 높고 구체적인 근거(Supporting Logic)를 댄 쪽**을 채택하십시오.
+   - 단, 모든 Worker의 신뢰도가 낮거나 의견이 팽팽하게 갈리면 "판독 불가"로 처리하고 재분석(Debate)을 요청하는 것이 안전합니다.
+3. **Conservative Approach**: 화재 원인 판정은 매우 보수적이어야 합니다. 아산화동, 열변색, 스프링백 등 접촉불량의 결정적 증거가 없거나, 확실한 물리적 증거가 없다면 '단락 또는 외부 화재'로 기울어지십시오.
+4. **Non-Target Exclusion**: "Analysis Skipped (Target is not a Contact Component)"로 표시된 보고서는 분석 대상이 아니므로 **판정에서 완전히 배제**하십시오. 이는 '데이터 추출 실패'나 '분석 불가'가 아니며, 단순히 해당 위치가 접속부(Terminal/Splice/Plug)가 아님을 의미합니다.
+5. 전부 "Analysis Skipped (Target is not a Contact Component)"이면 "단락 또는 외부 화재 (Low)"로 판정하십시오.
+</guidelines>
+
+<output_format>
+JSON 포맷으로 다음 필드를 포함하여 출력하십시오:
+{{
+    "final_conclusion": "접촉불량 유력 (High) | 접촉불량 의심 (Medium) | 단락 또는 외부 화재 (Low)",
+    "final_confidence": 0-100 (Integer),
+    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약",
+    "reasoning_process": "어떤 Worker의 의견을 채택했는지, 그리고 그 이유는 무엇인지 등 종합 판단 과정 서술"
+}}
+</output_format>
+"""
+
+
+# ===== Analyst-Critic Debate Prompts =====
+
+def get_analyst_initial_prompt(report_summary: str) -> str:
+    """
+    Analyst 초기 가설 수립 프롬프트
+    - 전체 보고서 요약 검토
+    - 접촉불량 증거 평가
+    - 초기 판정 (Structured Output)
+    """
+    return f"""
+<role>
+당신은 화재 조사의 최종 결론을 내리는 **'수석 분석관(Lead Analyst)'**입니다.
+</role>
+
+<goal>
+다음 보고서 요약을 바탕으로 화재 원인이 **'접촉불량'**인지 초기 판정하십시오.
+</goal>
+
+<report_summary>
+{report_summary}
+</report_summary>
+
+<analysis_framework>
+1. **증거 신뢰성 평가**: 각 Hotspot의 신뢰도 및 증거 품질 검토
+2. **접촉불량 증거 확인**: 아산화동, 열변색, 스프링백, 키홀 효과 등 접촉불량 고유 증거 확인
+3. **배제 조건 확인**: 외부 화재 또는 단락 증거 확인
+4. **초기 가설 수립**: High/Medium/Low 판정 및 확률 계산
+</analysis_framework>
+
+<output_format>
+Return RAW JSON only. No markdown.
+
+{{
+  "conclusion": "접촉불량 유력 (High) / 접촉불량 의심 (Medium) / 단락 또는 외부 화재 (Low) / 판독 불가 (Indeterminate)",
+  "probability": 0-100,
+  "key_evidence": [
+    "Hotspot #7: 붉은색 아산화동 명확히 식별",
+    "Hotspot #3: 스프링백 현상 확인"
+  ],
+  "reasoning": "모든 증거를 종합적으로 판단한 근거 서술"
+}}
+</output_format>
+"""
+
+
+def get_analyst_reanalysis_prompt(
+    prev_hypothesis: str,
+    critique: str,
+    focused_summary: str,
+    total_hotspot_count: int,
+    focused_count: int,
+    full_context: str
+) -> str:
+    """
+    Analyst 재분석 프롬프트 (Critic 지적 수용)
+    - 특정 Hotspot만 집중 재검토
+    - 비평 수용 또는 반박
+    - 가설 수정 (Structured Output)
+    """
+    return f"""
+<role>
+당신은 수석 분석관입니다. 비평가가 특정 부위에 대한 의문을 제기했습니다.
+</role>
+
+<previous_hypothesis>
+{prev_hypothesis}
+</previous_hypothesis>
+
+<critique_received>
+{critique}
+</critique_received>
+
+<analysis_scope>
+전체 Hotspot: {total_hotspot_count}개
+비평가가 지적한 Hotspot: {focused_count}개
+</analysis_scope>
+
+<focused_evidence>
+⚠️ **중요**: 전체를 다시 보지 말고, **비평가가 지적한 아래 Hotspot만** 정밀 재검토하십시오.
+
+{focused_summary}
+</focused_evidence>
+
+<full_context_reference>
+(참고: 전체 맥락이 필요한 경우에만 사용)
+{full_context}
+</full_context_reference>
+
+<task>
+비평가의 지적이 타당한지 검토하고:
+1. **타당하다면**: 지적받은 Hotspot의 증거를 재평가하여 가설(결론/확률)을 수정하십시오.
+2. **타당하지 않다면**: 구체적 증거로 반박하고 기존 입장을 고수하십시오.
+
+⚠️ **주의**: 수정된 가설도 반드시 구조화된 포맷으로 출력해야 합니다.
+</task>
+
+<output_format>
+Return RAW JSON only. No markdown.
+
+{{
+  "critique_is_valid": true,
+  "rebuttal_or_acceptance": "비평 수용: Hotspot #3 아산화동 불명확으로 Medium → Low 하향 조정",
+  "revised_hypothesis": {{
+      "conclusion": "접촉불량 유력 (High) / 접촉불량 의심 (Medium) / 단락 또는 외부 화재 (Low) / 판독 불가 (Indeterminate)",
+      "probability": 0-100,
+      "key_evidence": ["Hotspot #3 제외 나머지 증거는 유효함"],
+      "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함."
+  }}
+}}
+</output_format>
+"""
+
+
+def get_critic_prompt(
+    hypothesis: str,
+    report_summary: str,
+    image_context: str = ""
+) -> str:
+    """
+    Critic 검증 프롬프트 (Structured Input Optimized)
+    - Analyst 가설(JSON 구조)의 결함 검토
+    - 이미지 직접 확인 (Phase 1)
+    - 확률 적정성 검증 (New)
+    """
+    return f"""
+<role>
+당신은 회의적인 **'화재조사 검토관(Skeptic Reviewer)'**이며, 
+**물리적 증거 직접 검증 권한**을 가진 전문가입니다.
+</role>
+
+{image_context}
+
+<analyst_hypothesis_data>
+(분석가의 결론 구조체)
+{hypothesis}
+</analyst_hypothesis_data>
+
+<report_summary>
+{report_summary}
+</report_summary>
+
+<task>
+분석관의 가설을 다음 관점에서 **비판적으로 검토**하십시오:
+
+1. **시각적 증거 검증** (🔥 최우선):
+   - 분석가가 주장한 "아산화동", "열변색", "스프링백"이 **실제 이미지에서 보이는가**?
+   - Pixel 레벨로 확인: 붉은색 가루가 있는가? 보라색 변색이 있는가? 스프링이 늘어났는가?
+   
+2. **확률 점수(Probability) 적정성 검증**:
+   - 제시된 증거에 비해 **점수가 과하게 높지 않은가**?
+   - 예: "아산화동이 불명확한데 90%를 주었는가?" (감점 요인 누락)
+   
+3. **증거 과대해석**: 
+   - "키홀 효과", "아크 비드" 등이 실제 명확한가? 모호한데 확정한 것은 아닌가?
+   
+4. **접촉불량 증거 누락 간과**:
+   - 아산화동, 열변색, 스프링백 등 접촉불량의 결정적 증거가 불명확한데 'High' 판정한 것은 아닌가?
+   
+5. **Hotspot 간 불일치**:
+   - 여러 Hotspot 중 일부만 확실한데 전체를 접촉불량으로 판정한 것은 아닌가?
+
+**중요**: 
+- **치명적 결함이 없다면** is_approved=true를 반환하십시오.
+- 사소한 트집이 아닌, **판정을 뒤집을 만한 결정적 의문**만 제기하십시오.
+- 이의를 제기할 때는 **반드시 구체적인 Hotspot ID**(예: [2, 3, 6])를 hotspots_mentioned에 명시하십시오.
+  → 이렇게 하면 분석관이 해당 부위만 집중 재검토할 수 있습니다.
+- **이미지에서 직접 확인한 시각적 증거**를 반드시 언급하십시오.
+</task>
+
+<output_format>
+Return RAW JSON only. No markdown.
+
+{{
+  "is_approved": false,
+  "objection_type": "NO_OBJECTION" or "증거 과대해석" or "프로파일 누락 간과" or "대안 가설 미검토",
+  "flaws": [
+    "Hotspot #3: 아산화동 불명확, 확률 85%는 과대평가임",
+    "Hotspot #2: 열변색 의심스러움"
+  ],
+  "hotspots_mentioned": [2, 3],
+  "critical_question": "Hotspot #3의 ROI 이미지를 직접 확인한 결과, 붉은색 가루가 보이지 않는데 '아산화동'이라고 판단한 근거는?",
+  "alternative_interpretation": "Hotspot #3는 단순 외부 화재 가능성 검토 필요",
+  "suggestion_for_analyst": "Hotspot #3의 확률을 Medium(60%) 이하로 하향 조정할 것"
+}}
+</output_format>
+"""
+
+
+# Legacy function (기존 호환성 유지)
 def get_final_verdict_prompt(report_summary: str) -> str:
     return f"""
 <system_instruction>

@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from config import TOP_N_HOTSPOTS
+from src.utils.logging_config import setup_logger
 
 from src.tools.experts.expert_utils import (
     call_gemini_vision,
@@ -33,6 +34,8 @@ from src.prompts.tracking_expert_prompts import (
 
 from src.states.tracking_state import TrackingExpertState
 
+logger = setup_logger(__name__)
+
 
 
 # --------------------------------------------------------------------------------
@@ -53,13 +56,13 @@ def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
     
     # 1. 초기화 로직 (큐가 없으면 생성)
     if queue is None:
-        print("\n⚖️ [Hotspot Manager] Hotspot 우선순위 정렬 및 Top-N 선별")
+        logger.info("Hotspot Manager: Prioritizing hotspots")
         # severity_score 0인 hotspot 제외 (분석 불가 상태)
         valid_hotspots = [h for h in hotspots if h.get("severity_score", 0) > 0]
         if len(valid_hotspots) < len(hotspots):
             excluded_count = len(hotspots) - len(valid_hotspots)
             excluded_ids = [h.get('id') for h in hotspots if h.get("severity_score", 0) == 0]
-            print(f"⏭️ [Hotspot Manager] severity_score 0인 Hotspot {excluded_count}개 제외: {excluded_ids}")
+            logger.warning(f"Hotspot Manager: Excluded {excluded_count} hotspots with 0 score: {excluded_ids}")
         
         # Score 내림차순 정렬
         sorted_hotspots = sorted(
@@ -69,17 +72,17 @@ def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
         )
         # Top N 선별 (config.py에서 설정)
         queue = sorted_hotspots[:TOP_N_HOTSPOTS]
-        print(f"✅ 선별된 Hotspots: {[h.get('id') for h in queue]}")
+        logger.info(f"Hotspot Manager: Selected Hotspots: {[h.get('id') for h in queue]}")
         
         # 첫 번째 Hotspot 바로 Pop (Loop 시작을 위해)
         if not queue:
-             print("\n🏁 [Hotspot Manager] 처리할 Hotspot이 없습니다.")
+             logger.info("Hotspot Manager: No hotspots to process")
              return {"hotspot_queue": [], "current_hotspot": None}
              
         current = queue[0]
         remaining = queue[1:]
         
-        print(f"\n▶️ [Hotspot Manager] Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+        logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
         
         # downstream 호환성을 위해 detector_result에 매핑
         detector_result_mapping = {
@@ -100,13 +103,13 @@ def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
 
     # 2. Loop 로직 (큐에서 꺼내기)
     if not queue:
-        print("\n🏁 [Hotspot Manager] 모든 Hotspot 처리 완료.")
+        logger.info("Hotspot Manager: All hotspots processed")
         return {"current_hotspot": None}  # Loop 종료 신호
 
     current = queue[0]
     remaining = queue[1:]
     
-    print(f"\n▶️ [Hotspot Manager] Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+    logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
     
     # downstream 호환성을 위해 detector_result에 매핑
     detector_result_mapping = {
@@ -141,12 +144,12 @@ def roi_crop_node(state: TrackingExpertState) -> Dict[str, Any]:
     if not box_2d:
         return {"roi_image_path": image_path}
     
-    print(f"✂️ [ROI Crop] Hotspot 영역 크롭... {box_2d}")
+    logger.debug(f"ROI Crop: Cropping hotspot area {box_2d}")
     try:
         cropped_path = crop_roi_from_box(image_path, box_2d)
         
         # 이미지 향상 적용
-        print(f"✨ [Enhancement] ROI 이미지 2배 향상 적용 중...")
+        logger.debug("ROI Crop: Enhancing ROI image...")
         try:
             # 1. 크롭된 이미지 로드
             cropped_img = cv2.imread(cropped_path)
@@ -160,17 +163,17 @@ def roi_crop_node(state: TrackingExpertState) -> Dict[str, Any]:
             
             # 3. 향상된 이미지 저장 (덮어쓰기)
             cv2.imwrite(cropped_path, enhanced_img)
-            print(f"✨ [Enhancement] 향상 완료: {cropped_path}")
+            logger.debug(f"ROI Crop: Enhancement complete: {cropped_path}")
             
         except Exception as enh_err:
-             print(f"⚠️ Enhancement Failed: {enh_err}")
+             logger.warning(f"ROI Crop: Enhancement Failed: {enh_err}")
              # 향상 실패해도 원본 크롭 이미지는 유지됨
 
 
              
         return {"roi_image_path": cropped_path}
     except Exception as e:
-        print(f"⚠️ Crop Failed: {e}")
+        logger.error(f"ROI Crop: Failed: {e}", exc_info=True)
         return {"roi_image_path": image_path}
 
 def component_classifier_node(state: TrackingExpertState) -> Dict[str, Any]:
@@ -182,7 +185,7 @@ def component_classifier_node(state: TrackingExpertState) -> Dict[str, Any]:
     if not roi_image_path:
         return {"connection_type": "None"}
         
-    print(f"\n🔍 [Component Classifier] 부품 유형 식별 중... (Dual Input: Context + Detail, ROI: {roi_image_path})")
+    logger.info(f"Classifier: Identifying component type (ROI: {roi_image_path})")
     
     try:
         # Dual Image Load
@@ -216,15 +219,15 @@ def component_classifier_node(state: TrackingExpertState) -> Dict[str, Any]:
         confidence = result.get("confidence", 0)
         reasoning = result.get("reasoning", "")
         
-        print(f"👁️ [Observation] {visual_description}")
-        print(f"✅ 판별 결과: {deduced_type} (신뢰도: {confidence}%)")
+        logger.debug(f"Classifier Observation: {visual_description}")
+        logger.info(f"Classifier Result: {deduced_type} (Confidence: {confidence}%)")
         
         return {
             "connection_type": deduced_type,
             "classifier_result": result
         }
     except Exception as e:
-        print(f"⚠️ Component Classifier Error: {e}")
+        logger.error(f"Component Classifier Error: {e}", exc_info=True)
         return {
             "connection_type": "None",
             "classifier_result": {"error": str(e)}
@@ -235,7 +238,7 @@ def tracking_terminal_node(state: TrackingExpertState) -> Dict[str, Any]:
     roi_image_path = state.get("roi_image_path")
     original_image_path = state.get("image_path") # 원본 이미지 경로
     
-    print(f"\n⚡ [Tracking Specialist] Terminal 분석 시작... (2 Images: Context + ROI)")
+    logger.info("Tracking Terminal: Starting analysis")
     
     try:
         # 두 장의 이미지를 모두 로드
@@ -258,7 +261,7 @@ def tracking_terminal_node(state: TrackingExpertState) -> Dict[str, Any]:
         result = parse_json_response(response_text)
         return {"tracking_terminal_result": result}
     except Exception as e:
-        print(f"⚠️ Terminal Node Error: {e}")
+        logger.error(f"Terminal Node Error: {e}", exc_info=True)
         return {"tracking_terminal_result": {"error": str(e)}}
 
 
@@ -268,7 +271,7 @@ def tracking_plug_node(state: TrackingExpertState) -> Dict[str, Any]:
     roi_image_path = state.get("roi_image_path")
     original_image_path = state.get("image_path")
     
-    print(f"\n⚡ [Tracking Specialist] Plug 분석 시작... (2 Images: Context + ROI)")
+    logger.info("Tracking Plug: Starting analysis")
     
     try:
         # 두 장의 이미지를 모두 로드
@@ -291,7 +294,7 @@ def tracking_plug_node(state: TrackingExpertState) -> Dict[str, Any]:
         result = parse_json_response(response_text)
         return {"tracking_plug_result": result}
     except Exception as e:
-        print(f"⚠️ Plug Node Error: {e}")
+        logger.error(f"Plug Node Error: {e}", exc_info=True)
         return {"tracking_plug_result": {"error": str(e)}}
 
 def tracking_pcb_node(state: TrackingExpertState) -> Dict[str, Any]:
@@ -299,7 +302,7 @@ def tracking_pcb_node(state: TrackingExpertState) -> Dict[str, Any]:
     roi_image_path = state.get("roi_image_path")
     original_image_path = state.get("image_path")
     
-    print(f"\n⚡ [Tracking Specialist] PCB 분석 시작... (2 Images: Context + ROI)")
+    logger.info("Tracking PCB: Starting analysis")
     
     try:
         # 두 장의 이미지를 모두 로드
@@ -322,7 +325,7 @@ def tracking_pcb_node(state: TrackingExpertState) -> Dict[str, Any]:
         result = parse_json_response(response_text)
         return {"tracking_pcb_result": result}
     except Exception as e:
-        print(f"⚠️ PCB Node Error: {e}")
+        logger.error(f"PCB Node Error: {e}", exc_info=True)
         return {"tracking_pcb_result": {"error": str(e)}}
 
 def result_aggregator_node(state: TrackingExpertState) -> Dict[str, Any]:
@@ -356,7 +359,7 @@ def result_aggregator_node(state: TrackingExpertState) -> Dict[str, Any]:
         "roi_image_path": state.get("roi_image_path")
     }
     
-    print(f"📝 [Result Aggregator] ID {h_info.get('id')} 결과 기록 (Type: {conn_type}, Verdict: {verdict})")
+    logger.info(f"Aggregator: Recording result for Hotspot {h_info.get('id')} (Type: {conn_type}, Verdict: {verdict})")
     return {"analysis_results": [final_entry]}
 
 def format_report_summary(analysis_results: list) -> str:

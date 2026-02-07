@@ -2,8 +2,21 @@
 Hotspot Detector Models
 Pydantic models for structured output from hotspot detection
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
+from enum import Enum
+
+
+class DamageType(str, Enum):
+    """손상 유형 Enum (LLM 응답 제한)"""
+    WIRE_NECKING = "wire_necking"
+    BEAD_FORMATION = "bead_formation"
+    TRACKING = "tracking"
+    THERMAL_DAMAGE = "thermal_damage"
+    INSULATION_MELTING = "insulation_melting"
+    CONTACT_FAILURE = "contact_failure"
+    ARC_BURN = "arc_burn"
+    CARBONIZATION = "carbonization"
 
 
 class BoundingBox2D(BaseModel):
@@ -12,14 +25,37 @@ class BoundingBox2D(BaseModel):
     xmin: int = Field(ge=0, le=1000, description="X 최소값 (정규화)")
     ymax: int = Field(ge=0, le=1000, description="Y 최대값 (정규화)")
     xmax: int = Field(ge=0, le=1000, description="X 최대값 (정규화)")
+    
+    @model_validator(mode='before')
+    @classmethod
+    def validate_input(cls, data):
+        """하위 호환성: 배열 형식 입력도 객체로 변환"""
+        if isinstance(data, list) and len(data) == 4:
+            # 배열 형식: [ymin, xmin, ymax, xmax]
+            return {"ymin": data[0], "xmin": data[1], "ymax": data[2], "xmax": data[3]}
+        # dict 형식이거나 이미 인스턴스인 경우 그대로 반환
+        return data
+    
+    @model_validator(mode='after')
+    def check_coordinates_logic(self) -> 'BoundingBox2D':
+        """좌표 논리 검증: ymin < ymax, xmin < xmax"""
+        if self.ymin >= self.ymax:
+            raise ValueError(
+                f"Invalid box coordinates: ymin ({self.ymin}) must be less than ymax ({self.ymax})"
+            )
+        if self.xmin >= self.xmax:
+            raise ValueError(
+                f"Invalid box coordinates: xmin ({self.xmin}) must be less than xmax ({self.xmax})"
+            )
+        return self
 
 
 class Hotspot(BaseModel):
     """개별 Hotspot 정보"""
     id: int = Field(ge=1, description="Hotspot 고유 ID")
     
-    damage_type: str = Field(
-        description="손상 유형 (예: wire_necking, bead_formation, tracking, thermal_damage 등)"
+    damage_type: DamageType = Field(
+        description="손상 유형 (Enum: wire_necking, bead_formation, tracking, thermal_damage, insulation_melting, contact_failure, arc_burn, carbonization)"
     )
     
     box_2d: BoundingBox2D = Field(
@@ -39,6 +75,17 @@ class Hotspot(BaseModel):
     visual_evidence: str = Field(
         description="시각적 증거 요약 (2-3문장)"
     )
+    
+    # 선택적 필드 (프롬프트에서 요구하지만 필수는 아님)
+    reason_for_selection: Optional[str] = Field(
+        default=None,
+        description="선정 근거 (이미지 정확도 및 관찰된 사실 기반)"
+    )
+    
+    suspected_feature: Optional[str] = Field(
+        default=None,
+        description="물리적 특징 묘사 (예: Spherical Bead, 70% Carbonized Resin 등)"
+    )
 
 
 class HotspotDetectionResult(BaseModel):
@@ -55,4 +102,15 @@ class HotspotDetectionResult(BaseModel):
     
     analysis_summary: str = Field(
         description="전체 분석 요약 (3-5문장)"
+    )
+    
+    # 선택적 필드 (프롬프트에서 요구하지만 필수는 아님)
+    scene_overview: Optional[str] = Field(
+        default=None,
+        description="현장 전체의 열적 변형 패턴 및 대상체에 대한 객관적 요약 (사실 중심)"
+    )
+    
+    detailed_observations: Optional[List[str]] = Field(
+        default=None,
+        description="객체별 형태학적 정밀 묘사 리스트"
     )

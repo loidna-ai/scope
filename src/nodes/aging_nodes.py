@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional, Annotated, TypedDict
 import operator
 
 from config import TOP_N_HOTSPOTS
+from src.utils.logging_config import setup_logger
 from langgraph.graph import MessagesState
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -59,6 +60,9 @@ class AgingExpertState(TypedDict):
     verdict_result: Optional[Dict[str, Any]]
 
 
+
+logger = setup_logger(__name__)
+
 # --- Nodes ---
 
 # hotspot_detector_node는 이제 src/nodes/common_nodes.py에서 공통으로 사용됩니다.
@@ -70,25 +74,25 @@ def hotspot_manager_node(state: AgingExpertState) -> Dict[str, Any]:
     
     if queue is None:
         # 초기화: Score 내림차순 정렬 및 Top N 선별 (config.py에서 설정)
-        print("\n⚖️ [Manager] Hotspot 우선순위 정렬")
+        logger.info("Hotspot Manager: Prioritizing hotspots")
         # severity_score 0인 hotspot 제외 (분석 불가 상태)
         valid_hotspots = [h for h in hotspots if h.get("severity_score", 0) > 0]
         if len(valid_hotspots) < len(hotspots):
             excluded_count = len(hotspots) - len(valid_hotspots)
             excluded_ids = [h.get('id') for h in hotspots if h.get("severity_score", 0) == 0]
-            print(f"⏭️ [Manager] severity_score 0인 Hotspot {excluded_count}개 제외: {excluded_ids}")
+            logger.warning(f"Hotspot Manager: Excluded {excluded_count} hotspots with 0 score: {excluded_ids}")
         
         sorted_hotspots = sorted(valid_hotspots, key=lambda x: x.get("severity_score", 0), reverse=True)
         queue = sorted_hotspots[:TOP_N_HOTSPOTS]
         
         if not queue:
-             print("\n🏁 [Manager] 처리할 Hotspot이 없습니다.")
+             logger.info("Hotspot Manager: No hotspots to process")
              return {"hotspot_queue": [], "current_hotspot": None}
              
         current = queue[0]
         remaining = queue[1:]
         
-        print(f"\n▶️ [Manager] Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+        logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
         
         return {
             "hotspot_queue": remaining,
@@ -103,13 +107,13 @@ def hotspot_manager_node(state: AgingExpertState) -> Dict[str, Any]:
 
     # Loop Logic
     if not queue:
-        print("\n🏁 [Manager] 모든 Hotspot 처리 완료.")
+        logger.info("Hotspot Manager: All hotspots processed")
         return {"current_hotspot": None}
 
     current = queue[0]
     remaining = queue[1:]
     
-    print(f"\n▶️ [Manager] Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+    logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
     
     return {
         "hotspot_queue": remaining,
@@ -135,7 +139,7 @@ def roi_crop_node(state: AgingExpertState) -> Dict[str, Any]:
     if not box_2d:
         return {"roi_image_path": image_path}
     
-    print(f"✂️ [ROI Crop] Hotspot 영역 크롭... {box_2d}")
+    logger.debug(f"ROI Crop: Cropping hotspot area {box_2d}")
     try:
         cropped_path = crop_roi_from_box(image_path, box_2d)
         
@@ -151,7 +155,7 @@ def roi_crop_node(state: AgingExpertState) -> Dict[str, Any]:
              
         return {"roi_image_path": cropped_path}
     except Exception as e:
-        print(f"⚠️ Crop Failed: {e}")
+        logger.error(f"ROI Crop: Failed: {e}", exc_info=True)
         return {"roi_image_path": image_path}
 
 def component_classifier_node(state: AgingExpertState) -> Dict[str, Any]:
@@ -160,7 +164,7 @@ def component_classifier_node(state: AgingExpertState) -> Dict[str, Any]:
     if not roi_image_path:
         return {"connection_type": "None"}
         
-    print(f"\n🔍 [Component Classifier] 부품 유형 식별 중... (Dual Input: Context + Detail)")
+    logger.info("Classifier: Identifying component type (Dual Input)")
     try:
         roi_data = _load_image_data(roi_image_path)
         original_data = _load_image_data(state.get("image_path"))
@@ -181,12 +185,13 @@ def component_classifier_node(state: AgingExpertState) -> Dict[str, Any]:
     
     deduced_type = result.get("deduced_type", "None")
     print(f"✅ 판별 결과: {deduced_type} (신뢰도: {result.get('confidence', 0)}%)")
+    logger.info(f"Classifier Result: {deduced_type} (Confidence: {result.get('confidence', 0)}%)")
     
     return {"connection_type": deduced_type}
 
 def aging_wire_node(state: AgingExpertState) -> Dict[str, Any]:
     """Node 3A: Aging Wire Analysis (Arc/Severed End)"""
-    print(f"\n⚡ [Aging] Wire Analysis (Dual Input: Context + Detail)")
+    logger.info("Aging Wire: Starting analysis")
     roi_path = state.get("roi_image_path")
     original_image_path = state.get("image_path")
     
@@ -209,12 +214,12 @@ def aging_wire_node(state: AgingExpertState) -> Dict[str, Any]:
         result = parse_json_response(response_text)
         return {"specialist_result": result}
     except Exception as e:
-        print(f"⚠️ Wire Specialist Error: {e}")
+        logger.error(f"Wire Specialist Error: {e}", exc_info=True)
         return {"specialist_result": {}}
 
 def aging_pcb_node(state: AgingExpertState) -> Dict[str, Any]:
     """Node 3B: Aging PCB Analysis (Tracking/Insulation)"""
-    print(f"\n⚡ [Aging] PCB Analysis (Dual Input: Context + Detail)")
+    logger.info("Aging PCB: Starting analysis")
     roi_path = state.get("roi_image_path")
     original_image_path = state.get("image_path")
     
@@ -237,7 +242,7 @@ def aging_pcb_node(state: AgingExpertState) -> Dict[str, Any]:
         result = parse_json_response(response_text)
         return {"specialist_result": result}
     except Exception as e:
-        print(f"⚠️ PCB Specialist Error: {e}")
+        logger.error(f"PCB Specialist Error: {e}", exc_info=True)
         return {"specialist_result": {}}
 
 def result_aggregator_node(state: AgingExpertState) -> Dict[str, Any]:
@@ -282,7 +287,7 @@ def format_report_summary(analysis_results: list) -> str:
 
 def verdict_node(state: AgingExpertState) -> Dict[str, Any]:
     """Step 4: Final Verdict"""
-    print("--- [Aging] Node 4: Final Verdict ---")
+    logger.info("Aging Verdict: Generating final verdict")
     results = state.get("analysis_results", [])
     
     if not results:

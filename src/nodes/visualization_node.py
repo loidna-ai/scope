@@ -9,6 +9,9 @@ from typing import Dict, Any, List
 
 from src.state import InvestigationState
 from src.utils import load_image_safe, save_image_safe
+from src.utils.logging_config import setup_logger
+
+logger = setup_logger("visualization_node")
 
 def draw_annotation_node(state: InvestigationState) -> Dict[str, Any]:
     """
@@ -63,14 +66,27 @@ def draw_annotation_node(state: InvestigationState) -> Dict[str, Any]:
         
         for res in hotspot_results:
             hotspot = res.get("hotspot_info", {})
-            box_2d = hotspot.get("box_2d") # [ymin, xmin, ymax, xmax] (0~1000)
+            box_2d = hotspot.get("box_2d")
             
             if not box_2d:
                 continue
+            
+            # 좌표 추출 (객체 형식 또는 배열 형식 모두 지원)
+            h, w = img.shape[:2]
+            if isinstance(box_2d, dict):
+                # 객체 형식: {"ymin": ..., "xmin": ..., "ymax": ..., "xmax": ...}
+                ymin = box_2d.get("ymin", 0)
+                xmin = box_2d.get("xmin", 0)
+                ymax = box_2d.get("ymax", 0)
+                xmax = box_2d.get("xmax", 0)
+            elif isinstance(box_2d, list) and len(box_2d) == 4:
+                # 배열 형식 (하위 호환성): [ymin, xmin, ymax, xmax]
+                ymin, xmin, ymax, xmax = box_2d
+            else:
+                logger.warning(f"Visualization: Invalid box_2d format: {type(box_2d)}")
+                continue
                 
             # 좌표 변환
-            h, w = img.shape[:2]
-            ymin, xmin, ymax, xmax = box_2d
             x1 = int(xmin / 1000 * w)
             y1 = int(ymin / 1000 * h)
             x2 = int(xmax / 1000 * w)

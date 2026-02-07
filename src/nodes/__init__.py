@@ -7,7 +7,7 @@ LangGraph 그래프의 노드 함수들을 정의합니다.
 - 전문가 노드: experts/ 폴더에 정의
   - 각 전문가의 로직: {expert}_expert.py
   - 각 전문가의 서브그래프 노드: {expert}_expert_graph.py
-- Arbiter 노드: experts/arbiter.py
+- Arbiter 노드: 논쟁 시스템으로 교체됨 (src/graphs/arbiter_expert_graph.py)
 """
 
 # 전처리 노드들
@@ -25,8 +25,8 @@ def get_enhancement_node():
     from src.nodes.enhancement import enhancement_node
     return enhancement_node
 
-# Arbiter 노드
-from src.nodes.arbiter_node import node_arbiter
+# Arbiter 노드 (Legacy - 논쟁 시스템으로 교체됨)
+# from src.nodes.arbiter_node import node_arbiter  # [Disabled] 논쟁 시스템(arbiter_expert_graph.py)으로 교체됨
 
 __all__ = [
     # 전처리 노드
@@ -36,6 +36,6 @@ __all__ = [
     "filter_node",
     "metrics_node",
     "packaging_node",
-    # Arbiter 노드
-    "node_arbiter",
+    # Arbiter 노드는 논쟁 시스템으로 교체되어 더 이상 export하지 않음
+    # "node_arbiter",  # [Disabled] 논쟁 시스템으로 교체됨
 ]

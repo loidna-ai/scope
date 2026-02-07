@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, Literal
 from langgraph.graph import StateGraph, START, END
 
 from src.state import InvestigationState
+from src.utils.logging_config import setup_logger
 from src.nodes.tracking_nodes import (
     TrackingExpertState,
     hotspot_manager_node,
@@ -21,6 +22,8 @@ from src.nodes.tracking_nodes import (
     verdict_node
 )
 from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
+
+logger = setup_logger(__name__)
 
 def route_loop_manager(state: TrackingExpertState) -> Literal["process", "end"]:
     """처리할 Hotspot이 남아있는지 확인"""
@@ -157,7 +160,7 @@ def tracking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             should_cleanup_input = True
         
         # 3. InvestigationState에서 공통 hotspots 읽기
-        hotspots = state.get("hotspots", [])
+        hotspots = state.get("hotspots") or []  # None-safe: None일 경우 빈 리스트로 처리
         
         # 4. 초기 상태 설정
         initial_state: TrackingExpertState = {
@@ -212,7 +215,7 @@ def tracking_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
         }
         
     except Exception as e:
-        traceback.print_exc()
+        logger.error(f"Tracking Expert Wrapper Exception: {e}", exc_info=True)
         return {
             "errors": [f"Tracking 전문가 오류: {str(e)}"],
             "expert_reports": [],

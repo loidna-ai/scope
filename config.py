@@ -4,8 +4,10 @@
 """
 
 # Real-ESRGAN 설정
-SR_SCALE = 2  # 초해상도 확대 배율
-MODEL_PATH = "weights/RealESRGAN_x4plus.pth"  # 모델 가중치 경로
+SR_SCALE = 4  # 초해상도 확대 배율
+MODEL_PATH = "weights/RealESRGAN_x4plus.pth"  # PyTorch 모델 가중치 경로
+MODEL_PATH_ONNX = "weights/Real-ESRGAN-x4plus.onnx"  # ONNX 모델 경로 (AMD GPU 가속용)
+USE_ONNX_PREFERRED = True  # ONNX Runtime 우선 사용 여부 (True: ONNX 우선, False: PyTorch 우선)
 
 # CLAHE 필터 설정
 CLAHE_CLIP_LIMIT = 4.0  # CLAHE 클립 리미트

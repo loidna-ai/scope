@@ -123,7 +123,7 @@ def keep_last_bytes(left: Optional[bytes], right: Optional[bytes]) -> Optional[b
 def keep_last_list(left: Optional[List[Any]], right: Optional[List[Any]]) -> Optional[List[Any]]:
     """
     마지막 값을 유지하는 reducer 함수 (List 타입용)
-    react_agent_messages는 마지막에 설정된 값만 유지 (None이 아닌 값 우선)
+    react_agent_messages, arbiter_debate_messages는 마지막에 설정된 값만 유지 (None이 아닌 값 우선)
     
     Args:
         left: 기존 값
@@ -132,7 +132,6 @@ def keep_last_list(left: Optional[List[Any]], right: Optional[List[Any]]) -> Opt
     Returns:
         마지막 값 (None이 아닌 값 우선)
     """
-    
     # None이 아닌 값이 있으면 그것을 반환, 둘 다 None이면 None 반환
     if right is not None:
         return right
@@ -152,6 +151,13 @@ class InvestigationState(TypedDict):
     # 공통 Hotspot 탐지 결과 (메인 그래프에서 생성)
     hotspots: Annotated[Optional[List[Dict[str, Any]]], keep_last]  # 마지막에 설정된 값만 유지
     
+    # total_count 보정 값 (hotspot_detector_node에서 설정)
+    corrected_total_count: Annotated[Optional[int], keep_last]
+    
+    # 분석 상태 플래그 (hotspot_detector_node에서 설정)
+    # 값: "NO_HOTSPOTS_DETECTED" 등
+    analysis_status: Annotated[Optional[str], keep_last]
+    
     # 최종 전문가 리포트
     expert_reports: Annotated[List[str], operator.add]
     
@@ -166,6 +172,9 @@ class InvestigationState(TypedDict):
     
     # 최종 결론
     final_verdict: Annotated[Optional[str], keep_last]  # 마지막에 설정된 값만 유지
+    
+    # 아비터 토론 메시지
+    arbiter_debate_messages: Annotated[Optional[List[Dict[str, Any]]], keep_last_list]  # 아비터 토론 메시지 히스토리
     
     # 에러 수집
     errors: Annotated[List[str], operator.add]

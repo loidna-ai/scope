@@ -123,8 +123,8 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
     # 2. 분석 실행
     print("\n[2단계] 멀티 에이전트 병렬 분석 시작")
     print("  - Hotspot Detector가 관심 영역을 탐지합니다.")
-    print("  - 5인의 전문가 에이전트가 병렬로 동시에 분석합니다. (Fan-Out)")
-    print("    (Contact, Aging, Deform, Necking, Tracking)")
+    print("  - 3인의 전문가 에이전트가 병렬로 동시에 분석합니다. (Fan-Out)")
+    print("    (Contact, Deform, Necking - Map-Reduce Pattern)")
     print("  - 각 전문가는 독립적인 서브그래프로 동작하며 Map-Reduce 패턴을 사용합니다.")
     print("  - 모든 분석 결과를 수집합니다. (Fan-In)")
     print("  - 수석 조사관(Arbiter)이 종합하여 최종 결론을 도출합니다.")
@@ -146,7 +146,19 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
     # 3. 결과 처리
     final_verdict = result.get("final_verdict", "분석 실패")
     expert_reports = result.get("expert_reports", [])
+    arbiter_debate_messages = result.get("arbiter_debate_messages", [])
     errors = result.get("errors", [])
+    
+    # #region agent log
+    import json as json_module
+    import time as time_module
+    from pathlib import Path as Path_module
+    log_path = Path_module(__file__).parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:149","message":"Extracting arbiter_debate_messages","data":{"result_keys":list(result.keys()),"has_arbiter_debate_messages":"arbiter_debate_messages" in result,"arbiter_debate_messages_count":len(arbiter_debate_messages) if arbiter_debate_messages else 0,"arbiter_debate_messages_type":type(arbiter_debate_messages).__name__,"arbiter_debate_messages_is_none":arbiter_debate_messages is None},"timestamp":int(time_module.time()*1000)})+"\n")
+    except: pass
+    # #endregion
     
     if errors:
         print(f"\n⚠️ 분석 중 {len(errors)}개의 경고가 발생했습니다:")
@@ -161,8 +173,38 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
     print("=" * 60)
 
     # 결과 파일 저장
+    # output_dir이 Path 객체인지 확인하고 변환
+    from pathlib import Path as Path_module
+    if not isinstance(output_dir, Path_module):
+        output_dir = Path_module(output_dir)
+    
     output_file = output_dir / "investigation_result.txt"
+    # #region agent log
+    import json
+    import time as time_module
+    log_path = Path_module(__file__).parent / ".cursor" / "debug.log"
     try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"main.py:164","message":"File save entry","data":{"output_dir":str(output_dir),"output_file":str(output_file),"output_dir_type":type(output_dir).__name__,"output_dir_exists":output_dir.exists(),"output_dir_is_dir":output_dir.is_dir() if output_dir.exists() else False},"timestamp":int(time_module.time()*1000)})+"\n")
+    except: pass
+    # #endregion
+    try:
+        # 디렉토리 존재 확인 및 생성 (방어적 코드)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"main.py:178","message":"Directory ensured","data":{"output_dir":str(output_dir),"output_file_parent":str(output_file.parent),"parent_exists":output_file.parent.exists()},"timestamp":int(time_module.time()*1000)})+"\n")
+        except: pass
+        # #endregion
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"main.py:175","message":"Before file write","data":{"output_dir_exists":output_dir.exists(),"output_file":str(output_file),"output_file_parent":str(output_file.parent)},"timestamp":int(time_module.time()*1000)})+"\n")
+        except: pass
+        # #endregion
+        
         # 1. 통합 결과 파일 저장
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write("화재조사 AI 멀티 에이전트 시스템 분석 결과\n")
@@ -177,6 +219,55 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
             f.write("[최종 분석 결론]\n")
             f.write(final_verdict)
             f.write("\n\n" + "-" * 60 + "\n\n")
+            
+            # 아비터 토론 내용
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f_log:
+                    f_log.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:213","message":"Checking arbiter_debate_messages before write","data":{"arbiter_debate_messages_count":len(arbiter_debate_messages) if arbiter_debate_messages else 0,"arbiter_debate_messages_is_none":arbiter_debate_messages is None,"arbiter_debate_messages_bool":bool(arbiter_debate_messages)},"timestamp":int(time_module.time()*1000)})+"\n")
+            except: pass
+            # #endregion
+            
+            if arbiter_debate_messages:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f_log:
+                        f_log.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:217","message":"Writing arbiter debate messages","data":{"message_count":len(arbiter_debate_messages)},"timestamp":int(time_module.time()*1000)})+"\n")
+                except: pass
+                # #endregion
+                
+                f.write("[Arbiter 토론 기록]\n")
+                f.write("=" * 60 + "\n\n")
+                for i, msg in enumerate(arbiter_debate_messages, 1):
+                    speaker = msg.get("speaker", "unknown")
+                    content = msg.get("content", "")
+                    stage = msg.get("stage", "")
+                    round_num = msg.get("round_num", 0)
+                    validated = msg.get("validated", None)
+                    
+                    # 발언자별 포맷팅
+                    if speaker in ["contact", "deform", "necking"]:
+                        validation_status = "✓ 통과" if validated else "✗ 실패" if validated is False else ""
+                        f.write(f"[Round {round_num}, {stage}] {speaker.upper()} 전문가 {validation_status}\n")
+                    elif speaker == "fact_checker":
+                        f.write(f"[Round {round_num}, {stage}] Fact Checker\n")
+                    elif speaker == "moderator":
+                        f.write(f"[Round {round_num}, {stage}] Moderator\n")
+                    elif speaker == "judge":
+                        f.write(f"[{stage}] Judge (최종 판정)\n")
+                    else:
+                        f.write(f"[Round {round_num}, {stage}] {speaker}\n")
+                    
+                    f.write(f"{content}\n")
+                    f.write("-" * 60 + "\n\n")
+                f.write("=" * 60 + "\n\n")
+            else:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f_log:
+                        f_log.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:240","message":"Skipping arbiter debate messages (empty or None)","data":{"arbiter_debate_messages":str(arbiter_debate_messages)[:100]},"timestamp":int(time_module.time()*1000)})+"\n")
+                except: pass
+                # #endregion
             
             # 전문가 리포트 (통합 파일에도 포함)
             if expert_reports:
@@ -194,38 +285,103 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
                     f.write(f"- {err}\n")
 
         print(f"\n✅ 전체 결과가 저장되었습니다: {output_file}")
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:196","message":"Main file saved successfully","data":{"output_file":str(output_file),"file_exists":output_file.exists()},"timestamp":int(time_module.time()*1000)})+"\n")
+        except: pass
+        # #endregion
 
         # 2. 각 전문가별 별도 리포트 파일 저장
         if expert_reports:
             print("\n[개별 리포트 저장]")
             for report in expert_reports:
-                # 리포트 헤더에서 전문가 이름 추출
+                # 리포트 헤더에서 전문가 이름 추출 (실제 리포트 헤더 형식에 맞춤)
                 filename = "Unknown_Expert_Report.txt"
-                if "[Contact 전문가 리포트]" in report:
+                if "[Contact 전문가" in report:
                     filename = "Contact_Expert_Report.txt"
-                elif "[DielectricAge 전문가 리포트]" in report:
+                elif "[Deform 전문가" in report:
+                    filename = "Deform_Expert_Report.txt"
+                elif "[Necking 전문가" in report:
+                    filename = "Necking_Expert_Report.txt"
+                elif "[DielectricAge 전문가" in report:
                     filename = "Dielectric_Expert_Report.txt"
-                elif "[Mechanical 전문가 리포트]" in report:
+                elif "[Mechanical 전문가" in report:
                     filename = "Mechanical_Expert_Report.txt"
-                elif "[StrandFracture 전문가 리포트]" in report:
+                elif "[StrandFracture 전문가" in report:
                     filename = "StrandFracture_Expert_Report.txt"
-                elif "[Tracking 전문가 리포트]" in report:
+                elif "[Tracking 전문가" in report:
                     filename = "Tracking_Expert_Report.txt"
                 
                 expert_file = output_dir / filename
-                with open(expert_file, 'w', encoding='utf-8') as f:
-                    f.write(report)
-                print(f"  - {filename} 저장 완료")
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:255","message":"Saving expert report","data":{"filename":filename,"expert_file":str(expert_file),"output_dir_exists":output_dir.exists(),"expert_file_parent":str(expert_file.parent),"parent_exists":expert_file.parent.exists()},"timestamp":int(time_module.time()*1000)})+"\n")
+                except: pass
+                # #endregion
+                try:
+                    # 디렉토리 존재 확인 및 생성 (방어적 코드)
+                    expert_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(expert_file, 'w', encoding='utf-8') as f:
+                        f.write(report)
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:264","message":"Expert report saved successfully","data":{"filename":filename,"expert_file":str(expert_file),"file_exists":expert_file.exists()},"timestamp":int(time_module.time()*1000)})+"\n")
+                    except: pass
+                    # #endregion
+                    print(f"  - {filename} 저장 완료")
+                except Exception as e:
+                    # #region agent log
+                    import traceback
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:264","message":"Expert report save error","data":{"filename":filename,"expert_file":str(expert_file),"error":str(e),"error_type":type(e).__name__,"traceback":traceback.format_exc()},"timestamp":int(time_module.time()*1000)})+"\n")
+                    except: pass
+                    # #endregion
+                    print(f"  - {filename} 저장 실패: {e}")
         
         # 3. Arbiter(최종 결론) 리포트 별도 저장
         if final_verdict:
             arbiter_file = output_dir / "Arbiter_Report.txt"
-            with open(arbiter_file, 'w', encoding='utf-8') as f:
-                f.write("[Arbiter (Chief Investigator) Report]\n\n")
-                f.write(final_verdict)
-            print(f"  - Arbiter_Report.txt 저장 완료")
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:262","message":"Saving arbiter report","data":{"arbiter_file":str(arbiter_file),"output_dir_exists":output_dir.exists(),"arbiter_file_parent":str(arbiter_file.parent),"parent_exists":arbiter_file.parent.exists()},"timestamp":int(time_module.time()*1000)})+"\n")
+            except: pass
+            # #endregion
+            try:
+                # 디렉토리 존재 확인 및 생성 (방어적 코드)
+                arbiter_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(arbiter_file, 'w', encoding='utf-8') as f:
+                    f.write("[Arbiter (Chief Investigator) Report]\n\n")
+                    f.write(final_verdict)
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:277","message":"Arbiter report saved successfully","data":{"arbiter_file":str(arbiter_file),"file_exists":arbiter_file.exists()},"timestamp":int(time_module.time()*1000)})+"\n")
+                except: pass
+                # #endregion
+                print(f"  - Arbiter_Report.txt 저장 완료")
+            except Exception as e:
+                # #region agent log
+                import traceback
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:277","message":"Arbiter report save error","data":{"arbiter_file":str(arbiter_file),"error":str(e),"error_type":type(e).__name__,"traceback":traceback.format_exc()},"timestamp":int(time_module.time()*1000)})+"\n")
+                except: pass
+                # #endregion
+                print(f"  - Arbiter_Report.txt 저장 실패: {e}")
         
     except Exception as e:
+        # #region agent log
+        import traceback
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"main.py:233","message":"File save error","data":{"error":str(e),"error_type":type(e).__name__,"output_dir":str(output_dir),"output_file":str(output_file),"output_dir_exists":output_dir.exists() if output_dir else False,"traceback":traceback.format_exc()},"timestamp":int(time_module.time()*1000)})+"\n")
+        except: pass
+        # #endregion
         print(f"❌ 결과 파일 저장 실패: {e}")
 
 def main():
@@ -304,7 +460,23 @@ def main():
     input_filename = image_path.stem
     output_base_dir = Path(config.OUTPUT_DIR)
     output_dir = output_base_dir / input_filename
+    # #region agent log
+    import json
+    import time as time_module
+    from pathlib import Path as Path_module
+    log_path = Path_module(__file__).parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:311","message":"Creating output directory","data":{"output_base_dir":str(output_base_dir),"output_dir":str(output_dir),"input_filename":input_filename},"timestamp":int(time_module.time()*1000)})+"\n")
+    except: pass
+    # #endregion
     output_dir.mkdir(parents=True, exist_ok=True)
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"main.py:312","message":"Output directory created","data":{"output_dir":str(output_dir),"output_dir_exists":output_dir.exists(),"output_dir_is_dir":output_dir.is_dir() if output_dir.exists() else False},"timestamp":int(time_module.time()*1000)})+"\n")
+    except: pass
+    # #endregion
 
     # 파이프라인 실행
     run_analysis_pipeline(input_image_path, output_dir, args.query)

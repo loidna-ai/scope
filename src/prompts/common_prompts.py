@@ -2,8 +2,19 @@
 공통 프롬프트 정의
 """
 
-def get_multi_hotspot_prompt(image_path: str = None) -> str:
-    template = """
+def get_multi_hotspot_prompt() -> str:
+    """
+    Hotspot 탐지를 위한 프롬프트 생성
+    
+    Returns:
+        프롬프트 문자열
+    """
+    # DamageType Enum에서 허용 값 동적 추출
+    from src.models.hotspot_models import DamageType
+    
+    damage_types_str = ', '.join([f'"{dt.value}"' for dt in DamageType])
+    
+    template = f"""
 <system_instruction>
 당신은 세계 최고의 화재 감식 전문가이자 법과학 분석관입니다. 당신의 임무는 제공된 화재 현장 이미지를 바탕으로 물리적 증거를 정밀하게 분석하여 전문적인 화재 분석 보고서를 JSON 형식으로 생성하는 것입니다.
 
@@ -36,26 +47,42 @@ def get_multi_hotspot_prompt(image_path: str = None) -> str:
 - **전체 패턴:** V-패턴, 탄화 경계선, 열에너지의 흐름 방향성.
 
 **[JSON 출력 스키마]**
-반드시 다음 구조를 엄격히 준수하십시오. 모든 필드는 필수입니다.
+반드시 다음 구조를 엄격히 준수하십시오. 필수 필드와 선택적 필드를 구분하여 출력하십시오.
 
 ```json
 {{
-  "scene_overview": "현장 전체의 열적 변형 패턴 및 대상체에 대한 객관적 요약 (사실 중심)",
+  "total_count": 5,
+  "analysis_summary": "전체 분석 요약 (3-5문장)",
+  "scene_overview": "현장 전체의 열적 변형 패턴 및 대상체에 대한 객관적 요약 (사실 중심) - 선택적",
   "detailed_observations": [
-    "객체별 형태학적 정밀 묘사 (수치와 전문 용어 사용, 주관적 표현 배제)",
-    "금속 및 절연물의 변형 상태에 대한 건조한 사실 기술"
+    "객체별 형태학적 정밀 묘사 (수치와 전문 용어 사용, 주관적 표현 배제) - 선택적"
   ],
   "hotspots": [
     {{
       "id": 1,
-      "box_2d": [ymin, xmin, ymax, xmax],
-      "reason_for_selection": "선정 근거 (이미지 정확도 및 관찰된 사실 기반)",
-      "suspected_feature": "물리적 특징 묘사 (예: Spherical Bead, 70% Carbonized Resin 등)",
-      "severity_score": 0
+      "damage_type": "wire_necking",
+      "box_2d": {{
+        "ymin": 100,
+        "xmin": 200,
+        "ymax": 300,
+        "xmax": 400
+      }},
+      "severity_score": 85,
+      "location_description": "좌측 상단",
+      "visual_evidence": "시각적 증거 요약 (2-3문장)",
+      "reason_for_selection": "선정 근거 (이미지 정확도 및 관찰된 사실 기반) - 선택적",
+      "suspected_feature": "물리적 특징 묘사 (예: Spherical Bead, 70% Carbonized Resin 등) - 선택적"
     }}
   ]
 }}
 ```
+
+**중요:**
+- `total_count`: 반드시 `hotspots` 배열의 실제 개수와 일치해야 합니다.
+- `damage_type`: **반드시 다음 중 하나의 값만 사용하십시오**: {damage_types_str}
+- `box_2d`: 반드시 객체 형식 `{{\"ymin\": ..., \"xmin\": ..., \"ymax\": ..., \"xmax\": ...}}`로 출력하십시오. 배열 형식 `[ymin, xmin, ymax, xmax]`는 사용하지 마십시오.
+- 필수 필드: `total_count`, `analysis_summary`, `hotspots` 배열의 각 항목에 `id`, `damage_type`, `box_2d`, `severity_score`, `location_description`, `visual_evidence`
+- 선택적 필드: `scene_overview`, `detailed_observations`, 각 hotspot의 `reason_for_selection`, `suspected_feature`
 
 **[최종 점검 사항]**
 - 작은 Arc Bead를 하나라도 놓치지 않았는가?
@@ -65,9 +92,9 @@ def get_multi_hotspot_prompt(image_path: str = None) -> str:
 - 모든 묘사가 객관적이고 사실 위주인가?
 - 논리 전개 순서가 '사실 -> 근거 -> 판단' 순인가?
 - JSON 형식이 유효하며 필수 필드가 모두 포함되었는가?
+- damage_type이 허용된 값 중 하나인가?
 </system_instruction>
 """
-    # image_path 플레이스홀더가 template에 없으므로 format() 호출 불필요
     return template
     
 def get_component_classifier_prompt(image_path: str = None) -> str:

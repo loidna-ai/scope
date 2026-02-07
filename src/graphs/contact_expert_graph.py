@@ -1,119 +1,213 @@
 """
-Contact 전문가 서브그래프 빌더
+Contact 전문가 서브그래프 빌더 (Map-Reduce Pattern with Send API)
 """
-from typing import Dict, Any, Optional, Literal, List
+# Standard library imports
 import os
+import asyncio
+import traceback
+from pathlib import Path
+from typing import Dict, Any, Optional, Literal, List, Union
 
+# Third-party imports
 from langgraph.graph import StateGraph, START, END
+from langgraph.types import Send
 
+# Local imports
+from config import TOP_N_HOTSPOTS
 from src.state import InvestigationState
+from src.utils.logging_config import setup_logger
 from src.nodes.contact_nodes import (
     ContactExpertState,
-    hotspot_manager_node,
-    roi_crop_node,
-    component_classifier_node,
-    contact_terminal_node,
-    contact_splice_node,
-    contact_plug_node,
-    result_aggregator_node,
-    verdict_node
+    WorkerState,
+    analyze_hotspot_worker,
+    supervisor_verdict,
+    verdict_analyst_node,
+    verdict_critic_node,
+    verdict_finalize_node
 )
-from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
 
-def route_loop_manager(state: ContactExpertState) -> Literal["process", "end"]:
-    """
-    Hotspot Manager 분기: 처리할 Hotspot이 있으면 process, 없으면 end
-    """
-    if state.get("current_hotspot"):
-        return "process"
-    return "end"
+logger = setup_logger(__name__)
+from src.tools.experts.expert_utils import (
+    extract_image_from_payload,
+    save_bytes_to_temp_file
+)
 
-def route_component_type(state: ContactExpertState) -> Literal["contact_terminal", "contact_splice", "contact_plug", "none"]:
+
+# ===== Send API Fan-Out Function =====
+
+def distribute_work(state: ContactExpertState) -> Union[str, List[Send]]:
     """
-    Component Classification 분기
+    Fan-out: Distribute hotspots to parallel workers using Send API
+    
+    Returns:
+        - List[Send]: If hotspots exist, fan-out to workers
+        - str: If no hotspots, skip to supervisor
     """
-    conn_type = state.get("connection_type", "None")
+    # [Fast Path] analysis_status 체크 (빠른 종료)
+    analysis_status = state.get("analysis_status")
+    if analysis_status == "NO_HOTSPOTS_DETECTED":
+        logger.info("Contact Expert: No hotspots detected by detector, skipping analysis")
+        return "supervisor_verdict"
     
-    if "Terminal" in conn_type or "단자" in conn_type:
-        return "contact_terminal"
-    elif "Splice" in conn_type or "전선" in conn_type:
-        return "contact_splice"
-    elif "Plug" in conn_type or "플러그" in conn_type:
-        return "contact_plug"
+    hotspots = state.get("hotspots") or []  # None-safe: None일 경우 빈 리스트로 처리
+    image_path = state.get("image_path")
     
-    return "none"
+    # Filter and sort hotspots (Top-N Selection Logic)
+    # [Config] severity_score 50 미만은 분석 가치가 낮으므로 제외
+    valid_hotspots = [h for h in hotspots if h.get("severity_score", 0) >= 50]
+    
+    if not valid_hotspots:
+        print("\n🏁 [Distribute Work] 처리할 Hotspot이 없습니다.")
+        return "supervisor_verdict"
+    
+    # Sort by severity and take Top-N
+    sorted_hotspots = sorted(
+        valid_hotspots,
+        key=lambda x: x.get("severity_score", 0),
+        reverse=True
+    )
+    selected_hotspots = sorted_hotspots[:TOP_N_HOTSPOTS]
+    
+    print(f"\n🚀 [Distribute Work] {len(selected_hotspots)}개 Worker에 병렬 분산 (Top-{TOP_N_HOTSPOTS})")
+    print(f"   선택된 Hotspot IDs: {[h.get('id') for h in selected_hotspots]}")
+    
+    # Send API: Create parallel worker invocations
+    return [
+        Send(
+            "analyze_hotspot_worker",
+            {
+                "current_hotspot": hotspot,
+                "image_path": image_path
+            }
+        )
+        for hotspot in selected_hotspots
+    ]
+
+
+# ===== Conditional Routing Functions =====
+
+def route_supervisor_decision(state: ContactExpertState) -> Literal["debate", "finalize"]:
+    """
+    Supervisor 결과에 따라 Debate 필요 여부 결정
+    """
+    debate_context = state.get("debate_context")
+    
+    if debate_context and debate_context.get("requires_debate"):
+        logger.info("Router: Supervisor requested debate -> Proceeding to Analyst")
+        return "debate"
+    
+    logger.info("Router: Supervisor Fast Path verdict -> Proceeding to Finalize")
+    return "finalize"
+
+
+def route_verdict_debate(state: ContactExpertState) -> Literal["back_to_analyst", "finalize"]:
+    """
+    Verdict Debate Supervisor (흐름 제어)
+    - Critic이 is_approved=True → finalize
+    - 3턴 초과 → finalize (timeout)
+    - 그 외 → back_to_analyst (재검토)
+    """
+    debate_iter = state.get("debate_iteration", 0)
+    MAX_ITERATIONS = 3
+    
+    # 🔥 Pydantic 객체 우선 사용 (Legacy 문자열 로직 제거)
+    critique_result = state.get("critique_result")
+
+    # 1. Critic 합의 체크 (is_approved bool 직접 체크)
+    if critique_result and critique_result.is_approved:
+        logger.info("Debate Supervisor: Critic agreed (is_approved=True). Proceeding to finalize.")
+        return "finalize"
+    
+    # 2. Timeout
+    if debate_iter >= MAX_ITERATIONS:
+        logger.warning(f"Debate Supervisor: Max iterations ({MAX_ITERATIONS}) reached. Forcing finalize.")
+        return "finalize"
+    
+    # 3. 계속 토론
+    logger.info(f"Debate Supervisor: Debate continues (Round {debate_iter + 1}/{MAX_ITERATIONS})")
+    return "back_to_analyst"
+
+
+# ===== Graph Builder =====
 
 def build_contact_expert_graph():
-    """Contact 전문가 서브그래프 빌드 - Multi-Hotspot Loop"""
+    """Contact 전문가 서브그래프 빌드 - Map-Reduce Pattern with Send API"""
     builder = StateGraph(ContactExpertState)
     
-    # 노드 추가
-    builder.add_node("hotspot_manager", hotspot_manager_node)
-    builder.add_node("roi_crop", roi_crop_node)
-    builder.add_node("component_classifier", component_classifier_node)
+    # ===== Add Nodes =====
+    # Map Phase: Worker
+    builder.add_node("analyze_hotspot_worker", analyze_hotspot_worker)
     
-    builder.add_node("contact_terminal", contact_terminal_node)
-    builder.add_node("contact_splice", contact_splice_node)
-    builder.add_node("contact_plug", contact_plug_node)
+    # Reduce Phase: Supervisor
+    builder.add_node("supervisor_verdict", supervisor_verdict)
     
-    builder.add_node("result_aggregator", result_aggregator_node)
-    builder.add_node("verdict", verdict_node)
+    # Debate Nodes (Conditional)
+    builder.add_node("verdict_analyst", verdict_analyst_node)
+    builder.add_node("verdict_critic", verdict_critic_node)
+    builder.add_node("verdict_finalize", verdict_finalize_node)
     
-    # 엣지 연결
-    # 1. Start -> Manager (hotspots는 메인 그래프에서 전달받음)
-    builder.add_edge(START, "hotspot_manager")
+    # ===== Add Edges =====
     
-    # 2. Manager Loop Control
+    # 1. Fan-Out: START → distribute_work → Workers (Parallel) OR Supervisor (No hotspots)
     builder.add_conditional_edges(
-        "hotspot_manager",
-        route_loop_manager,
+        START,
+        distribute_work,
+        ["analyze_hotspot_worker", "supervisor_verdict"]
+    )
+    
+    # 2. Fan-In: Workers → Supervisor (Auto-aggregation via operator.add)
+    builder.add_edge("analyze_hotspot_worker", "supervisor_verdict")
+    
+    # 3. Supervisor → Debate OR Finalize (Conditional)
+    builder.add_conditional_edges(
+        "supervisor_verdict",
+        route_supervisor_decision,
         {
-            "process": "roi_crop",
-            "end": "verdict"
+            "debate": "verdict_analyst",
+            "finalize": "verdict_finalize"
         }
     )
     
-    # 3. Crop -> Classify
-    builder.add_edge("roi_crop", "component_classifier")
-    
-    # 4. Classify -> Specialist (Branching)
+    # 4. Debate Flow: Analyst → Critic → (Loop OR Finalize)
+    builder.add_edge("verdict_analyst", "verdict_critic")
     builder.add_conditional_edges(
-        "component_classifier",
-        route_component_type,
+        "verdict_critic",
+        route_verdict_debate,
         {
-            "contact_terminal": "contact_terminal",
-            "contact_splice": "contact_splice",
-            "contact_plug": "contact_plug",
-            "none": "result_aggregator" # None도 결과를 기록해야 함
+            "back_to_analyst": "verdict_analyst",
+            "finalize": "verdict_finalize"
         }
     )
     
-    # 5. Specialist -> Aggregator
-    builder.add_edge("contact_terminal", "result_aggregator")
-    builder.add_edge("contact_splice", "result_aggregator")
-    builder.add_edge("contact_plug", "result_aggregator")
-    
-    # 6. Aggregator -> Manager (Loop Back)
-    builder.add_edge("result_aggregator", "hotspot_manager")
-    
-    # 7. Verdict -> End
-    builder.add_edge("verdict", END)
+    # 5. Finalize → END
+    builder.add_edge("verdict_finalize", END)
     
     return builder.compile()
 
-def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Dict[str, Any]]):
-    """임시 파일 정리"""
-    try:
-        # 1. 원본 임시 파일 삭제
-        if temp_image_path and os.path.exists(temp_image_path):
+def _cleanup_temp_files(
+    temp_image_path: Optional[str], 
+    final_state: Optional[Dict[str, Any]],
+    cleanup_original: bool = True
+):
+    """
+    임시 파일 정리
+    
+    Args:
+        temp_image_path: 원본 이미지 경로
+        final_state: 최종 상태 (ROI 경로 추출용)
+        cleanup_original: True이면 원본도 삭제, False면 ROI만 삭제
+    """
+    # 1. 원본 임시 파일 삭제 (cleanup_original=True일 때만)
+    if cleanup_original and temp_image_path and os.path.exists(temp_image_path):
+        try:
             os.remove(temp_image_path)
-    except Exception:
-        pass
+        except Exception:
+            pass
 
     if not final_state:
         return
 
-    # 2. Loop 과정에서 생성된 모든 ROI 파일 정리
+    # 2. ROI 파일 정리 (항상 실행)
     analysis_results = final_state.get("analysis_results", [])
     for res in analysis_results:
         roi_path = res.get("roi_image_path")
@@ -133,10 +227,10 @@ def _cleanup_temp_files(temp_image_path: Optional[str], final_state: Optional[Di
 
 
 def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
+    """Contact Expert wrapper node for main investigation graph"""
     temp_image_path = None
     final_state = None
     try:
-        
         # [Memory Optimization] Shared Image Path Check
         shared_image_path = state.get("image_path")
         should_cleanup_input = False
@@ -144,7 +238,6 @@ def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
         if shared_image_path and os.path.exists(shared_image_path):
             temp_image_path = shared_image_path
         else:
-            # Fallback for legacy payload
             image_data = extract_image_from_payload(state.get("payload", []))
             if image_data is None:
                 return {
@@ -163,42 +256,156 @@ def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
         initial_state: ContactExpertState = {
             "messages": [],
             "image_path": temp_image_path,
-            "hotspots": hotspots,  # 메인 그래프에서 생성된 공통 hotspots 사용
-            "hotspot_queue": None, # Manager가 초기화함
+            "hotspots": hotspots,
             "analysis_results": [],
+            "preliminary_assessments": [],
             
-            # 아래 필드들은 Loop 마다 갱신됨
-            "current_hotspot": None,
-            "detector_result": None,
-            "roi_image_path": None,
-            "connection_type": None,
-            "terminal_result": None,
-            "splice_result": None,
-            "plug_result": None,
+            # Debate 필드 (Verdict Analyst-Critic)
+            "debate_iteration": 0,
+            "debate_messages": [],
+            "current_hypothesis": None,
+            "critique_points": None,
+
+            # 최종 결과
             "verdict_report": None,
             "verdict_confidence": None,
             "verdict_result": None
         }
-        
-        
         graph = build_contact_expert_graph()
-        final_state = graph.invoke(initial_state, config={"recursion_limit": 50}) # Loop 고려하여 limit 설정
+        # 🔥 LangGraph 공식 권장: astream으로 실시간 진행 상황 모니터링
+        # Send API 병렬 처리와 max_concurrency 제한 적용
+        import asyncio
+        
+        logger.info("Contact Expert: Starting analysis with streaming...")
+        
+        async def run_with_streaming():
+            """Streaming으로 실행하며 진행 상황 출력"""
+            import json
+            import time
+            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            final_state = None
+            event_count = 0
+            last_event_keys = None
+            last_event_value = None
+            
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"A","location":"contact_expert_graph.py:276","message":"run_with_streaming started","data":{"initial_state_keys":list(initial_state.keys()) if initial_state else None},"timestamp":int(time.time()*1000)})+"\n")
+            except: pass
+            # #endregion
+            
+            try:
+                async for event in graph.astream(
+                    initial_state,
+                    config={
+                        "recursion_limit": 50,
+                        "max_concurrency": 3  # 동시 실행 worker 제한
+                    }
+                ):
+                    event_count += 1
+                    event_keys = list(event.keys())
+                    last_event_keys = event_keys
+                    
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"B","location":"contact_expert_graph.py:310","message":"event received","data":{"event_count":event_count,"event_keys":event_keys,"has_end":"__end__" in event},"timestamp":int(time.time()*1000)})+"\n")
+                    except: pass
+                    # #endregion
+                    
+                    # 최종 상태 추출
+                    if "__end__" in event:
+                        final_state = event["__end__"]
+                        # #region agent log
+                        try:
+                            with open(log_path, "a", encoding="utf-8") as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"C","location":"contact_expert_graph.py:312","message":"__end__ event found","data":{"final_state_keys":list(final_state.keys()) if final_state else None},"timestamp":int(time.time()*1000)})+"\n")
+                        except: pass
+                        # #endregion
+                    else:
+                        # 마지막 이벤트의 값을 저장 (LangGraph는 마지막 이벤트가 최종 상태일 수 있음)
+                        for node_name in event.keys():
+                            if node_name not in ["__start__", "__end__"]:
+                                print(f"  ✓ Completed: {node_name}")
+                                # 마지막 노드의 출력이 최종 상태일 수 있음
+                                last_event_value = event.get(node_name)
+                                # #region agent log
+                                try:
+                                    with open(log_path, "a", encoding="utf-8") as f:
+                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"H","location":"contact_expert_graph.py:325","message":"storing last event value","data":{"node_name":node_name,"has_state":last_event_value is not None},"timestamp":int(time.time()*1000)})+"\n")
+                                except: pass
+                                # #endregion
+            except Exception as e:
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"contact_expert_graph.py:292","message":"exception in astream","data":{"error":str(e),"event_count":event_count,"last_event_keys":last_event_keys},"timestamp":int(time.time()*1000)})+"\n")
+                except: pass
+                # #endregion
+                raise
+            
+            # __end__ 이벤트가 없으면 마지막 이벤트 값을 최종 상태로 사용
+            if final_state is None and last_event_value is not None:
+                final_state = last_event_value
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"I","location":"contact_expert_graph.py:340","message":"using last_event_value as final_state","data":{"final_state_keys":list(final_state.keys()) if isinstance(final_state, dict) else None},"timestamp":int(time.time()*1000)})+"\n")
+                except: pass
+                # #endregion
+            
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run2","hypothesisId":"E","location":"contact_expert_graph.py:348","message":"run_with_streaming returning","data":{"final_state_is_none":final_state is None,"event_count":event_count,"last_event_keys":last_event_keys,"used_last_event":last_event_value is not None},"timestamp":int(time.time()*1000)})+"\n")
+            except: pass
+            # #endregion
+            
+            return final_state
+        
+        final_state = asyncio.run(run_with_streaming())
+        
+        # #region agent log
+        try:
+            import json
+            import time
+            log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"contact_expert_graph.py:295","message":"after asyncio.run","data":{"final_state_is_none":final_state is None,"final_state_type":type(final_state).__name__ if final_state else None},"timestamp":int(time.time()*1000)})+"\n")
+        except: pass
+        # #endregion
         
         # 결과 추출
-        verdict_report = final_state.get("verdict_report", "")
-        verdict_confidence = final_state.get("verdict_confidence", 0)
-        verdict_result = final_state.get("verdict_result", {})
-        analysis_results = final_state.get("analysis_results", [])
+        if final_state is None:
+            # #region agent log
+            try:
+                import json
+                import time
+                log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"contact_expert_graph.py:354","message":"final_state is None, using defaults","data":{},"timestamp":int(time.time()*1000)})+"\n")
+            except: pass
+            # #endregion
+            verdict_report = ""
+            verdict_confidence = 0
+            verdict_result = {}
+            analysis_results = []
+        else:
+            verdict_report = final_state.get("verdict_report", "")
+            verdict_confidence = final_state.get("verdict_confidence", 0)
+            verdict_result = final_state.get("verdict_result", {})
+            analysis_results = final_state.get("analysis_results", [])
         
         # 증거 수집 (Top 1 기준)
         evidence = []
         if verdict_result:
-            feature_name = verdict_result.get("feature_name", "")
-            observation = verdict_result.get("observation_summary", "")
-            if feature_name:
+            visual_desc = verdict_result.get("visual_description", "")
+            verdict = verdict_result.get("verdict", "")
+            if verdict:
                 evidence.append({
-                    "evidence": feature_name,
-                    "details": observation
+                    "evidence": verdict,
+                    "details": visual_desc
                 })
         
         return {
@@ -213,7 +420,6 @@ def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "expert_evidence": {"contact": evidence}
         }
     except Exception as e:
-        import traceback
         print(f"\n[ERROR] Contact Expert Wrapper Exception: {str(e)}")
         traceback.print_exc()
         return {
@@ -224,17 +430,10 @@ def contact_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "expert_evidence": {}
         }
     finally:
-        # 입력 파일이 우리가 직접 생성한 경우(Fallback)에만 정리
-        if should_cleanup_input:
-            _cleanup_temp_files(temp_image_path, final_state)
-        # Shared Path인 경우, ROI 파일들만 정리 (입력 파일 제외)
-        elif final_state:
-             # _cleanup_temp_files 로직을 일부 차용하되 입력 파일 삭제 방지
-            analysis_results = final_state.get("analysis_results", [])
-            for res in analysis_results:
-                roi_path = res.get("roi_image_path")
-                if roi_path and roi_path != temp_image_path and os.path.exists(roi_path):
-                    try:
-                        os.remove(roi_path)
-                    except Exception:
-                        pass
+        # 🔥 일원화된 정리 로직
+        if final_state:
+            _cleanup_temp_files(
+                temp_image_path, 
+                final_state, 
+                cleanup_original=should_cleanup_input  # True: 원본+ROI, False: ROI만
+            )

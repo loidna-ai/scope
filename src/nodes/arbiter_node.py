@@ -1,6 +1,9 @@
 """
-Arbiter Agent 모듈
+Arbiter Agent 모듈 (Legacy - 논쟁 시스템으로 교체됨)
 증거 통합 및 상충 해결을 통한 최종 결론 도출
+
+[주의] 이 파일은 논쟁 시스템(arbiter_expert_graph.py)으로 교체되었습니다.
+기존 로직 체인 방식의 참고용으로 보관됩니다.
 """
 from typing import Dict, Any, List
 from src.state import InvestigationState

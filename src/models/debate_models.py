@@ -12,7 +12,7 @@ class HypothesisData(BaseModel):
     """
     conclusion: str = Field(
         ..., 
-        description="판정 결과: 반단선 (Confirmed) / 반단선 의심 (Suspected) / 반단선 아님 (Not Necking) / 판독 불가 (Indeterminate)"
+        description="판정 결과. 프롬프트 output_format 준수. 예: 반단선 또는 압착·손상 (Confirmed) / 의심 (Suspected) / 아님 / 판독 불가 (Indeterminate)"
     )
     probability: int = Field(
         ..., 

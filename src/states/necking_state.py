@@ -35,10 +35,6 @@ class NeckingExpertState(TypedDict):
     debate_iteration: int  # Debate 반복 횟수 (무한 루프 방지)
     debate_messages: Annotated[List[str], operator.add]  # Analyst-Critic 대화 이력
     
-    # [Legacy] 문자열 기반 (하위 호환성 유지용 - 제거 시 주의)
-    current_hypothesis: Optional[str]  # Analyst의 문자열 가설
-    critique_points: Optional[str]  # Critic의 문자열 비평
-    
     # [Phase 2] Pydantic 구조화 (타입 안전 - Debate 노드용)
     analyst_hypothesis: Optional[Any]  # AnalystHypothesis Pydantic 객체
     critique_result: Optional[Any]  # CritiqueResult Pydantic 객체
