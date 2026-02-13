@@ -96,10 +96,11 @@ def draw_annotation_node(state: InvestigationState) -> Dict[str, Any]:
             cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
             
             # Label 구성
-            damage_type = hotspot.get("damage_type", "Unknown")
             verdict = res.get("verdict", "")
-            # 전문가 Verdict가 있으면 우선 표기, 없으면 초기 탐지명 표기
-            label = f"[{expert_name.upper()}] {verdict}" if verdict and verdict != "N/A" else f"[{expert_name.upper()}] {damage_type}"
+            severity = hotspot.get("severity_score", 0)
+            hotspot_id = hotspot.get("id", "?")
+            # 전문가 Verdict가 있으면 우선 표기, 없으면 ID와 점수 표기
+            label = f"[{expert_name.upper()}] {verdict}" if verdict and verdict != "N/A" else f"[{expert_name.upper()}] #{hotspot_id} ({severity})"
             
             # Text Background
             (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)

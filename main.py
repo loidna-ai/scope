@@ -7,6 +7,7 @@ import json
 import argparse
 import warnings
 import time
+import re
 from pathlib import Path
 import config
 
@@ -16,6 +17,263 @@ warnings.filterwarnings('ignore', category=UserWarning, module='torchvision.tran
 # 핵심 분석 함수 임포트
 from src.agent import analyze_fire_evidence
 from src.utils import find_data_directory
+
+def parse_final_verdict(verdict_text: str) -> dict:
+    """최종 판정 텍스트에서 판정 결과와 신뢰도를 추출"""
+    result = {
+        "verdict": "판정 불가",
+        "confidence": "N/A",
+        "confidence_level": "N/A"
+    }
+    
+    # 최종 판정 추출 - 여러 패턴 시도
+    verdict_match = re.search(r'\*\*최종 판정\*\*\s*\n\s*\*\*([^*]+)\*\*', verdict_text)
+    if not verdict_match:
+        verdict_match = re.search(r'\*\*최종 판정\*\*\s*\n\s*([^\n]+)', verdict_text)
+    if not verdict_match:
+        verdict_match = re.search(r'최종 판정[:\s]*([^\n]+)', verdict_text)
+    if not verdict_match:
+        # "접촉불량(Poor Contact) 유력" 같은 패턴
+        verdict_match = re.search(r'([가-힣]+\([^)]+\)\s*[가-힣]+)', verdict_text)
+    if verdict_match:
+        result["verdict"] = verdict_match.group(1).strip()
+    
+    # 신뢰도 추출 (예: 85.0%, 85%, High 등)
+    # 전문가 리포트에서 신뢰도 찾기
+    confidence_match = re.search(r'(\d+\.?\d*)%', verdict_text)
+    if confidence_match:
+        conf_value = float(confidence_match.group(1))
+        result["confidence"] = f"{conf_value:.1f}%"
+        if conf_value >= 80:
+            result["confidence_level"] = "High"
+        elif conf_value >= 60:
+            result["confidence_level"] = "Medium"
+        else:
+            result["confidence_level"] = "Low"
+    else:
+        # High/Medium/Low 텍스트 추출
+        level_match = re.search(r'(High|Medium|Low)', verdict_text, re.IGNORECASE)
+        if level_match:
+            result["confidence_level"] = level_match.group(1)
+            result["confidence"] = "N/A"
+    
+    return result
+
+def parse_expert_report(report_text: str) -> dict:
+    """전문가 리포트에서 판정 결과 추출"""
+    result = {
+        "expert_name": "Unknown",
+        "conclusion": "해당 없음",
+        "confidence": "N/A",
+        "key_evidence": "해당 없음"
+    }
+    
+    # 전문가 이름 추출
+    name_match = re.search(r'\[(Contact|Deform|Necking|Aging|Tracking|DielectricAge|Mechanical|StrandFracture)', report_text, re.IGNORECASE)
+    if name_match:
+        result["expert_name"] = name_match.group(1).upper()
+    
+    # 결론 추출
+    conclusion_match = re.search(r'## 결론[:\s]*([^\n]+)', report_text)
+    if conclusion_match:
+        conclusion = conclusion_match.group(1).strip()
+        # Analysis Skipped 확인
+        if "Analysis Skipped" in report_text or "아님" in conclusion or "해당 없음" in conclusion or "전선이 아님" in report_text:
+            result["conclusion"] = "해당 없음"
+            result["confidence"] = "100%"
+            # 분석 제외 이유 추출
+            if "전선이 아님" in report_text or "Target is not a Wire" in report_text:
+                result["key_evidence"] = "분석 제외 (대상: 터미널)"
+            else:
+                result["key_evidence"] = "분석 제외"
+        else:
+            # 결론에서 핵심만 추출
+            if "유력" in conclusion:
+                result["conclusion"] = "유력"
+            elif "의심" in conclusion:
+                result["conclusion"] = "의심"
+            elif "아님" in conclusion:
+                result["conclusion"] = "아님"
+            else:
+                result["conclusion"] = conclusion.split('(')[0].strip() if '(' in conclusion else conclusion
+            
+            # 신뢰도 추출
+            conf_match = re.search(r'\((\d+\.?\d*)%\)', conclusion)
+            if conf_match:
+                result["confidence"] = f"{float(conf_match.group(1)):.1f}%"
+            else:
+                conf_match = re.search(r'(\d+\.?\d*)%', report_text)
+                if conf_match:
+                    result["confidence"] = f"{float(conf_match.group(1)):.1f}%"
+            
+            # 핵심 근거 추출
+            if "Pitting" in report_text or "크레이터" in report_text or "터미널" in report_text:
+                result["key_evidence"] = "Pitting, 열적 구배, 단락 비드 부재"
+            elif "압착" in report_text:
+                result["key_evidence"] = "압착흔 분석"
+            elif "반단선" in report_text:
+                result["key_evidence"] = "반단선 분석"
+            else:
+                result["key_evidence"] = "물리적 증거 분석"
+    
+    return result
+
+def format_investigation_result(
+    final_verdict: str,
+    expert_reports: list,
+    arbiter_debate_messages: list,
+    input_image_path: str,
+    timestamp: str
+) -> str:
+    """분석 결과를 깔끔한 표 형식으로 포맷팅"""
+    output = []
+    
+    # 헤더 정보 파싱
+    image_name = Path(input_image_path).name
+    
+    # 최종 판정 파싱
+    verdict_info = parse_final_verdict(final_verdict)
+    
+    # 헤더 테이블
+    output.append("# 📑 AI 화재조사 분석 리포트\n")
+    output.append("| 분석 일시 | {} | 대상 이미지 | {} |".format(timestamp, image_name))
+    output.append("| :--- | :--- | :--- | :--- |")
+    output.append("| **최종 판정** | **{}** | **신뢰도** | **{} ({})** |\n".format(
+        verdict_info["verdict"],
+        verdict_info["confidence"],
+        verdict_info["confidence_level"]
+    ))
+    
+    # 전문가 분석 요약
+    output.append("## 1. 전문가 에이전트 분석 요약\n")
+    output.append("| 전문가 (Agent) | 판정 결과 | 신뢰도 | 핵심 근거 |")
+    output.append("| :--- | :---: | :---: | :--- |")
+    
+    expert_summaries = []
+    for report in expert_reports:
+        expert_info = parse_expert_report(report)
+        expert_summaries.append(expert_info)
+        
+        conclusion_display = expert_info["conclusion"]
+        if expert_info["conclusion"] == "해당 없음":
+            conclusion_display = "**해당 없음**"
+        
+        output.append("| **{}** | {} | {} | {} |".format(
+            expert_info["expert_name"],
+            conclusion_display,
+            expert_info["confidence"],
+            expert_info["key_evidence"]
+        ))
+    
+    output.append("")
+    
+    # Arbiter 최종 판정 논리
+    output.append("## 2. Arbiter 최종 판정 논리\n")
+    # 판정 근거 추출 - 여러 패턴 시도
+    reasoning_text = None
+    
+    # 패턴 1: **[판정 근거]** 형식
+    reasoning_match = re.search(r'\*\*\[판정 근거\]\*\*\s*\n(.*?)(?=\*\*\[|$)', final_verdict, re.DOTALL)
+    if reasoning_match:
+        reasoning_text = reasoning_match.group(1).strip()
+    else:
+        # 패턴 2: [판정 근거] 형식 (볼드 없음)
+        reasoning_match = re.search(r'\[판정 근거\]\s*\n(.*?)(?=\[|$)', final_verdict, re.DOTALL)
+        if reasoning_match:
+            reasoning_text = reasoning_match.group(1).strip()
+    
+    if reasoning_text:
+        # 번호 목록을 정리 - 여러 패턴 시도
+        reasoning_lines = re.findall(r'\d+\.\s*\*\*([^*]+)\*\*[:\s]*([^\n]+)', reasoning_text)
+        if not reasoning_lines:
+            # 패턴 2: **제목:** 내용 형식
+            reasoning_lines = re.findall(r'\d+\.\s+\*\*([^*]+)\*\*[:\s]+([^\n]+)', reasoning_text)
+        if not reasoning_lines:
+            # 패턴 3: 번호. 제목: 내용 (볼드 없음)
+            reasoning_lines = re.findall(r'\d+\.\s+([^:]+):\s*([^\n]+)', reasoning_text)
+        
+        if reasoning_lines:
+            for num, title, content in reasoning_lines:
+                output.append(f"**{num}. {title.strip()}**")
+                output.append(f"{content.strip()}\n")
+        else:
+            # 번호 목록이 없으면 전체 텍스트를 그대로 출력
+            output.append(reasoning_text)
+            output.append("")
+    else:
+        # 판정 근거가 없으면 종합 분석 추출
+        summary_match = re.search(r'\*\*\[종합 분석\]\*\*\s*\n(.*?)(?=\*\*\[|$)', final_verdict, re.DOTALL)
+        if not summary_match:
+            summary_match = re.search(r'\[종합 분석\]\s*\n(.*?)(?=\[|$)', final_verdict, re.DOTALL)
+        if summary_match:
+            summary_text = summary_match.group(1).strip()
+            # 너무 길면 요약
+            if len(summary_text) > 500:
+                output.append(summary_text[:500] + "...")
+            else:
+                output.append(summary_text)
+            output.append("")
+        else:
+            # 아무것도 없으면 안내 메시지
+            output.append("*판정 논리 정보를 추출할 수 없습니다.*\n")
+    
+    # 상세 토론 과정
+    if arbiter_debate_messages:
+        output.append("## 3. 상세 토론 과정\n")
+        current_round = None
+        current_stage = None
+        
+        for msg in arbiter_debate_messages:
+            speaker = msg.get("speaker", "unknown")
+            content = msg.get("content", "")
+            stage = msg.get("stage", "")
+            round_num = msg.get("round_num", 0)
+            validated = msg.get("validated", None)
+            
+            # Judge는 최종 판정이므로 별도 섹션으로 처리하지 않음 (이미 위에 포함됨)
+            if speaker == "judge":
+                continue
+            
+            # Round/Stage 헤더
+            if round_num != current_round or stage != current_stage:
+                if current_round is not None:
+                    output.append("")
+                stage_kr = {"opening": "개회", "rebuttal": "반론", "judgment": "판정"}.get(stage, stage)
+                output.append(f"### Round {round_num}: {stage_kr}\n")
+                current_round = round_num
+                current_stage = stage
+            
+            # 발언자별 포맷팅
+            if speaker in ["contact", "deform", "necking"]:
+                validation_status = " ✓ 통과" if validated else " ✗ 실패" if validated is False else ""
+                output.append(f"**{speaker.upper()} 전문가{validation_status}**\n\n")
+            elif speaker == "fact_checker":
+                output.append("**Fact Checker**\n\n")
+            elif speaker == "moderator":
+                # Moderator 메시지는 간단히만 표시
+                if "합의" in content or "도달" in content:
+                    output.append(f"*{content.strip()}*\n\n")
+                continue
+            
+            # 내용 (간결하게, 전문가 발언만 상세히)
+            if speaker in ["contact", "deform", "necking"]:
+                content_lines = content.split('\n')
+                # 핵심 내용만 추출 (첫 3-5줄)
+                if len(content_lines) > 8:
+                    # 첫 문단과 마지막 문단만
+                    first_part = "\n".join(content_lines[:3])
+                    last_part = "\n".join([line for line in content_lines[-2:] if line.strip()])
+                    output.append(f"{first_part}\n\n*... (중략) ...*\n\n{last_part}\n")
+                else:
+                    output.append(f"{content}\n")
+            elif speaker == "fact_checker":
+                # Fact Checker는 간단히만
+                if "통과" in content or "일관성" in content:
+                    output.append(f"*{content[:100]}...*\n")
+            
+            output.append("")
+    
+    return "\n".join(output)
 
 def select_image_file():
     """
@@ -205,82 +463,46 @@ def run_analysis_pipeline(input_image_path: str, output_dir: Path, user_query: s
         except: pass
         # #endregion
         
-        # 1. 통합 결과 파일 저장
+        # 1. 통합 결과 파일 저장 (개선된 포맷)
+        timestamp_str = time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f_log:
+                f_log.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:213","message":"Checking arbiter_debate_messages before write","data":{"arbiter_debate_messages_count":len(arbiter_debate_messages) if arbiter_debate_messages else 0,"arbiter_debate_messages_is_none":arbiter_debate_messages is None,"arbiter_debate_messages_bool":bool(arbiter_debate_messages)},"timestamp":int(time_module.time()*1000)})+"\n")
+        except: pass
+        # #endregion
+        
         with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("화재조사 AI 멀티 에이전트 시스템 분석 결과\n")
-            f.write(f"일시: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("=" * 60 + "\n")
-            f.write(f"입력 이미지: {input_image_path}\n")
-            if user_query:
-                f.write(f"사용자 질문: {user_query}\n")
-            f.write("=" * 60 + "\n\n")
+            # 새로운 포맷으로 결과 작성
+            formatted_result = format_investigation_result(
+                final_verdict=final_verdict,
+                expert_reports=expert_reports or [],
+                arbiter_debate_messages=arbiter_debate_messages or [],
+                input_image_path=input_image_path,
+                timestamp=timestamp_str
+            )
+            f.write(formatted_result)
             
-            # 최종 결론
-            f.write("[최종 분석 결론]\n")
+            # 추가 정보 (원본 데이터 보존용)
+            f.write("\n\n---\n\n")
+            f.write("## 4. 상세 분석 내용\n\n")
+            f.write("### 최종 판정 상세\n")
             f.write(final_verdict)
-            f.write("\n\n" + "-" * 60 + "\n\n")
+            f.write("\n\n")
             
-            # 아비터 토론 내용
-            # #region agent log
-            try:
-                with open(log_path, "a", encoding="utf-8") as f_log:
-                    f_log.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:213","message":"Checking arbiter_debate_messages before write","data":{"arbiter_debate_messages_count":len(arbiter_debate_messages) if arbiter_debate_messages else 0,"arbiter_debate_messages_is_none":arbiter_debate_messages is None,"arbiter_debate_messages_bool":bool(arbiter_debate_messages)},"timestamp":int(time_module.time()*1000)})+"\n")
-            except: pass
-            # #endregion
-            
-            if arbiter_debate_messages:
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f_log:
-                        f_log.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:217","message":"Writing arbiter debate messages","data":{"message_count":len(arbiter_debate_messages)},"timestamp":int(time_module.time()*1000)})+"\n")
-                except: pass
-                # #endregion
-                
-                f.write("[Arbiter 토론 기록]\n")
-                f.write("=" * 60 + "\n\n")
-                for i, msg in enumerate(arbiter_debate_messages, 1):
-                    speaker = msg.get("speaker", "unknown")
-                    content = msg.get("content", "")
-                    stage = msg.get("stage", "")
-                    round_num = msg.get("round_num", 0)
-                    validated = msg.get("validated", None)
-                    
-                    # 발언자별 포맷팅
-                    if speaker in ["contact", "deform", "necking"]:
-                        validation_status = "✓ 통과" if validated else "✗ 실패" if validated is False else ""
-                        f.write(f"[Round {round_num}, {stage}] {speaker.upper()} 전문가 {validation_status}\n")
-                    elif speaker == "fact_checker":
-                        f.write(f"[Round {round_num}, {stage}] Fact Checker\n")
-                    elif speaker == "moderator":
-                        f.write(f"[Round {round_num}, {stage}] Moderator\n")
-                    elif speaker == "judge":
-                        f.write(f"[{stage}] Judge (최종 판정)\n")
-                    else:
-                        f.write(f"[Round {round_num}, {stage}] {speaker}\n")
-                    
-                    f.write(f"{content}\n")
-                    f.write("-" * 60 + "\n\n")
-                f.write("=" * 60 + "\n\n")
-            else:
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f_log:
-                        f_log.write(json_module.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"main.py:240","message":"Skipping arbiter debate messages (empty or None)","data":{"arbiter_debate_messages":str(arbiter_debate_messages)[:100]},"timestamp":int(time_module.time()*1000)})+"\n")
-                except: pass
-                # #endregion
-            
-            # 전문가 리포트 (통합 파일에도 포함)
+            # 전문가 상세 리포트
             if expert_reports:
-                f.write("[전문가 상세 리포트]\n")
+                f.write("### 전문가 상세 리포트\n\n")
                 for i, report in enumerate(expert_reports, 1):
-                    f.write(f"\n--- Expert Report {i} ---\n")
+                    f.write(f"#### Expert Report {i}\n\n")
                     f.write(report)
-                    f.write("\n")
+                    f.write("\n\n")
             
             # 오류 로그
             if errors:
-                f.write("\n" + "=" * 60 + "\n")
-                f.write("[System Errors & Warnings]\n")
+                f.write("\n---\n\n")
+                f.write("## 5. System Errors & Warnings\n\n")
                 for err in errors:
                     f.write(f"- {err}\n")
 

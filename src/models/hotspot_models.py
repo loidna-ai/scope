@@ -4,19 +4,6 @@ Pydantic models for structured output from hotspot detection
 """
 from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional
-from enum import Enum
-
-
-class DamageType(str, Enum):
-    """손상 유형 Enum (LLM 응답 제한)"""
-    WIRE_NECKING = "wire_necking"
-    BEAD_FORMATION = "bead_formation"
-    TRACKING = "tracking"
-    THERMAL_DAMAGE = "thermal_damage"
-    INSULATION_MELTING = "insulation_melting"
-    CONTACT_FAILURE = "contact_failure"
-    ARC_BURN = "arc_burn"
-    CARBONIZATION = "carbonization"
 
 
 class BoundingBox2D(BaseModel):
@@ -54,10 +41,6 @@ class Hotspot(BaseModel):
     """개별 Hotspot 정보"""
     id: int = Field(ge=1, description="Hotspot 고유 ID")
     
-    damage_type: DamageType = Field(
-        description="손상 유형 (Enum: wire_necking, bead_formation, tracking, thermal_damage, insulation_melting, contact_failure, arc_burn, carbonization)"
-    )
-    
     box_2d: BoundingBox2D = Field(
         description="2D Bounding Box (정규화 좌표 0-1000)"
     )
@@ -76,7 +59,7 @@ class Hotspot(BaseModel):
         description="시각적 증거 요약 (2-3문장)"
     )
     
-    # 선택적 필드 (프롬프트에서 요구하지만 필수는 아님)
+    # 선택적 필드
     reason_for_selection: Optional[str] = Field(
         default=None,
         description="선정 근거 (이미지 정확도 및 관찰된 사실 기반)"
@@ -100,11 +83,7 @@ class HotspotDetectionResult(BaseModel):
         description="탐지된 총 Hotspot 개수"
     )
     
-    analysis_summary: str = Field(
-        description="전체 분석 요약 (3-5문장)"
-    )
-    
-    # 선택적 필드 (프롬프트에서 요구하지만 필수는 아님)
+    # 선택적 필드
     scene_overview: Optional[str] = Field(
         default=None,
         description="현장 전체의 열적 변형 패턴 및 대상체에 대한 객관적 요약 (사실 중심)"

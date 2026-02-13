@@ -92,14 +92,13 @@ def hotspot_manager_node(state: AgingExpertState) -> Dict[str, Any]:
         current = queue[0]
         remaining = queue[1:]
         
-        logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+        logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')}")
         
         return {
             "hotspot_queue": remaining,
             "current_hotspot": current,
             "detector_result": {
                 "box_2d": current.get("box_2d"),
-                "feature_name": current.get("damage_type"),
                 "confidence": current.get("severity_score")
             },
             "analysis_results": []
@@ -113,14 +112,13 @@ def hotspot_manager_node(state: AgingExpertState) -> Dict[str, Any]:
     current = queue[0]
     remaining = queue[1:]
     
-    logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+    logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')}")
     
     return {
         "hotspot_queue": remaining,
         "current_hotspot": current,
         "detector_result": {
             "box_2d": current.get("box_2d"),
-            "feature_name": current.get("damage_type"),
             "confidence": current.get("severity_score")
         },
         "connection_type": None,
@@ -267,7 +265,7 @@ def format_report_summary(analysis_results: list) -> str:
         if not specialist:
             summary += f"""
 --- [Spot ID: {hotspot.get('id')}] ---
-1. 발견된 특징 (Node 0): {hotspot.get('damage_type', 'Unknown')}
+1. 발견된 특징 (Node 0): ID #{hotspot.get('id', 'Unknown')}
 2. 전문가 정밀 분석 (Node 2): 
    - 분석 불가 또는 특이사항 없음 ({conn_type})
 -----------------------------------
@@ -276,7 +274,7 @@ def format_report_summary(analysis_results: list) -> str:
         
         summary += f"""
 --- [Spot ID: {hotspot.get('id')}] ---
-1. 발견된 특징 (Node 0): {hotspot.get('damage_type', 'Unknown')}
+1. 발견된 특징 (Node 0): ID #{hotspot.get('id', 'Unknown')}
 2. 전문가 정밀 분석 (Node 2): ({conn_type})
    - 시각적 특징: {specialist.get('visual_observation', 'N/A')}
    - 전문가 판정: {specialist.get('verdict', 'N/A')}

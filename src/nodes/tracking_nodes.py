@@ -82,12 +82,11 @@ def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
         current = queue[0]
         remaining = queue[1:]
         
-        logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+        logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')}")
         
         # downstream 호환성을 위해 detector_result에 매핑
         detector_result_mapping = {
             "box_2d": current.get("box_2d"),
-            "feature_name": current.get("damage_type"),
             "confidence": current.get("severity_score")
         }
         
@@ -109,12 +108,11 @@ def hotspot_manager_node(state: TrackingExpertState) -> Dict[str, Any]:
     current = queue[0]
     remaining = queue[1:]
     
-    logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')} ({current.get('damage_type')})")
+    logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')}")
     
     # downstream 호환성을 위해 detector_result에 매핑
     detector_result_mapping = {
         "box_2d": current.get("box_2d"),
-        "feature_name": current.get("damage_type"),
         "confidence": current.get("severity_score")
     }
     

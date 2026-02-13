@@ -27,6 +27,56 @@ _ERROR_HANDLERS = {
 }
 
 
+# === Daily Retry Budget Guard ===
+import threading
+from datetime import datetime
+
+class RetryBudgetGuard:
+    """
+    일일 재시도 횟수 제한
+    
+    Preview 모델의 제한적인 RPD를 보호하기 위해
+    하루 최대 재시도 횟수를 추적하고 제한합니다.
+    """
+    def __init__(self):
+        self.daily_retries = 0
+        self.last_reset = datetime.now().date()
+        self._lock = threading.Lock()
+    
+    def check_and_increment(self) -> int:
+        """
+        Thread-safe budget check and increment
+        
+        Returns:
+            현재 재시도 카운트
+        
+        Raises:
+            Exception: Budget 소진 시
+        """
+        with self._lock:
+            today = datetime.now().date()
+            if today != self.last_reset:
+                self.daily_retries = 0
+                self.last_reset = today
+            
+            if self.daily_retries >= config.GEMINI_DAILY_RETRY_BUDGET:
+                raise Exception(
+                    f"⛔ Daily retry budget exhausted: {self.daily_retries}/{config.GEMINI_DAILY_RETRY_BUDGET}. "
+                    f"Try again tomorrow or increase GEMINI_DAILY_RETRY_BUDGET in config.py"
+                )
+            
+            self.daily_retries += 1
+            return self.daily_retries
+    
+    def get_remaining(self) -> int:
+        """남은 재시도 예산 조회"""
+        with self._lock:
+            return max(0, config.GEMINI_DAILY_RETRY_BUDGET - self.daily_retries)
+
+# Global singleton instance
+_retry_budget_guard = RetryBudgetGuard()
+
+
 def validate_state_keys(
     state: Dict[str, Any], 
     required_keys: List[str],
@@ -64,22 +114,25 @@ async def async_retry_with_backoff(
     **kwargs
 ) -> Any:
     """
-    Exponential Backoff with Jitter를 사용한 Async 재시도 로직
+    Exponential Backoff with Jitter + Smart Model Fallback
     
     재시도 가능한 오류 발생 시 지수 백오프 방식으로 재시도합니다.
-    오류 타입별로 추가 대기 시간을 설정할 수 있습니다.
+    
+    **New Features (v2.0):**
+    - Smart Fallback: 연속 503 에러 시 gemini-2.5-flash로 자동 전환
+    - Daily Budget Guard: 일일 재시도 횟수 제한
+    - Tier 1 Optimized: Preview 모델 특성 반영한 백오프 시간
     
     Args:
         func: 재시도할 async 함수
         *args: func에 전달할 위치 인자
-        max_retries: 최대 재시도 횟수 (기본값: 5)
+        max_retries: 최대 재시도 횟수 (기본값: 5, Preview는 3으로 자동 조정)
         retriable_errors: 재시도 가능한 오류 키워드 리스트
-                         None이면 기본 오류 목록 사용
         error_handlers: 오류 유형별 추가 대기 시간 매핑
-                       예: {"503": 5, "SSL": 8}
         semaphore: asyncio.Semaphore (동시성 제어용, 선택)
         context_name: 로깅용 컨텍스트 이름 (선택)
         **kwargs: func에 전달할 키워드 인자
+                 model_name: Fallback 대상 모델 (자동 전환됨)
     
     Returns:
         함수 실행 결과
@@ -88,14 +141,15 @@ async def async_retry_with_backoff(
         Exception: 모든 재시도 실패 시 마지막 예외 전파
     
     Example:
-        >>> async def api_call(data):
-        ...     return await some_api.call(data)
+        >>> async def api_call(data, model_name=None):
+        ...     return await some_api.call(data, model=model_name)
         >>> 
         >>> result = await async_retry_with_backoff(
         ...     api_call,
         ...     data="test",
         ...     max_retries=3,
-        ...     context_name="Worker #1"
+        ...     context_name="Worker #1",
+        ...     model_name="gemini-3-flash-preview"  # Auto fallback to 2.5-flash on 503
         ... )
     """
     if retriable_errors is None:
@@ -106,9 +160,30 @@ async def async_retry_with_backoff(
     last_exception = None
     func_name = context_name or (func.__name__ if hasattr(func, '__name__') else 'Unknown')
     
+    # === Smart Fallback Tracking ===
+    original_model = kwargs.get('model_name', config.GEMINI_MODEL_NAME)
+    current_model = original_model
+    consecutive_503 = 0
+    
+    # Tier 1 Preview 모델 최적화
+    is_preview_model = 'preview' in str(original_model).lower()
+    if is_preview_model and max_retries > 3:
+        max_retries = 3  # Preview는 3회로 제한 (RPD 절약)
+    
     for retry_attempt in range(max_retries):
         try:
-            # Semaphore 사용 여부에 따라 실행
+            # === Daily Budget Guard ===
+            if retry_attempt > 0 and config.GEMINI_ENABLE_BUDGET_GUARD:
+                current_count = _retry_budget_guard.check_and_increment()
+                remaining = _retry_budget_guard.get_remaining()
+                if remaining < 10:
+                    print(f"⚠️ [{func_name}] Retry budget warning: {remaining} retries remaining today")
+            
+            # === Update Model in kwargs ===
+            if 'model_name' in kwargs:
+                kwargs['model_name'] = current_model
+            
+            # === Execute with Semaphore ===
             if semaphore:
                 async with semaphore:
                     return await func(*args, **kwargs)
@@ -119,43 +194,65 @@ async def async_retry_with_backoff(
             last_exception = e
             error_msg = str(e)
             
-            # 재시도 가능 여부 판별
-            is_retriable = any(
-                code in error_msg 
-                for code in retriable_errors
-            )
+            # === 503 Tracking for Smart Fallback ===
+            if "503" in error_msg:
+                consecutive_503 += 1
+                
+                # Smart Fallback after threshold
+                if (consecutive_503 >= config.GEMINI_FALLBACK_THRESHOLD 
+                    and config.GEMINI_ENABLE_FALLBACK
+                    and current_model == original_model):
+                    current_model = config.GEMINI_FALLBACK_MODEL
+                    consecutive_503 = 0  # Reset counter
+                    print(
+                        f"🔄 [{func_name}] Switching to fallback model: {current_model} "
+                        f"(after {config.GEMINI_FALLBACK_THRESHOLD} consecutive 503s)"
+                    )
+            else:
+                consecutive_503 = 0  # Reset on non-503 errors
+            
+            # === Check if Retriable ===
+            is_retriable = any(code in error_msg for code in retriable_errors)
             
             if is_retriable and retry_attempt < max_retries - 1:
-                # Exponential Backoff 계산 (2^n)
-                wait_time = 2 ** retry_attempt
+                # === Tier 1 Optimized Backoff ===
+                if "503" in error_msg:
+                    if is_preview_model:
+                        wait_time = 40 * (2 ** retry_attempt)  # 40s, 80s, 160s (Preview 최적화 - 503 에러 완화)
+                    else:
+                        wait_time = 10 * (2 ** retry_attempt)  # 10s, 20s, 40s
+                elif "429" in error_msg:
+                    wait_time = 10 * (2 ** retry_attempt)  # RPM/RPD 초과
+                else:
+                    wait_time = 2 ** retry_attempt  # 기타 오류
                 
-                # 오류 유형별 추가 대기 시간 적용
+                # Apply error-specific delays
                 for error_key, extra_wait in error_handlers.items():
                     if error_key in error_msg or error_key.lower() in error_msg.lower():
                         wait_time += extra_wait
                         break
                 
-                # Jitter 추가 (0~10% 랜덤)
-                jitter = random.uniform(0, wait_time * 0.1)
+                # Jitter: 0~50% (increased from 10% for better distribution)
+                jitter = random.uniform(0, wait_time * 0.5)
                 total_wait = wait_time + jitter
                 
-                # 재시도 로그 출력
+                # === Enhanced Logging ===
+                model_info = f" [using {current_model}]" if current_model != original_model else ""
                 print(
-                    f"⚠️ [{func_name}] Retry {retry_attempt + 1}/{max_retries}: "
-                    f"{error_msg[:100]}... ({total_wait:.2f}s 대기)"
+                    f"⚠️ [{func_name}] Retry {retry_attempt + 1}/{max_retries}{model_info}: "
+                    f"{error_msg[:100]}... (waiting {total_wait:.2f}s)"
                 )
                 
-                # 대기
                 await asyncio.sleep(total_wait)
             else:
-                # 재시도 불가능하거나 최대 재시도 도달
+                # Non-retriable or max retries reached
                 if not is_retriable:
                     print(f"❌ [{func_name}] Non-retriable error: {error_msg[:150]}")
                 else:
                     print(f"❌ [{func_name}] Max retries ({max_retries}) exhausted: {error_msg[:150]}")
                 raise e
     
-    # 모든 재시도 실패 (이론적으로 도달 불가, 안전장치)
+    # Safety net (should not reach here)
     if last_exception:
         raise last_exception
 

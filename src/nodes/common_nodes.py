@@ -1,30 +1,45 @@
 """
 공통 노드 정의
 모든 전문가가 공통으로 사용하는 노드들
-"""
-from typing import Dict, Any
-import json
-import tempfile
-import os
-from pathlib import Path
-from src.state import InvestigationState
-from src.utils import retry_with_backoff
-from src.tools.experts.expert_utils import (
-    extract_image_from_payload,
-    save_bytes_to_temp_file,
-    _load_image_data
-)
-from src.utils.logging_config import setup_logger
-from src.prompts.common_prompts import get_multi_hotspot_prompt
 
+- hotspot_detector_node: [Overlap Grid] 이미지 패치 분할 → Gemini 병렬 분석 → NMS 중복 제거
+- _update_image_path_in_result: 결과에 image_path 업데이트 헬퍼
+"""
+import asyncio
+import os
+import threading
+from pathlib import Path
+from typing import Any, Dict
+
+from google import genai
+from google.genai import types
+
+from src.models.hotspot_models import HotspotDetectionResult
+from src.prompts.common_prompts import get_micro_evidence_prompt
+from src.state import InvestigationState
+from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
+from src.utils import async_retry_with_backoff
+from src.utils.image_processing import get_image_size, map_box_to_global, slice_image
+from src.utils.logging_config import setup_logger
+from src.utils.nms import non_max_suppression
 
 logger = setup_logger("common_nodes")
+
+# === Global Rate Limiter for Hotspot Detector ===
+from aiolimiter import AsyncLimiter
+import config
+
+_hotspot_rate_limiter = AsyncLimiter(
+    max_rate=config.GEMINI_TIER1_RPM,
+    time_period=60
+)
+_hotspot_semaphore = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
 
 
 def _update_image_path_in_result(
     result: Dict[str, Any],
     temp_image_path: str,
-    existing_image_path: str = None
+    existing_image_path: str | None = None,
 ) -> None:
     """
     결과 딕셔너리에 image_path를 업데이트하는 헬퍼 함수
@@ -50,282 +65,273 @@ def _update_image_path_in_result(
             logger.debug(f"Hotspot Detector: Updated image_path in State: {temp_image_path}")
 
 
-def _detect_mime_type(image_path: str) -> str:
-    """
-    이미지 파일의 MIME 타입을 동적으로 감지
-    파일 시그니처(매직 넘버) 우선, 확장자는 보조 수단
-    
-    Args:
-        image_path: 이미지 파일 경로
-    
-    Returns:
-        MIME 타입 문자열 (예: "image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/bmp")
-    """
-    # 파일 시그니처 기반 감지 (매직 넘버)
-    try:
-        with open(image_path, 'rb') as f:
-            header = f.read(12)
-        
-        # JPEG: FF D8 (JPEG 파일 시그니처 - 2바이트)
-        if header[:2] == b'\xff\xd8':
-            return "image/jpeg"
-        # PNG: 89 50 4E 47 0D 0A 1A 0A (PNG 파일 시그니처)
-        elif header[:8] == b'\x89PNG\r\n\x1a\n':
-            return "image/png"
-        # WebP: RIFF ... WEBP (WebP 파일 시그니처)
-        elif header[:4] == b'RIFF' and len(header) >= 12 and header[8:12] == b'WEBP':
-            return "image/webp"
-        # GIF: 47 49 46 38 (GIF 파일 시그니처 - "GIF8")
-        elif header[:4] in (b'GIF87a', b'GIF89a'):
-            return "image/gif"
-        # HEIC/HEIF: ftyp 박스 확인 (offset 4~8)
-        elif len(header) >= 12 and header[4:8] == b'ftyp':
-            # HEIC: ftyp 뒤에 heic, heix, hevc, hevx 등
-            if header[8:12] in (b'heic', b'heix', b'hevc', b'hevx', b'mif1'):
-                return "image/heic"
-            # AVIF: ftyp 뒤에 avif
-            elif header[8:12] == b'avif':
-                return "image/avif"
-            # else: ftyp이지만 이미지가 아닌 형식 (MP4 등) - fallthrough
-        # BMP: 42 4D (BMP 파일 시그니처 - "BM")
-        elif header[:2] == b'BM':
-            return "image/bmp"
-    except Exception as e:
-        logger.warning(f"MIME 타입 시그니처 감지 실패: {e}, 확장자 기반으로 폴백")
-    
-    # 확장자 기반 폴백
-    ext = Path(image_path).suffix.lower()
-    if ext in ['.png']:
-        detected_type = "image/png"
-    elif ext in ['.jpg', '.jpeg']:
-        detected_type = "image/jpeg"
-    elif ext == '.webp':
-        detected_type = "image/webp"
-        logger.info("WebP 형식 감지: Gemini API 지원 여부 확인 필요")
-    elif ext == '.gif':
-        detected_type = "image/gif"
-    elif ext in ['.heic', '.heif']:
-        detected_type = "image/heic"
-        logger.warning("HEIC/HEIF 형식 감지: Gemini API 지원 여부에 따라 오류 발생 가능")
-    elif ext == '.bmp':
-        detected_type = "image/bmp"
-    elif ext == '.avif':
-        detected_type = "image/avif"
-        logger.info("AVIF 형식 감지: Gemini API 지원 여부 확인 필요")
-    else:
-        detected_type = "image/jpeg"
-        logger.warning(f"알 수 없는 이미지 형식: {ext}, 기본값 image/jpeg 사용")
-    
-    # 시그니처 감지 실패 시 확장자 기반 결과 반환
-    logger.debug(f"MIME 타입 감지 (확장자 기반): {detected_type}")
-    return detected_type
-
 def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
     """
-    공통 Hotspot Detector 노드
-    InvestigationState를 사용하여 전체 이미지에서 다중 발화 지점(Hotspots) 탐색
+    [Overlap Grid Strategy] Hotspot Detector Node
     
-    Args:
-        state: InvestigationState (payload 포함)
-        
-    Returns:
-        {"hotspots": List[Dict]} - 탐지된 Hotspot 리스트
+    1. 슬라이싱: 이미지를 고해상도 패치로 분할 (Overlap 적용)
+    2. 병렬 처리: 각 패치를 독립적으로 Gemini API에 전송 (Async)
+    3. 종합: 결과를 수집하고 좌표를 전역 공간으로 매핑
+    4. 중복 제거: NMS 알고리즘으로 겹치는 Hotspot 병합
+    
+    Note: LangGraph compatibility - sync wrapper with async internal logic
     """
-    # [환경 변수 검증] API Key 존재 여부 확인
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        error_msg = "Hotspot Detector: 환경 변수 GEMINI_API_KEY가 설정되지 않았습니다."
-        logger.error(error_msg)
-        return {"hotspots": [], "errors": [error_msg]}
-    
-    # [Memory Optimization] image_path 우선 사용
-    image_path = state.get("image_path")
-    temp_image_path = None
-    
-    if image_path and os.path.exists(image_path):
-        logger.info(f"Hotspot Detector: Using existing image path: {image_path}")
-        temp_image_path = image_path
-    else:
-        # Fallback: payload 사용 (기존 로직)
-        payload = state.get("payload", [])
-        if not payload:
-            error_msg = "Hotspot Detector: No payload and no image path available."
-            logger.warning(error_msg)
+    async def _async_detector_logic():
+        """Async implementation of hotspot detection with Overlap Grid"""
+        # [환경 변수 검증] API Key 존재 여부 확인
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            error_msg = "Hotspot Detector: 환경 변수 GEMINI_API_KEY가 설정되지 않았습니다."
+            logger.error(error_msg)
             return {"hotspots": [], "errors": [error_msg]}
         
-        image_data = extract_image_from_payload(payload)
-        if image_data is None:
-            error_msg = "Hotspot Detector: Failed to extract image from payload."
-            logger.warning(error_msg)
-            return {"hotspots": [], "errors": [error_msg]}
+        # [Memory Optimization] image_path 우선 사용
+        image_path = state.get("image_path")
+        temp_image_path = None
+        
+        if image_path and os.path.exists(image_path):
+            logger.info(f"Hotspot Detector: Using existing image path: {image_path}")
+            temp_image_path = image_path
+        else:
+            # Fallback: payload 사용 (기존 로직)
+            payload = state.get("payload", [])
+            if not payload:
+                error_msg = "Hotspot Detector: No payload and no image path available."
+                logger.warning(error_msg)
+                return {"hotspots": [], "errors": [error_msg]}
             
-        temp_image_path = save_bytes_to_temp_file(image_data)
-        # Note: 임시 파일은 후속 노드에서 사용되므로 여기서 삭제하지 않음
-    
-    try:
-        logger.info(f"Hotspot Detector: Starting analysis (Image: {temp_image_path})")
+            image_data = extract_image_from_payload(payload)
+            if image_data is None:
+                error_msg = "Hotspot Detector: Failed to extract image from payload."
+                logger.warning(error_msg)
+                return {"hotspots": [], "errors": [error_msg]}
+                
+            temp_image_path = save_bytes_to_temp_file(image_data)
+            # Note: 임시 파일은 후속 노드에서 사용되므로 여기서 삭제하지 않음
         
-        # 이미지 데이터 로드
-        image_data_bytes = _load_image_data(temp_image_path)
-        
-        # 프롬프트 생성
-        prompt = get_multi_hotspot_prompt()
-        
-        # 🔥 Pydantic Structured Output (Gemini Official Best Practice)
-        from src.models.hotspot_models import HotspotDetectionResult
-        from google import genai
-        from google.genai import types
-        
-        client = genai.Client(api_key=api_key)
-        
-        # 이미지 MIME 타입 동적 감지
-        mime_type = _detect_mime_type(temp_image_path)
-        logger.debug(f"Hotspot Detector: Detected MIME type: {mime_type}")
-        
-        # 이미지 파트 구성 (고해상도 설정)
-        image_part = types.Part.from_bytes(
-            data=image_data_bytes,
-            mime_type=mime_type
-        )
-        
-        # Safety settings: 모든 카테고리를 BLOCK_NONE으로 설정
-        # Note: Gemini API는 일부 카테고리(특히 HARM_CATEGORY_DANGEROUS_CONTENT)에서
-        # BLOCK_NONE 설정을 무시하고 여전히 block할 수 있음 (API 정책 제한)
-        safety_settings_block_none = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
-        
-        # 공통 재시도 로직 (src.utils.retry_with_backoff): 빈 응답, EOF/json_invalid(잘림) 재시도
-        model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
-        json_schema = HotspotDetectionResult.model_json_schema()
-        # hotspots가 optional이면 Gemini가 생략할 수 있음 -> required로 명시
-        req = json_schema.setdefault("required", [])
-        if "hotspots" not in req:
-            req.append("hotspots")
-        api_config = {
-            "response_mime_type": "application/json",
-            "response_json_schema": json_schema,
-            "max_output_tokens": 16384,
-            "media_resolution": "MEDIA_RESOLUTION_HIGH",
-            "safety_settings": safety_settings_block_none,
-            "thinking_config": {"include_thoughts": True, "thinking_level": "HIGH"},
-        }
-
-        def _call_hotspot_api():
-            response = client.models.generate_content(
-                model=model_name, contents=[prompt, image_part], config=api_config
-            )
-            
-            # API 응답 검증 강화
-            if not hasattr(response, "candidates") or not response.candidates:
-                raise ValueError("Gemini API 응답에 candidates가 없습니다.")
-            
-            candidate = response.candidates[0]
-            finish_reason = getattr(candidate, "finish_reason", "Unknown")
-            # Safety block 체크 (safety_ratings가 None일 수 있음 - Gemini API 응답 차이)
-            if hasattr(candidate, "safety_ratings") and candidate.safety_ratings is not None:
-                blocked = any(
-                    rating.probability in ["HIGH", "MEDIUM"] 
-                    for rating in candidate.safety_ratings
-                )
-                if blocked:
-                    # [Design Decision] Safety block은 재시도해도 동일한 결과이므로
-                    # ValueError를 발생시켜 retry_with_backoff가 재시도하지 않도록 함
-                    logger.error(f"Hotspot Detector: Safety block detected. Finish reason: {finish_reason}")
-                    raise ValueError(
-                        f"Gemini API safety block detected. Content may violate safety policies. "
-                        f"Finish Reason: {finish_reason}"
-                    )
-            
-            response_text = getattr(response, "text", None)
-            if not response_text:
-                raise ValueError(
-                    f"Gemini API 응답이 비어있습니다. "
-                    f"(Finish Reason: {finish_reason}, "
-                    f"Safety Block: {hasattr(candidate, 'safety_ratings') and candidate.safety_ratings is not None and any(r.probability in ['HIGH', 'MEDIUM'] for r in candidate.safety_ratings)}"
-                )
-            # [DEBUG] raw 응답 구조 로깅: total_count vs hotspots 실제 개수
-            try:
-                raw_data = json.loads(response_text)
-                raw_total = raw_data.get("total_count")
-                raw_hotspots = raw_data.get("hotspots")
-                raw_len = len(raw_hotspots) if isinstance(raw_hotspots, list) else "N/A"
-                raw_type = type(raw_hotspots).__name__ if raw_hotspots is not None else "None"
-                raw_keys = list(raw_data.keys()) if isinstance(raw_data, dict) else "N/A"
-                logger.info(
-                    f"Hotspot raw response: total_count={raw_total}, "
-                    f"len(hotspots)={raw_len}, hotspots_type={raw_type}, raw_keys={raw_keys}"
-                )
-                if not isinstance(raw_hotspots, list):
-                    logger.warning(
-                        f"Hotspot raw: hotspots가 리스트가 아님 (type={raw_type}). "
-                        f"Pydantic이 default_factory=list로 빈 리스트로 대체함."
-                    )
-                elif raw_len == 0 and (raw_total or 0) > 0:
-                    logger.warning("Hotspot raw: LLM이 total_count>0이지만 hotspots=[]로 반환함 (불일치)")
-                elif raw_len > 0:
-                    h0 = raw_hotspots[0]
-                    logger.debug(f"Hotspot raw first item keys: {list(h0.keys()) if isinstance(h0, dict) else type(h0)}")
-            except json.JSONDecodeError as je:
-                logger.warning(f"Hotspot raw response: JSON 파싱 실패 - {je}")
-            return HotspotDetectionResult.model_validate_json(response_text)
-
         try:
-            detection_result = retry_with_backoff(
-                _call_hotspot_api, max_retries=5, context_name="Hotspot Detector"
-            )
-        except Exception as e:
-            logger.error(f"Hotspot Detector: {e}")
-            return {"hotspots": [], "errors": [f"Hotspot Detector: 데이터 파싱 오류: {str(e)}"]}
+            # 1. Image Slicing
+            # [Config] Patch Size: 1024, Overlap: 200 (검토된 최적값)
+            logger.info(f"Hotspot Detector: Slicing image {temp_image_path}...")
+            patches = await asyncio.to_thread(slice_image, temp_image_path, patch_size=1024, overlap=200)
+            
+            if not patches:
+                raise ValueError("Image slicing failed (no patches generated).")
+                
+            logger.info(f"Hotspot Detector: Generated {len(patches)} patches. Starting parallel analysis...")
 
-        hotspots = [h.model_dump(mode='json') for h in detection_result.hotspots]
-        
-        # total_count 검증 및 자동 보정
-        actual_count = len(hotspots)
-        reported_count = detection_result.total_count
-        if actual_count != reported_count:
-            logger.warning(
-                f"Hotspot Detector: total_count 불일치 감지. "
-                f"보고된 개수: {reported_count}, 실제 개수: {actual_count}. "
-                f"실제 개수({actual_count})로 자동 보정합니다."
-            )
-        
-        # Note: hotspots는 리스트 컴프리헨션 결과이므로 항상 리스트입니다 (None이 될 수 없음)
-        if actual_count == 0:
-            logger.warning("Hotspot Detector: No hotspots detected (빈 리스트). 이미지에 분석 가능한 이상 징후가 없거나, 이미지 품질이 낮을 수 있습니다.")
-            # 빈 hotspots의 경우 명시적 상태 반환
+            # 2. Parallel API Execution
+            client = genai.Client(api_key=api_key)
+            model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview") # Flash 권장
+            prompt = get_micro_evidence_prompt()
+            
+            # Safety settings: BLOCK_NONE
+            safety_settings_block_none = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
+            # Schema setup
+            json_schema = HotspotDetectionResult.model_json_schema()
+            req = json_schema.setdefault("required", [])
+            if "hotspots" not in req:
+                req.append("hotspots")
+            
+            api_config = {
+                "response_mime_type": "application/json",
+                "response_json_schema": json_schema,
+                "safety_settings": safety_settings_block_none,
+                # Flash 모델은 thinking_config 지원 여부를 확인해야 함. 일단 제외.
+            }
+
+            async def _process_patch(patch_data):
+                """Process a single patch with rate limiting"""
+                patch_idx = patch_data['index']
+                
+                # === Apply Rate Limiting ===
+                async with _hotspot_rate_limiter:  # RPM control (20/min)
+                    async with _hotspot_semaphore:  # Concurrent control (5)
+                        try:
+                            # Part 생성 시 mime_type="image/jpeg"로 고정 (slice_image가 JPEG bytes 반환)
+                            image_part = types.Part.from_bytes(
+                                data=patch_data['image_bytes'],
+                                mime_type="image/jpeg"
+                            )
+                            
+                            # Retry logic for individual patch
+                            async def _call_api(**kwargs):
+                                # model_name in kwargs: Smart Fallback 지원 (503 시 async_retry_with_backoff가 전환)
+                                used_model = kwargs.get("model_name", model_name)
+                                # Note: Using async generate_content if available, otherwise wrap synchronous
+                                # genai.Client usually synchronous unless async_client used.
+                                # Here we wrap synchronous call in thread for true parallelism
+                                resp = await asyncio.to_thread(
+                                    client.models.generate_content,
+                                    model=used_model,
+                                    contents=[prompt, image_part],
+                                    config=api_config
+                                )
+                                return resp
+
+                            response = await async_retry_with_backoff(
+                                _call_api, 
+                                max_retries=3,  # 패치 단위는 재시도 횟수 줄임
+                                context_name=f"Patch {patch_idx}",
+                                model_name=model_name  # Smart Fallback 지원
+                            )
+                            
+                            # Validation & Parsing
+                            if not hasattr(response, "candidates") or not response.candidates:
+                                return []
+                            
+                            # Safety Block Check (skip if blocked)
+                            candidate = response.candidates[0]
+                            # Safety ratings check
+                            if hasattr(candidate, "safety_ratings") and candidate.safety_ratings:
+                                if any(r.probability in ["HIGH", "MEDIUM"] for r in candidate.safety_ratings):
+                                    logger.warning(f"Patch {patch_idx}: Safety block detected. Skipping.")
+                                    return []
+
+                            response_text = getattr(response, "text", None)
+                            if not response_text:
+                                return []
+                            
+                            result = HotspotDetectionResult.model_validate_json(response_text)
+                            return result.hotspots
+                            
+                        except Exception as e:
+                            logger.warning(f"Patch {patch_idx}: Analysis failed: {e}")
+                            return []
+
+            # Run all patches in parallel
+            tasks = [_process_patch(p) for p in patches]
+            patch_results_list = await asyncio.gather(*tasks)
+            
+            # 3. Aggregation & Coordinate Mapping
+            raw_hotspots = []
+            original_size = get_image_size(temp_image_path)
+            
+            global_hotspot_id = 1
+            
+            for i, patch_hotspots in enumerate(patch_results_list):
+                patch_info = patches[i]
+                offset = patch_info['offset']
+                p_size = patch_info['size']
+                
+                if not patch_hotspots:
+                    continue
+                    
+                for h in patch_hotspots:
+                    # Convert Pydantic to Dict
+                    h_dict = h.model_dump(mode='json')
+                    
+                    # Map Coordinates Local -> Global
+                    global_box = map_box_to_global(
+                        h_dict['box_2d'], 
+                        offset, 
+                        p_size, 
+                        original_size
+                    )
+                    
+                    # Update Info
+                    h_dict['box_2d'] = global_box
+                    h_dict['id'] = global_hotspot_id # 임시 ID (나중에 재정렬)
+                    h_dict['_origin_patch'] = patch_info['index'] # 디버깅용
+                    
+                    raw_hotspots.append(h_dict)
+                    global_hotspot_id += 1
+                    
+            logger.info(f"Hotspot Detector: {len(raw_hotspots)} raw hotspots detected across all patches.")
+            
+            # 4. Deduplication (NMS)
+            # [Config] IoU Threshold: 0.3 (겹치는 영역이 30% 이상이면 중복으로 간주하고 높은 점수 유지)
+            final_hotspots = non_max_suppression(raw_hotspots, iou_threshold=0.3)
+            
+            # ID Renumbering
+            for idx, h in enumerate(final_hotspots, 1):
+                h['id'] = idx
+                
+            final_count = len(final_hotspots)
+            logger.info(f"Hotspot Detector: {final_count} unique hotspots remaining after NMS.")
+            
+            # 5. Result Construction
+            if final_count == 0:
+                logger.warning("Hotspot Detector: No hotspots detected (NMS 후).")
+                result = {
+                    "hotspots": [],
+                    "corrected_total_count": 0,
+                    "analysis_status": "NO_HOTSPOTS_DETECTED"
+                }
+                _update_image_path_in_result(result, temp_image_path, image_path)
+                return result
+                
+            else:
+                # Log final results
+                for h in final_hotspots:
+                    logger.info(f"   - ID {h.get('id')}: Score {h.get('severity_score')}")
+            
+            # State Update
             result = {
-                "hotspots": [],
-                "corrected_total_count": 0,
-                "analysis_status": "NO_HOTSPOTS_DETECTED"
+                "hotspots": final_hotspots,
+                "corrected_total_count": final_count,
+                "analysis_status": "DETECTED"
             }
             _update_image_path_in_result(result, temp_image_path, image_path)
+            
             return result
+
+        except Exception as e:
+            error_msg = f"Hotspot Detector: Global Error: {e}"
+            logger.error(error_msg, exc_info=True)
+            # 에러 발생 시에도 임시 파일을 생성한 경우 image_path 업데이트
+            result = {"hotspots": [], "errors": [error_msg]}
+            _update_image_path_in_result(result, temp_image_path, image_path)
+            return result
+        # Note: 임시 파일 정리는 하지 않음. image_path가 State에 저장되어 후속 노드에서 사용됨.
+        # 파일 정리는 전체 파이프라인 완료 후 main.py나 호출 측에서 처리해야 함.
+    
+    # Execute async logic with proper event loop handling
+    # This prevents "RuntimeError: This event loop is already running" in nested async contexts
+    try:
+        # Try to get the current event loop
+        loop = asyncio.get_event_loop()
+        
+        # Check if we're already in a running event loop
+        if loop.is_running():
+            # We're inside an async context (e.g., LangGraph's astream)
+            # Use asyncio.ensure_future and wait for completion synchronously
+            # Note: This is a workaround for sync-in-async compatibility
+            result_container = {}
+            exception_container = {}
+            
+            def run_in_new_loop():
+                """Run the async function in a new event loop in a separate thread"""
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    result = new_loop.run_until_complete(_async_detector_logic())
+                    result_container['value'] = result
+                except Exception as e:
+                    exception_container['error'] = e
+                finally:
+                    new_loop.close()
+            
+            # Run in a separate thread to avoid event loop conflicts
+            thread = threading.Thread(target=run_in_new_loop)
+            thread.start()
+            thread.join()
+            
+            if 'error' in exception_container:
+                raise exception_container['error']
+            return result_container.get('value', {"hotspots": [], "errors": ["Unknown execution error"]})
         else:
-            logger.info(f"Hotspot Detector: Found {actual_count} hotspots")
-            for h in hotspots:
-                logger.info(f"   - ID {h.get('id')}: {h.get('damage_type')} (Score: {h.get('severity_score')})")
-        
-        # State 업데이트: 임시 파일을 생성한 경우 image_path 추가
-        result = {
-            "hotspots": hotspots,
-            "corrected_total_count": actual_count  # 보정된 total_count
-        }
-        _update_image_path_in_result(result, temp_image_path, image_path)
-        
-        return result
-        
-    except Exception as e:
-        error_msg = f"Hotspot Detector: Unexpected Error: {e}"
-        logger.error(error_msg, exc_info=True)
-        # 에러 발생 시에도 임시 파일을 생성한 경우 image_path 업데이트
-        result = {"hotspots": [], "errors": [error_msg]}
-        _update_image_path_in_result(result, temp_image_path, image_path)
-        return result
-    # Note: 임시 파일 정리는 하지 않음. image_path가 State에 저장되어 후속 노드에서 사용됨.
-    # 파일 정리는 전체 파이프라인 완료 후 main.py나 호출 측에서 처리해야 함.
+            # No running loop - safe to use asyncio.run()
+            return asyncio.run(_async_detector_logic())
+            
+    except RuntimeError:
+        # No event loop exists - create one with asyncio.run()
+        return asyncio.run(_async_detector_logic())
 
 

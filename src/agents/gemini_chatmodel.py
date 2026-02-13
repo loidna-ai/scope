@@ -114,19 +114,22 @@ class GeminiChatModel(BaseChatModel):
         # user_config는 src.tools.experts.expert_utils.generation_config에서 가져온 값
         user_config = self.config
         
-        config = types.GenerateContentConfig(
-            temperature=user_config.temperature if user_config else 0.0,  # 결정적 응답을 위해 0으로 설정
-            top_p=0.9,      # 결정론적이고 집중된 결과를 위해 약간 낮춤
-            top_k=40,       # 일반적인 기본값
-            max_output_tokens=2048, # 충분한 길이 확보
-            response_mime_type=user_config.response_mime_type if user_config and hasattr(user_config, "response_mime_type") else "text/plain",
-            thinking_config=types.ThinkingConfig(
-                thinking_level="medium"
-            ),
-            system_instruction=react_system_instruction,
+        # thinking level 지원 모델에만 추가
+        thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+        config_dict = {
+            "temperature": user_config.temperature if user_config else 0.0,  # 결정적 응답을 위해 0으로 설정
+            "top_p": 0.9,      # 결정론적이고 집중된 결과를 위해 약간 낮춤
+            "top_k": 40,       # 일반적인 기본값
+            "max_output_tokens": 2048, # 충분한 길이 확보
+            "response_mime_type": user_config.response_mime_type if user_config and hasattr(user_config, "response_mime_type") else "text/plain",
+            "system_instruction": react_system_instruction,
             # SDK 버전에 따라 config 내부에 safety_settings가 있을 수 있음
-            safety_settings=DEFAULT_SAFETY_SETTINGS
-        )
+            "safety_settings": DEFAULT_SAFETY_SETTINGS
+        }
+        if any(m in self.model_name for m in thinking_supported_models):
+            config_dict["thinking_config"] = types.ThinkingConfig(thinking_level="medium")
+        
+        config = types.GenerateContentConfig(**config_dict)
         
         # 도구가 있으면 추가 (kwargs의 tools 우선, 없으면 bound_tools 사용)
         tools = kwargs.get("tools", []) or getattr(self, "bound_tools", [])

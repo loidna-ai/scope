@@ -217,12 +217,16 @@ def call_gemini_vision(
             
             # 최신 SDK 방식: Client를 사용하여 콘텐츠 생성
             # Config 구성
+            actual_model_name = model_name if model_name else MODEL_NAME
+            thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+            
             config_params = {
-                "temperature": temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7),
-                "thinking_config": types.ThinkingConfig(
-                    thinking_level=thinking_level
-                )
+                "temperature": temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7)
             }
+            
+            # thinking level 지원 모델에만 추가
+            if any(m in actual_model_name for m in thinking_supported_models):
+                config_params["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
             
             # top_p가 지정된 경우 추가
             if top_p is not None:
@@ -520,13 +524,17 @@ def call_gemini_text(
     for retry_attempt in range(MAX_RETRIES):
         try:
             # 시스템 인스트럭션을 config에 포함
-            config_with_system = types.GenerateContentConfig(
-                temperature=temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7),
-                # system_instruction=SYSTEM_INSTRUCTION, # Removed per user request
-                thinking_config=types.ThinkingConfig(
-                    thinking_level=thinking_level
-                )
-            )
+            # system_instruction=SYSTEM_INSTRUCTION, # Removed per user request
+            thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+            config_dict = {
+                "temperature": temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7)
+            }
+            
+            # thinking level 지원 모델에만 추가
+            if any(m in MODEL_NAME for m in thinking_supported_models):
+                config_dict["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+            
+            config_with_system = types.GenerateContentConfig(**config_dict)
             
             call_start_time = time.time()
             response = client.models.generate_content(

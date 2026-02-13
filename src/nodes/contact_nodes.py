@@ -100,7 +100,6 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
     # ===== Step 1: ROI Crop + Enhancement =====
     detector_result = {
         "box_2d": hotspot.get("box_2d"),
-        "feature_name": hotspot.get("damage_type"),
         "confidence": hotspot.get("severity_score")
     }
     
@@ -417,8 +416,7 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             "visual_description": observations, # 시각적 특징
             "reasoning": reasoning_text       # 논리적 근거 (Arbiter Fact Check용)
         },
-        "connection_type": connection_type,
-        "damage_type": hotspot.get("damage_type", "Unknown")
+        "connection_type": connection_type
     }
 
     logger.info(f"Worker {hotspot_id}: Evidence collection completed")
@@ -494,6 +492,12 @@ async def _analyze_specialist(
         client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
         model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
         
+        # #region agent log
+        import json
+        with open(r"c:\Users\loidn\Documents\Projects\P_04_Scope\.cursor\debug.log", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id":"log_thinking_check","timestamp":int(__import__("time").time()*1000),"location":"contact_nodes.py:493","message":"Model name check","data":{"model_name":model_name,"component_type":component_type},"runId":"run1","hypothesisId":"A"})+"\n")
+        # #endregion
+        
         # 이미지 파트 구성
         parts = [prompt]
         for img_data in [original_data, roi_data]:
@@ -502,16 +506,25 @@ async def _analyze_specialist(
                 mime_type="image/jpeg"
             ))
         
-        # API 설정
+        # API 설정 - thinking_config는 일부 모델에서 지원하지 않으므로 조건부 추가
+        # gemini-3-flash-preview는 thinking level 미지원
         api_config = {
             "temperature": 1.0,
             "response_mime_type": "application/json",
             "response_json_schema": evidence_model.model_json_schema(),
-            "safety_settings": safety_settings_block_none,
-            "thinking_config": types.ThinkingConfig(
-                thinking_level="high"
-            )
+            "safety_settings": safety_settings_block_none
         }
+        
+        # #region agent log
+        thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+        use_thinking = any(m in model_name for m in thinking_supported_models)
+        with open(r"c:\Users\loidn\Documents\Projects\P_04_Scope\.cursor\debug.log", "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id":"log_thinking_decision","timestamp":int(__import__("time").time()*1000),"location":"contact_nodes.py:512","message":"Thinking config decision","data":{"model_name":model_name,"use_thinking":use_thinking},"runId":"run1","hypothesisId":"A"})+"\n")
+        # #endregion
+        
+        # thinking level 지원 모델에만 추가
+        if use_thinking:
+            api_config["thinking_config"] = types.ThinkingConfig(thinking_level="high")
         
         # 🔥 Centralized Retry Logic (기본 retriable_errors 사용)
         response = await async_retry_with_backoff(
@@ -827,19 +840,22 @@ async def verdict_analyst_node(state: ContactExpertState) -> Dict[str, Any]:
     # 🔥 API 호출 함수 분리
     async def _call_analyst_api(client, model_name, system_prompt, safety_settings):
         """Analyst API 호출"""
+        # thinking level 지원 모델에만 추가
+        thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+        config_dict = {
+            "temperature": 1.0,
+            "response_mime_type": "application/json",
+            "response_json_schema": AnalystHypothesis.model_json_schema(),
+            "safety_settings": safety_settings
+        }
+        if any(m in model_name for m in thinking_supported_models):
+            config_dict["thinking_config"] = types.ThinkingConfig(thinking_level="high")
+        
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=model_name,
             contents=system_prompt,
-            config=types.GenerateContentConfig(
-                temperature=1.0,
-                response_mime_type="application/json",
-                response_json_schema=AnalystHypothesis.model_json_schema(),
-                safety_settings=safety_settings,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level="high"
-                )
-            )
+            config=types.GenerateContentConfig(**config_dict)
         )
         return response
     

@@ -50,3 +50,22 @@ MEDIA_RESOLUTION_DEFAULT = "MEDIA_RESOLUTION_HIGH"  # 기본값: HIGH 해상도
 MEDIA_RESOLUTION_ULTRA_HIGH_ENABLED = False  # ULTRA_HIGH 사용 여부 (향후 구현)
                                               # True로 설정 시 특정 중요 Hotspot에만 ULTRA_HIGH 적용 가능
                                               # 참고: ULTRA_HIGH는 비용이 2배 증가 (1120 → 2240 tokens/이미지)
+
+# === Gemini API Rate Limiting (Tier 1 Paid) ===
+GEMINI_TIER = 1
+GEMINI_MODEL_NAME = "gemini-3-flash-preview"
+GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+
+# Tier 1 Preview Model Limits
+# Preview 모델은 일반 Tier 1보다 제한적 (RPM: 20-25, RPD: 250)
+GEMINI_TIER1_RPM = 20  # 분당 요청 제한 (보수적으로 20 설정)
+GEMINI_TIER1_RPD = 250  # 일일 요청 제한
+GEMINI_TIER1_CONCURRENT = 3  # 동시 실행 제한 (503 에러 완화를 위해 5→3으로 감소)
+
+# Model Fallback 전략
+GEMINI_ENABLE_FALLBACK = True  # 자동 Fallback 활성화
+GEMINI_FALLBACK_THRESHOLD = 2  # 연속 503 에러 2회 시 Fallback
+
+# Daily Budget 관리
+GEMINI_ENABLE_BUDGET_GUARD = True  # Retry Budget 보호 활성화
+GEMINI_DAILY_RETRY_BUDGET = 100  # 하루 최대 재시도 횟수 제한

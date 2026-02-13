@@ -89,7 +89,6 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
     # ===== Step 1: ROI Crop + Enhancement =====
     detector_result = {
         "box_2d": hotspot.get("box_2d"),
-        "feature_name": hotspot.get("damage_type"),
         "confidence": hotspot.get("severity_score")
     }
     
@@ -299,16 +298,19 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
                     mime_type="image/jpeg"
                 ))
             
-            # API 설정
+            # API 설정 - thinking_config는 일부 모델에서 지원하지 않으므로 조건부 추가
+            # gemini-3-flash-preview는 thinking level 미지원
             api_config = {
                 "temperature": 1.0,
                 "response_mime_type": "application/json",
                 "response_json_schema": DeformEvidenceResult.model_json_schema(),
-                "safety_settings": safety_settings_block_none,
-                "thinking_config": types.ThinkingConfig(
-                    thinking_level="high"
-                )
+                "safety_settings": safety_settings_block_none
             }
+            
+            # thinking level 지원 모델에만 추가
+            thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+            if any(m in model_name for m in thinking_supported_models):
+                api_config["thinking_config"] = types.ThinkingConfig(thinking_level="high")
             
             # 🔥 Centralized Retry Logic (기본 retriable_errors 사용)
             response = await async_retry_with_backoff(
@@ -468,8 +470,7 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             "visual_description": observations, # 시각적 특징 (Taper, Apex 등)
             "reasoning": reasoning_text       # 논리적 근거 (Arbiter Fact Check용)
         },
-        "connection_type": connection_type,
-        "damage_type": hotspot.get("damage_type", "Unknown")
+        "connection_type": connection_type
     }
 
     logger.info(f"Worker {hotspot_id}: Evidence collection completed")
@@ -788,19 +789,22 @@ async def verdict_analyst_node(state: DeformExpertState) -> Dict[str, Any]:
     # 🔥 API 호출 함수 분리
     async def _call_analyst_api(client, model_name, system_prompt, safety_settings):
         """Analyst API 호출"""
+        # thinking level 지원 모델에만 추가
+        thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+        config_dict = {
+            "temperature": 1.0,
+            "response_mime_type": "application/json",
+            "response_json_schema": AnalystHypothesis.model_json_schema(),
+            "safety_settings": safety_settings
+        }
+        if any(m in model_name for m in thinking_supported_models):
+            config_dict["thinking_config"] = types.ThinkingConfig(thinking_level="high")
+        
         response = await asyncio.to_thread(
             client.models.generate_content,
             model=model_name,
             contents=system_prompt,
-            config=types.GenerateContentConfig(
-                temperature=1.0,
-                response_mime_type="application/json",
-                response_json_schema=AnalystHypothesis.model_json_schema(),
-                safety_settings=safety_settings,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level="high"
-                )
-            )
+            config=types.GenerateContentConfig(**config_dict)
         )
         return response
     
