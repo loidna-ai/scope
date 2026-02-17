@@ -21,6 +21,7 @@ from src.utils import async_retry_with_backoff, get_genai_client
 from src.utils.image_processing import get_image_size, map_box_to_global, slice_image
 from src.utils.logging_config import setup_logger
 from src.utils.nms import non_max_suppression
+from src.utils.expert_config import get_safety_settings
 
 logger = setup_logger("common_nodes")
 
@@ -121,13 +122,8 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
             model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
             prompt = get_micro_evidence_prompt()
             
-            # Safety settings: BLOCK_NONE
-            safety_settings_block_none = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
+            # Safety settings: BLOCK_NONE (공통 함수 사용)
+            safety_settings_block_none = get_safety_settings()
             
             # Schema setup
             json_schema = HotspotDetectionResult.model_json_schema()

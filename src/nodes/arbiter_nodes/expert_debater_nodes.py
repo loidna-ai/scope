@@ -72,14 +72,42 @@ async def _debater_node(state: ArbiterDebateState, expert_name: ExpertName) -> D
     # LLM 호출
     try:
         logger.debug(f"{expert_name} debater: Calling LLM")
+        
+        # #region agent log
+        import json
+        import time
+        from pathlib import Path
+        log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_debater_before_call","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:75","message":"before call_gemini_text","data":{"expert_name":expert_name,"stage":stage},"runId":"run1","hypothesisId":"D"})+"\n")
+        except: pass
+        # #endregion
+        
         response_text, _ = call_gemini_text(
             prompt,
             step_name=f"{expert_name}_debater_{stage}",
             verbose=False,
             temperature=0.7
         )
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_debater_after_call","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:87","message":"after call_gemini_text","data":{"expert_name":expert_name,"response_length":len(response_text)},"runId":"run1","hypothesisId":"D"})+"\n")
+        except: pass
+        # #endregion
+        
         logger.info(f"{expert_name} debater: LLM response received ({len(response_text)} chars)")
     except Exception as e:
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_debater_call_error","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:95","message":"call_gemini_text error","data":{"expert_name":expert_name,"error":str(e)},"runId":"run1","hypothesisId":"D"})+"\n")
+        except: pass
+        # #endregion
+        
         logger.error(f"{expert_name} debater: LLM call failed - {e}", exc_info=True)
         response_text = f"{expert_name} 전문가: LLM 호출 실패 - {str(e)}"
     
@@ -127,8 +155,22 @@ def contact_debater_node_sync(state: ArbiterDebateState) -> Dict[str, Any]:
         # #endregion
         # 이벤트 루프가 실행 중이면 create_task 사용
         import concurrent.futures
+        
+        async def _run_with_cleanup():
+            """asyncio.run() 내부에서 실행되며, 완료 전에 클라이언트 정리"""
+            try:
+                return await contact_debater_node(state)
+            finally:
+                # asyncio.run() 완료 전에 클라이언트의 비동기 리소스 정리하여 이벤트 루프 종료 후 에러 방지
+                from src.tools.experts.expert_utils import client
+                if client is not None and hasattr(client, 'aclose'):
+                    try:
+                        await client.aclose()
+                    except Exception as e:
+                        logger.debug(f"Client cleanup warning (ignored): {e}")
+        
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, contact_debater_node(state))
+            future = executor.submit(asyncio.run, _run_with_cleanup())
             result = future.result()
     except RuntimeError:
         logger.debug("No event loop, using asyncio.run")
@@ -138,8 +180,22 @@ def contact_debater_node_sync(state: ArbiterDebateState) -> Dict[str, Any]:
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"expert_debater_nodes.py:105","message":"no event loop, using asyncio.run","data":{},"timestamp":int(time.time()*1000)})+"\n")
         except: pass
         # #endregion
+        
+        async def _run_with_cleanup():
+            """asyncio.run() 내부에서 실행되며, 완료 전에 클라이언트 정리"""
+            try:
+                return await contact_debater_node(state)
+            finally:
+                # asyncio.run() 완료 전에 클라이언트의 비동기 리소스 정리하여 이벤트 루프 종료 후 에러 방지
+                from src.tools.experts.expert_utils import client
+                if client is not None and hasattr(client, 'aclose'):
+                    try:
+                        await client.aclose()
+                    except Exception as e:
+                        logger.debug(f"Client cleanup warning (ignored): {e}")
+        
         # 이벤트 루프가 없으면 일반적으로 실행
-        result = asyncio.run(contact_debater_node(state))
+        result = asyncio.run(_run_with_cleanup())
     
     logger.debug("Contact debater node sync exit")
     
@@ -159,29 +215,179 @@ def deform_debater_node_sync(state: ArbiterDebateState) -> Dict[str, Any]:
     try:
         loop = asyncio.get_running_loop()
         import concurrent.futures
+        
+        async def _run_with_cleanup():
+            """asyncio.run() 내부에서 실행되며, 완료 전에 클라이언트 정리"""
+            try:
+                return await deform_debater_node(state)
+            finally:
+                # asyncio.run() 완료 전에 클라이언트의 비동기 리소스 정리하여 이벤트 루프 종료 후 에러 방지
+                from src.tools.experts.expert_utils import client
+                if client is not None and hasattr(client, 'aclose'):
+                    try:
+                        await client.aclose()
+                    except Exception as e:
+                        logger.debug(f"Client cleanup warning (ignored): {e}")
+        
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, deform_debater_node(state))
+            future = executor.submit(asyncio.run, _run_with_cleanup())
             result = future.result()
             logger.debug("Deform debater node sync exit")
             return result
     except RuntimeError:
-        result = asyncio.run(deform_debater_node(state))
+        async def _run_with_cleanup():
+            """asyncio.run() 내부에서 실행되며, 완료 전에 클라이언트 정리"""
+            try:
+                return await deform_debater_node(state)
+            finally:
+                # asyncio.run() 완료 전에 클라이언트의 비동기 리소스 정리하여 이벤트 루프 종료 후 에러 방지
+                from src.tools.experts.expert_utils import client
+                if client is not None and hasattr(client, 'aclose'):
+                    try:
+                        await client.aclose()
+                    except Exception as e:
+                        logger.debug(f"Client cleanup warning (ignored): {e}")
+        
+        result = asyncio.run(_run_with_cleanup())
         logger.debug("Deform debater node sync exit")
         return result
 
 def necking_debater_node_sync(state: ArbiterDebateState) -> Dict[str, Any]:
     """Necking 전문가 Debater 노드 (동기 버전)"""
     logger.debug("Necking debater node sync entry")
+    
+    # #region agent log
+    import json
+    import time
+    from pathlib import Path
+    log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id":"log_necking_sync_entry","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:174","message":"necking_debater_node_sync entry","data":{},"runId":"run1","hypothesisId":"A"})+"\n")
+    except: pass
+    # #endregion
+    
     import asyncio
     try:
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_necking_check_loop","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:183","message":"checking for running event loop","data":{},"runId":"run1","hypothesisId":"B"})+"\n")
+        except: pass
+        # #endregion
+        
         loop = asyncio.get_running_loop()
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_necking_loop_found","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:190","message":"event loop found, using ThreadPoolExecutor","data":{"loop_closed":loop.is_closed()},"runId":"run1","hypothesisId":"B"})+"\n")
+        except: pass
+        # #endregion
+        
+        logger.debug("Event loop already running, using ThreadPoolExecutor")
         import concurrent.futures
+        
+        async def _run_with_cleanup():
+            """asyncio.run() 내부에서 실행되며, 완료 전에 클라이언트 정리"""
+            try:
+                return await necking_debater_node(state)
+            finally:
+                # asyncio.run() 완료 전에 클라이언트의 비동기 리소스 정리하여 이벤트 루프 종료 후 에러 방지
+                # #region agent log
+                try:
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps({"id":"log_necking_cleanup_start","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:347","message":"starting client cleanup","data":{},"runId":"run1","hypothesisId":"C"})+"\n")
+                except: pass
+                # #endregion
+                
+                from src.tools.experts.expert_utils import client
+                if client is not None and hasattr(client, 'aclose'):
+                    try:
+                        await client.aclose()
+                        # #region agent log
+                        try:
+                            with open(log_path, "a", encoding="utf-8") as f:
+                                f.write(json.dumps({"id":"log_necking_cleanup_success","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:355","message":"client cleanup successful","data":{},"runId":"run1","hypothesisId":"C"})+"\n")
+                        except: pass
+                        # #endregion
+                    except Exception as e:
+                        # #region agent log
+                        try:
+                            with open(log_path, "a", encoding="utf-8") as f:
+                                f.write(json.dumps({"id":"log_necking_cleanup_error","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:361","message":"client cleanup error","data":{"error":str(e)},"runId":"run1","hypothesisId":"C"})+"\n")
+                        except: pass
+                        # #endregion
+                        logger.debug(f"Client cleanup warning (ignored): {e}")
+                else:
+                    # #region agent log
+                    try:
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps({"id":"log_necking_cleanup_skip","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:368","message":"client cleanup skipped","data":{"client_is_none":client is None,"has_aclose":hasattr(client, 'aclose') if client is not None else False},"runId":"run1","hypothesisId":"C"})+"\n")
+                    except: pass
+                    # #endregion
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_necking_before_run","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:197","message":"before asyncio.run in ThreadPoolExecutor","data":{},"runId":"run1","hypothesisId":"B"})+"\n")
+        except: pass
+        # #endregion
+        
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, necking_debater_node(state))
+            future = executor.submit(asyncio.run, _run_with_cleanup())
             result = future.result()
+            
+            # #region agent log
+            try:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps({"id":"log_necking_after_run","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:204","message":"after asyncio.run completed","data":{},"runId":"run1","hypothesisId":"B"})+"\n")
+            except: pass
+            # #endregion
+            
             logger.debug("Necking debater node sync exit")
             return result
-    except RuntimeError:
-        result = asyncio.run(necking_debater_node(state))
+    except RuntimeError as e:
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_necking_no_loop","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:212","message":"no running event loop, using asyncio.run directly","data":{"error":str(e)},"runId":"run1","hypothesisId":"C"})+"\n")
+        except: pass
+        # #endregion
+        
+        logger.debug("No event loop, using asyncio.run")
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_necking_before_direct_run","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:220","message":"before direct asyncio.run","data":{},"runId":"run1","hypothesisId":"C"})+"\n")
+        except: pass
+        # #endregion
+        
+        async def _run_with_cleanup():
+            """asyncio.run() 내부에서 실행되며, 완료 전에 클라이언트 정리"""
+            try:
+                return await necking_debater_node(state)
+            finally:
+                # asyncio.run() 완료 전에 클라이언트의 비동기 리소스 정리하여 이벤트 루프 종료 후 에러 방지
+                from src.tools.experts.expert_utils import client
+                if client is not None and hasattr(client, 'aclose'):
+                    try:
+                        # 이벤트 루프가 아직 열려있는 동안 정리
+                        await client.aclose()
+                    except Exception as e:
+                        # 정리 실패는 무시 (이미 닫혔거나 다른 문제일 수 있음)
+                        logger.debug(f"Client cleanup warning (ignored): {e}")
+        
+        result = asyncio.run(_run_with_cleanup())
+        
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id":"log_necking_after_direct_run","timestamp":int(time.time()*1000),"location":"expert_debater_nodes.py:240","message":"after direct asyncio.run completed","data":{},"runId":"run1","hypothesisId":"C"})+"\n")
+        except: pass
+        # #endregion
+        
         logger.debug("Necking debater node sync exit")
         return result

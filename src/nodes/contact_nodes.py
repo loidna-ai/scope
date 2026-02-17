@@ -29,7 +29,10 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 # Local imports - Utils and Tools
 from src.utils import crop_roi_from_box, async_retry_with_backoff, validate_state_keys, get_genai_client
 from src.utils.logging_config import setup_logger
-from src.tools.experts.expert_utils import _load_image_data
+from src.utils.expert_config import get_safety_settings, THINKING_SUPPORTED_MODELS, LARGE_ROI_THRESHOLD, MAX_DEBATE_ITERATIONS
+from src.utils.expert_api_utils import validate_gemini_response, extract_finish_reason, call_classifier_api, call_evidence_api, call_supervisor_api, call_analyst_api, call_critic_vision_api, call_critic_text_api
+from src.utils.expert_image_utils import load_expert_images, ExpertImageLoader
+from src.utils.expert_report_utils import format_report_summary, extract_critiqued_hotspots
 
 # Initialize logger
 logger = setup_logger(__name__)
@@ -68,6 +71,139 @@ from src.states.contact_state import WorkerState, ContactExpertState
 
 # ===== Worker Node =====
 
+async def _crop_and_enhance_roi(
+    hotspot_id: str,
+    image_path: str,
+    box_2d: Optional[Dict[str, Any]]
+) -> str:
+    """
+    ROI 크롭 및 Enhancement 로직
+    
+    Args:
+        hotspot_id: Hotspot ID (로깅용)
+        image_path: 원본 이미지 경로
+        box_2d: ROI 좌표 딕셔너리
+        
+    Returns:
+        ROI 이미지 경로 (크롭 실패 시 원본 경로 반환)
+    """
+    roi_image_path = image_path  # Default fallback
+    
+    if box_2d:
+        logger.debug(f"Worker {hotspot_id}: ROI crop coordinates: {box_2d}")
+        try:
+            # 임시 파일로 크롭 (output/crops 미사용)
+            cropped_path = await asyncio.to_thread(crop_roi_from_box, image_path, box_2d)
+            
+            # Enhancement (Async to prevent blocking)
+            logger.info(f"Worker {hotspot_id}: Applying 2x image enhancement...")
+            # 대형 ROI 안내 (Enhancement 1~2분 소요 가능)
+            try:
+                xmin, xmax = box_2d.get("xmin", 0), box_2d.get("xmax", 0)
+                ymin, ymax = box_2d.get("ymin", 0), box_2d.get("ymax", 0)
+                area = (xmax - xmin) * (ymax - ymin) if all([xmin, xmax, ymin, ymax]) else 0
+                if area > LARGE_ROI_THRESHOLD:
+                    logger.warning(f"Worker {hotspot_id}: Large ROI ({xmax-xmin}x{ymax-ymin}px) detected - Enhancement may take 1-2 mins")
+            except Exception:
+                pass
+            try:
+                # 1. 크롭된 이미지 로드 (Async I/O)
+                cropped_img = await asyncio.to_thread(cv2.imread, cropped_path)
+                if cropped_img is None:
+                    raise ValueError("크롭된 이미지를 읽을 수 없습니다.")
+                
+                # 2. Enhancement (Blocking 작업을 thread로 offload)
+                def enhance_image(img, path):
+                    enhancer = ImageEnhancer()
+                    enhanced_img = enhancer.upscale(img)
+                    cv2.imwrite(path, enhanced_img)
+                    return path
+                
+                enhanced_path = await asyncio.to_thread(enhance_image, cropped_img, cropped_path)
+                logger.info(f"Worker {hotspot_id}: Enhancement completed: {enhanced_path}")
+                
+            except Exception as enh_err:
+                logger.warning(f"Worker {hotspot_id}: Enhancement Failed: {enh_err}")
+                # 향상 실패해도 원본 크롭 이미지는 유지됨
+            
+            roi_image_path = cropped_path
+        except Exception as e:
+            logger.error(f"Worker {hotspot_id}: Crop Failed: {e}")
+    
+    return roi_image_path
+
+
+async def _classify_component(
+    hotspot_id: str,
+    roi_image_path: str,
+    image_path: str
+) -> str:
+    """
+    컴포넌트 분류 로직
+    
+    Args:
+        hotspot_id: Hotspot ID (로깅용)
+        roi_image_path: ROI 이미지 경로
+        image_path: 원본 이미지 경로
+        
+    Returns:
+        컴포넌트 타입 문자열 ("Wire", "Terminal", "Splice", "Plug", "Unknown")
+    """
+    connection_type = "None"
+    
+    try:
+        logger.info(f"Worker {hotspot_id}: Identifying component type...")
+        
+        # Blocking I/O offloading to thread (공통 이미지 로더 사용)
+        original_image_data, roi_image_data = await load_expert_images(roi_image_path, image_path)
+        
+        prompt = get_component_classifier_prompt(roi_image_path)
+        
+        # 🔥 Pydantic Structured Output (Gemini Official Best Practice)
+        client = get_genai_client()
+        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+        
+        # 이미지 파트 구성
+        parts = [prompt]
+        for img_data in [original_image_data, roi_image_data]:
+            parts.append(types.Part.from_bytes(
+                data=img_data,
+                mime_type="image/jpeg"
+            ))
+        
+        # 🔥 Centralized Retry Logic with Common API Function
+        async def _call_classifier_wrapper(**kwargs):
+            return await call_classifier_api(
+                client=kwargs["client"],
+                model_name=kwargs["model_name"],
+                parts=kwargs["parts"],
+                response_schema=ComponentClassification,
+                context_name=kwargs.get("context_name", f"Worker #{hotspot_id} Classifier")
+            )
+        
+        response = await async_retry_with_backoff(
+            _call_classifier_wrapper,
+            client=client,
+            model_name=model_name,
+            parts=parts,
+            context_name=f"Worker #{hotspot_id} Classifier",
+            max_retries=5
+        )
+        
+        # Pydantic 안전 파싱 (공식 권장 방식)
+        classification = ComponentClassification.model_validate_json(response.text)
+        connection_type = classification.deduced_type
+        logger.info(f"Worker {hotspot_id}: Component classified as {connection_type} (Confidence: {classification.confidence}%)")
+        
+    except Exception as e:
+        # Fallback: Unknown으로 설정
+        logger.error(f"Worker {hotspot_id}: Classifier final failure: {e}", exc_info=True)
+        logger.warning(f"Worker {hotspot_id}: Classification failed, setting type to Unknown")
+        connection_type = "Unknown"
+    
+    return connection_type
+
+
 async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
     """
     Unified Worker Node (Map-Reduce Pattern) - Async for True Parallel Execution
@@ -105,151 +241,10 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
         }
         
         box_2d = detector_result.get("box_2d")
-        roi_image_path = image_path  # Default fallback
+        roi_image_path = await _crop_and_enhance_roi(hotspot_id, image_path, box_2d)
         
-        if box_2d:
-            logger.debug(f"Worker {hotspot_id}: ROI crop coordinates: {box_2d}")
-            try:
-                # 임시 파일로 크롭 (output/crops 미사용)
-                cropped_path = await asyncio.to_thread(crop_roi_from_box, image_path, box_2d)
-                
-                # Enhancement (Async to prevent blocking)
-                logger.info(f"Worker {hotspot_id}: Applying 2x image enhancement...")
-                # 대형 ROI 안내 (Enhancement 1~2분 소요 가능)
-                try:
-                    xmin, xmax = box_2d.get("xmin", 0), box_2d.get("xmax", 0)
-                    ymin, ymax = box_2d.get("ymin", 0), box_2d.get("ymax", 0)
-                    area = (xmax - xmin) * (ymax - ymin) if all([xmin, xmax, ymin, ymax]) else 0
-                    if area > 80_000:
-                        logger.warning(f"Worker {hotspot_id}: Large ROI ({xmax-xmin}x{ymax-ymin}px) detected - Enhancement may take 1-2 mins")
-                except Exception:
-                    pass
-                try:
-                    # 1. 크롭된 이미지 로드 (Async I/O)
-                    cropped_img = await asyncio.to_thread(cv2.imread, cropped_path)
-                    if cropped_img is None:
-                        raise ValueError("크롭된 이미지를 읽을 수 없습니다.")
-                    
-                    # 2. Enhancement (Blocking 작업을 thread로 offload)
-                    def enhance_image(img, path):
-                        # #region agent log
-                        import json
-                        import time
-                        from pathlib import Path
-                        log_path = Path(PROJECT_ROOT) / ".cursor" / "debug.log"
-                        log_path.parent.mkdir(parents=True, exist_ok=True)
-                        enhance_start = time.time()
-                        img_h, img_w = img.shape[:2]
-                        try:
-                            with open(log_path, "a", encoding="utf-8") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"contact_nodes.py:134","message":"enhance_image entry","data":{"hotspot_id":hotspot_id,"image_size_h":img_h,"image_size_w":img_w,"pixels":img_h*img_w},"timestamp":int(time.time()*1000)})+"\n")
-                        except: pass
-                        # #endregion
-                        
-                        enhancer = ImageEnhancer()
-                        enhanced_img = enhancer.upscale(img)
-                        cv2.imwrite(path, enhanced_img)
-                        
-                        # #region agent log
-                        enhance_duration = time.time() - enhance_start
-                        try:
-                            with open(log_path, "a", encoding="utf-8") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"contact_nodes.py:140","message":"enhance_image exit","data":{"hotspot_id":hotspot_id,"duration_seconds":enhance_duration},"timestamp":int(time.time()*1000)})+"\n")
-                        except: pass
-                        # #endregion
-                        
-                        return path
-                    
-                    enhanced_path = await asyncio.to_thread(enhance_image, cropped_img, cropped_path)
-                    logger.info(f"Worker {hotspot_id}: Enhancement completed: {enhanced_path}")
-                    
-                except Exception as enh_err:
-                    logger.warning(f"Worker {hotspot_id}: Enhancement Failed: {enh_err}")
-                    # 향상 실패해도 원본 크롭 이미지는 유지됨
-    
-                
-                roi_image_path = cropped_path
-            except Exception as e:
-                logger.error(f"Worker {hotspot_id}: Crop Failed: {e}")
-        
-        # ===== Step 2: Component Classification (Async) =====
-        connection_type = "None"
-        
-        # API 호출 함수 분리
-        async def _call_classifier_api(client, model_name, parts, safety_settings):
-            """Component Classification API 호출"""
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model_name,
-                contents=parts,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_json_schema": ComponentClassification.model_json_schema(),
-                    "safety_settings": safety_settings,
-                }
-            )
-            
-            # [Debug/Safety] 응답 텍스트 확인 및 안전 파싱
-            response_text = getattr(response, 'text', None)
-            if not response_text:
-                finish_reason = "Unknown"
-                if hasattr(response, 'candidates') and response.candidates:
-                    finish_reason = getattr(response.candidates[0], 'finish_reason', "Unknown")
-                raise ValueError(f"Classifier 응답이 비어있습니다. (Finish Reason: {finish_reason})")
-            
-            return response
-        
-        try:
-            logger.info(f"Worker {hotspot_id}: Identifying component type...")
-            
-            # Blocking I/O offloading to thread
-            roi_image_data = await asyncio.to_thread(_load_image_data, roi_image_path)
-            original_image_data = await asyncio.to_thread(_load_image_data, image_path)
-            
-            prompt = get_component_classifier_prompt(roi_image_path)
-            
-            # 🔥 Pydantic Structured Output (Gemini Official Best Practice)
-            client = get_genai_client()
-            model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
-            
-            # 이미지 파트 구성
-            parts = [prompt]
-            for img_data in [original_image_data, roi_image_data]:
-                parts.append(types.Part.from_bytes(
-                    data=img_data,
-                    mime_type="image/jpeg"
-                ))
-            
-            # [Gemini Official Best Practice] Safety settings BLOCK_NONE
-            safety_settings_block_none = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
-            
-            # 🔥 Centralized Retry Logic
-            response = await async_retry_with_backoff(
-                _call_classifier_api,
-                client=client,
-                model_name=model_name,
-                parts=parts,
-                safety_settings=safety_settings_block_none,
-                max_retries=5,
-                context_name=f"Worker #{hotspot_id} Classifier"
-            )
-            
-            # Pydantic 안전 파싱 (공식 권장 방식)
-            classification = ComponentClassification.model_validate_json(response.text)
-            connection_type = classification.deduced_type
-            logger.info(f"Worker {hotspot_id}: Component classified as {connection_type} (Confidence: {classification.confidence}%)")
-            
-        except Exception as e:
-            # Fallback: Unknown으로 설정
-            logger.error(f"Worker {hotspot_id}: Classifier final failure: {e}", exc_info=True)
-            logger.warning(f"Worker {hotspot_id}: Classification failed, setting type to Unknown")
-            connection_type = "Unknown"
-    
+        # ===== Step 2: Component Classification =====
+        connection_type = await _classify_component(hotspot_id, roi_image_path, image_path)
         
         # ===== Step 3: Specialist Analysis (Component Type별 분기 - Async) =====
     
@@ -467,55 +462,17 @@ async def _analyze_specialist(
     Returns:
         EvidenceResult Pydantic 객체 또는 None
     """
-    # API 호출 함수 분리
-    async def _call_evidence_api(client, model_name, parts, config):
-        """Evidence Collection API 호출"""
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=model_name,
-            contents=parts,
-            config=config
-        )
-        
-        # [Debug/Safety] 응답 텍스트 확인 및 안전 파싱
-        response_text = getattr(response, 'text', None)
-        if not response_text:
-            finish_reason = "Unknown"
-            if hasattr(response, 'candidates') and response.candidates:
-                finish_reason = getattr(response.candidates[0], 'finish_reason', "Unknown")
-            raise ValueError(f"Evidence Collection 응답이 비어있습니다. (Finish Reason: {finish_reason})")
-        
-        return response
-    
     try:
         logger.info(f"Worker {hotspot_id}: Collecting {component_type} evidence...")
         logger.debug(f"Worker {hotspot_id}: Waiting for Evidence API via semaphore...")
         
-        # Blocking I/O offloading to thread
-        roi_data = await asyncio.to_thread(_load_image_data, roi_image_path)
-        original_data = await asyncio.to_thread(_load_image_data, image_path)
+        # Blocking I/O offloading to thread (공통 이미지 로더 사용)
+        original_data, roi_data = await load_expert_images(roi_image_path, image_path)
         
         prompt = prompt_func(roi_image_path)
         
-        # [Gemini Official Best Practice] Pydantic Structured Output
-        # [Gemini Official Best Practice] Safety settings BLOCK_NONE
-        safety_settings_block_none = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
-        
         client = get_genai_client()
         model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
-        
-        # #region agent log
-        from pathlib import Path
-        log_path = Path(PROJECT_ROOT) / ".cursor" / "debug.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"id":"log_thinking_check","timestamp":int(__import__("time").time()*1000),"location":"contact_nodes.py:493","message":"Model name check","data":{"model_name":model_name,"component_type":component_type},"runId":"run1","hypothesisId":"A"})+"\n")
-        # #endregion
         
         # 이미지 파트 구성
         parts = [prompt]
@@ -525,38 +482,25 @@ async def _analyze_specialist(
                 mime_type="image/jpeg"
             ))
         
-        # API 설정 - thinking_config는 일부 모델에서 지원하지 않으므로 조건부 추가
-        # gemini-3-flash-preview는 thinking level 미지원
-        api_config = {
-            "temperature": 1.0,
-            "response_mime_type": "application/json",
-            "response_json_schema": evidence_model.model_json_schema(),
-            "safety_settings": safety_settings_block_none
-        }
+        # 🔥 Centralized Retry Logic with Common API Function
+        async def _call_evidence_wrapper(**kwargs):
+            return await call_evidence_api(
+                client=kwargs["client"],
+                model_name=kwargs["model_name"],
+                parts=kwargs["parts"],
+                response_schema=evidence_model,
+                thinking_level="high",
+                temperature=1.0,
+                context_name=kwargs.get("context_name", f"Worker #{hotspot_id} {component_type} Evidence")
+            )
         
-        # #region agent log
-        thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
-        use_thinking = any(m in model_name for m in thinking_supported_models)
-        from pathlib import Path
-        log_path = Path(PROJECT_ROOT) / ".cursor" / "debug.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"id":"log_thinking_decision","timestamp":int(__import__("time").time()*1000),"location":"contact_nodes.py:512","message":"Thinking config decision","data":{"model_name":model_name,"use_thinking":use_thinking},"runId":"run1","hypothesisId":"A"})+"\n")
-        # #endregion
-        
-        # thinking level 지원 모델에만 추가
-        if use_thinking:
-            api_config["thinking_config"] = types.ThinkingConfig(thinking_level="high")
-        
-        # 🔥 Centralized Retry Logic (기본 retriable_errors 사용)
         response = await async_retry_with_backoff(
-            _call_evidence_api,
+            _call_evidence_wrapper,
             client=client,
             model_name=model_name,
             parts=parts,
-            config=api_config,
-            max_retries=5,
-            context_name=f"Worker #{hotspot_id} {component_type} Evidence"
+            context_name=f"Worker #{hotspot_id} {component_type} Evidence",
+            max_retries=5
         )
         
         # Pydantic 안전 파싱
@@ -604,65 +548,40 @@ async def supervisor_verdict(state: ContactExpertState) -> Dict[str, Any]:
     # [Refactored] Rule-based 로직을 제거하고 LLM이 직접 Worker들의 보고서를 종합 판단
     
     # 1. Prepare Aggregation Context
-    reports_text = format_report_summary(assessments)
+    reports_text = format_report_summary(assessments, expert_type="contact")
     logger.debug(f"Supervisor: Aggregation Context:\n{reports_text[:500]}...") # 로그 줄임
     
     # 2. Call LLM (Map-Reduce Reduction)
     prompt = get_contact_supervisor_prompt(reports_text=reports_text)
     
     # API 호출 함수 분리
-    async def _call_supervisor_api(client, model_name, prompt, config):
-        """Supervisor API 호출"""
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=model_name,
-            contents=prompt,
-            config=config
-        )
-        
-        # Response handling
-        response_text = getattr(response, 'text', None)
-        if not response_text:
-            finish_reason = "Unknown"
-            if hasattr(response, 'candidates') and response.candidates:
-                finish_reason = getattr(response.candidates[0], 'finish_reason', "Unknown")
-            raise ValueError(f"Supervisor response is empty. (Finish Reason: {finish_reason})")
-        
-        return response
-    
     try:
         # [Gemini Native] Use genai.Client instead of LangChain
         # Consistent with worker nodes and avoid undefined globals/imports
         
         client = get_genai_client()
         model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
-        
-        # Safety settings (String based for compatibility)
-        safety_settings_block_none = [
-             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
 
         print("🤔 [Supervisor] 종합 판정 중...")
         
-        api_config = {
-            "temperature": 0.0,
-            "response_mime_type": "application/json",
-            "response_json_schema": SupervisorVerdict.model_json_schema(),
-            "safety_settings": safety_settings_block_none,
-        }
+        # 🔥 Centralized Retry Logic with Common API Function
+        async def _call_supervisor_wrapper(**kwargs):
+            return await call_supervisor_api(
+                client=kwargs["client"],
+                model_name=kwargs["model_name"],
+                prompt=kwargs["prompt"],
+                response_schema=SupervisorVerdict,
+                temperature=0.0,
+                context_name=kwargs.get("context_name", "Supervisor")
+            )
         
-        # 🔥 Centralized Retry Logic
         response = await async_retry_with_backoff(
-            _call_supervisor_api,
+            _call_supervisor_wrapper,
             client=client,
             model_name=model_name,
             prompt=prompt,
-            config=api_config,
-            max_retries=5,
-            context_name="Supervisor"
+            context_name="Supervisor",
+            max_retries=5
         )
         
         # Pydantic validation
@@ -693,106 +612,7 @@ async def supervisor_verdict(state: ContactExpertState) -> Dict[str, Any]:
 
 
 # ===== Helper Functions =====
-def format_report_summary(assessments: list) -> str:
-    """
-    구조화된 요약 보고서 생성 (Map-Reduce용)
-    Workers의 preliminary_assessments를 바탕으로 Debate용 요약 생성
-    """
-    if not assessments:
-        return "분석된 증거 없음"
-    
-    summary = "=== Worker Reports Summary ===\n"
-    for assessment in assessments:
-        hotspot_id = assessment.get('id', 'unknown')
-        
-        # New WorkerReport Structure Handling
-        if "facts" in assessment and "opinion" in assessment:
-            facts = assessment['facts']
-            opinion = assessment['opinion']
-            
-            # Extract basic info safely
-            verdict = opinion.get('verdict', 'N/A')
-            confidence = opinion.get('confidence', 0)
-            conn_type = assessment.get('_connection_type', 'Unknown')
-            
-            summary += f"\n[Worker Report #{hotspot_id}] (Type: {conn_type})\n"
-            
-            # [Logic] Contact Component가 아닌 경우 Skip 메시지를 명확히 전달
-            if "Terminal" not in conn_type and "Splice" not in conn_type and "Plug" not in conn_type and conn_type != "Unknown":
-                summary += f"⚠️ NOTE: Analysis Skipped (Target is not a Contact Component)\n"
-                summary += "-"*40 + "\n"
-                continue
-            
-            # [Added] 에러 상태인 경우 요약에 표시
-            if "error" in facts:
-                 summary += f"⚠️ NOTE: Analysis Failed (Error: {facts['error']})\n"
-                 summary += "-"*40 + "\n"
-                 continue
-
-            summary += f"1. FACTS (Evidence):\n"
-            summary += f"  - Visual Description: {facts.get('visual_description', 'N/A')}\n"
-
-            summary += f"2. OPINION (Verdict):\n"
-            summary += f"  - Verdict: {verdict}\n"
-            summary += f"  - Confidence: {confidence}\n"
-            summary += f"  - Reasoning: {opinion.get('reasoning', 'N/A')}\n"
-            summary += "-"*40 + "\n"
-            
-        else:
-            # Fallback for old structure or error
-            observations = assessment.get('observations', 'N/A')
-            severity_score = assessment.get('severity_score', 0)
-            evidence_quality = assessment.get('evidence_quality', 'unknown')
-            is_critical = assessment.get('is_critical', False)
-            connection_type = assessment.get('_connection_type', 'Unknown')
-            
-            risk_level = "🔴 HIGH" if is_critical else ("🟡 MEDIUM" if evidence_quality == "medium" else "🟢 LOW")
-            
-            summary += f"- [{hotspot_id}] Type: {connection_type} | Risk: {risk_level} | Score: {severity_score}\n"
-            summary += f"  Obs: {observations}\n"
-    return summary
-
-
-
-def extract_critiqued_hotspots(critique: str, all_results: list) -> list:
-    """
-    Critic의 지적에서 언급된 특정 Hotspot ID 추출
-    
-    Args:
-        critique: Critic의 비평 텍스트
-        all_results: 전체 분석 결과 리스트
-    
-    Returns:
-        Critic이 언급한 Hotspot들의 분석 결과 리스트
-    """
-    if not critique or not all_results:
-        return []
-    
-    # "Spot #3", "Hotspot #7", "#2" 등 패턴 추출
-    mentioned_ids = set()
-    patterns = [
-        r'[Ss]pot\s*#?(\d+)',
-        r'[Hh]otspot\s*#?(\d+)',
-        r'#(\d+)',
-    ]
-    
-    for pattern in patterns:
-        matches = re.findall(pattern, critique)
-        mentioned_ids.update(int(m) for m in matches)
-    
-    if not mentioned_ids:
-        # Critic이 특정 Hotspot을 언급하지 않으면 전체 반환
-        return all_results
-    
-    # 언급된 ID만 필터링
-    filtered = [
-        res for res in all_results 
-        if res.get('hotspot_info', {}).get('id') in mentioned_ids
-    ]
-    
-    logger.info(f"Focus: Critic highlighted hotspots: {sorted(mentioned_ids)}")
-    
-    return filtered if filtered else all_results
+# format_report_summary와 extract_critiqued_hotspots는 이제 src.utils.expert_report_utils에서 import하여 사용
 
 # ===== Analyst-Critic Debate Nodes =====
 
@@ -818,7 +638,7 @@ async def verdict_analyst_node(state: ContactExpertState) -> Dict[str, Any]:
         }
     
     # Report Summary 생성 (Map-Reduce용 format_report_summary 사용)
-    report_summary = format_report_summary(results)
+    report_summary = format_report_summary(results, expert_type="contact")
     
     if not debate_messages:
         # [상황 1] 최초 종합 분석
@@ -847,7 +667,7 @@ async def verdict_analyst_node(state: ContactExpertState) -> Dict[str, Any]:
             focused_hotspots = extract_critiqued_hotspots(critique, results)
             logger.warning(f"Analyst: Fallback to regex for hotspot extraction")
         
-        focused_summary = format_report_summary(focused_hotspots)
+        focused_summary = format_report_summary(focused_hotspots, expert_type="contact")
 
         
         # 전체 컨텍스트 요약 (참고용)
@@ -866,61 +686,35 @@ async def verdict_analyst_node(state: ContactExpertState) -> Dict[str, Any]:
     
     
     # 🔥 API 호출 함수 분리
-    async def _call_analyst_api(client, model_name, system_prompt, safety_settings):
-        """Analyst API 호출"""
-        # thinking level 지원 모델에만 추가
-        thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
-        config_dict = {
-            "temperature": 1.0,
-            "response_mime_type": "application/json",
-            "response_json_schema": AnalystHypothesis.model_json_schema(),
-            "safety_settings": safety_settings
-        }
-        if any(m in model_name for m in thinking_supported_models):
-            config_dict["thinking_config"] = types.ThinkingConfig(thinking_level="high")
-        
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=model_name,
-            contents=system_prompt,
-            config=types.GenerateContentConfig(**config_dict)
-        )
-        return response
-    
     try:
-        # [Gemini Official Best Practice] Safety settings BLOCK_NONE
-        safety_settings_block_none = [
-            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-        ]
-        
         # Gemini Native Structured Output 사용
         client = get_genai_client()
         model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
         
-        # 🔥 Centralized Retry Logic
+        # 🔥 Centralized Retry Logic with Common API Function
+        async def _call_analyst_wrapper(**kwargs):
+            return await call_analyst_api(
+                client=kwargs["client"],
+                model_name=kwargs["model_name"],
+                system_prompt=kwargs["system_prompt"],
+                response_schema=AnalystHypothesis,
+                thinking_level="high",
+                temperature=1.0,
+                context_name=kwargs.get("context_name", "Analyst")
+            )
+        
         response = await async_retry_with_backoff(
-            _call_analyst_api,
+            _call_analyst_wrapper,
             client=client,
             model_name=model_name,
             system_prompt=system_prompt,
-            safety_settings=safety_settings_block_none,
-            max_retries=5,
-            context_name="Analyst"
+            context_name="Analyst",
+            max_retries=5
         )
 
         # [Debug/Safety] 응답 텍스트 확인 및 안전 파싱
-        response_text = getattr(response, 'text', None)
-        finish_reason = "Unknown"
-        if hasattr(response, 'candidates') and response.candidates:
-            finish_reason = getattr(response.candidates[0], 'finish_reason', "Unknown")
-            
-        logger.debug(f"Analyst: Finish reason: {finish_reason}")
-        
-        if not response_text:
-            raise ValueError(f"Gemini API 응답 텍스트가 비어있습니다. (Finish Reason: {finish_reason})")
+        response_text = validate_gemini_response(response, context_name="Analyst")
+        logger.debug(f"Analyst: Finish reason: {extract_finish_reason(response)}")
 
         # Pydantic 안전 파싱 (공식 권장 방식: model_validate_json)
         analyst_result = AnalystHypothesis.model_validate_json(response_text)
@@ -975,13 +769,16 @@ async def verdict_critic_node(state: ContactExpertState) -> Dict[str, Any]:
     # 🔥 Phase 1 Critical Fix: Image Access for Critic
     # Critic이 원본 이미지와 ROI 이미지를 직접 보고 검증
     
-    # 1. 원본 이미지 로드
+    # 1. 원본 이미지 로드 (ExpertImageLoader 사용)
     image_path = state.get("image_path")
     image_data_list = []
     
+    # ExpertImageLoader 인스턴스 생성 (캐싱 활용)
+    image_loader = ExpertImageLoader(use_cache=True)
+    
     try:
         if image_path:
-            original_image = _load_image_data(image_path)
+            original_image = await image_loader.load_image(image_path)
             image_data_list.append(original_image)
             logger.debug(f"Critic: Loaded original image: {image_path}")
     except Exception as img_err:
@@ -993,7 +790,7 @@ async def verdict_critic_node(state: ContactExpertState) -> Dict[str, Any]:
         roi_path = res.get("roi_image_path")
         if roi_path:
             try:
-                roi_image = _load_image_data(roi_path)
+                roi_image = await image_loader.load_image(roi_path)
                 image_data_list.append(roi_image)
                 roi_loaded_count += 1
             except Exception as roi_err:
@@ -1003,7 +800,7 @@ async def verdict_critic_node(state: ContactExpertState) -> Dict[str, Any]:
         logger.debug(f"Critic: Loaded {roi_loaded_count} ROI images")
     
     # 3. 텍스트 보고서 요약
-    report_summary = format_report_summary(results)
+    report_summary = format_report_summary(results, expert_type="contact")
     
     # 4. 프롬프트 구성 (이미지 컨텍스트 추가)
     image_context = ""
@@ -1030,41 +827,6 @@ async def verdict_critic_node(state: ContactExpertState) -> Dict[str, Any]:
     
     
     # 🔥 API 호출 함수 분리 (Vision 및 Text 버전)
-    async def _call_critic_vision_api(client, model_name, parts):
-        """Critic Vision API 호출"""
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=model_name,
-            contents=parts,
-            config=types.GenerateContentConfig(
-                temperature=1.0,
-                response_mime_type="application/json",
-                response_schema=CritiqueResult,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level="medium"
-                )
-            )
-        )
-        return response
-    
-    async def _call_critic_text_api(client, model_name, prompt, safety_settings):
-        """Critic Text API 호출"""
-        response = await asyncio.to_thread(
-            client.models.generate_content,
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=1.0,
-                response_mime_type="application/json",
-                response_json_schema=CritiqueResult.model_json_schema(),
-                safety_settings=safety_settings,
-                thinking_config=types.ThinkingConfig(
-                    thinking_level="high"
-                )
-            )
-        )
-        return response
-    
     try:
         # 🔥 핵심 변경: Gemini Native Structured Output
         client = get_genai_client()
@@ -1082,14 +844,25 @@ async def verdict_critic_node(state: ContactExpertState) -> Dict[str, Any]:
                     mime_type="image/jpeg"
                 ))
                 
-            # 🔥 Centralized Retry Logic
+            # 🔥 Centralized Retry Logic with Common API Function
+            async def _call_critic_vision_wrapper(**kwargs):
+                return await call_critic_vision_api(
+                    client=kwargs["client"],
+                    model_name=kwargs["model_name"],
+                    parts=kwargs["parts"],
+                    response_schema=CritiqueResult,
+                    thinking_level="medium",
+                    temperature=1.0,
+                    context_name=kwargs.get("context_name", "Critic Vision")
+                )
+            
             response = await async_retry_with_backoff(
-                _call_critic_vision_api,
+                _call_critic_vision_wrapper,
                 client=client,
                 model_name=model_name,
                 parts=parts,
-                max_retries=5,
-                context_name="Critic Vision"
+                context_name="Critic Vision",
+                max_retries=5
             )
 
         else:
@@ -1097,23 +870,25 @@ async def verdict_critic_node(state: ContactExpertState) -> Dict[str, Any]:
             logger.warning(f"Critic: Text-only verification (Image load failed)")
             logger.info(f"Critic: Calling Text API (Model: {model_name})...")
             
-            # [Gemini Official Best Practice] Safety settings BLOCK_NONE
-            safety_settings_block_none = [
-                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-            ]
+            # 🔥 Centralized Retry Logic with Common API Function
+            async def _call_critic_text_wrapper(**kwargs):
+                return await call_critic_text_api(
+                    client=kwargs["client"],
+                    model_name=kwargs["model_name"],
+                    prompt=kwargs["prompt"],
+                    response_schema=CritiqueResult,
+                    thinking_level="high",
+                    temperature=1.0,
+                    context_name=kwargs.get("context_name", "Critic Text")
+                )
             
-            # 🔥 Centralized Retry Logic
             response = await async_retry_with_backoff(
-                _call_critic_text_api,
+                _call_critic_text_wrapper,
                 client=client,
                 model_name=model_name,
                 prompt=system_prompt,
-                safety_settings=safety_settings_block_none,
-                max_retries=5,
-                context_name="Critic Text"
+                context_name="Critic Text",
+                max_retries=5
             )
 
             logger.info(f"Critic: API response received")
@@ -1132,15 +907,8 @@ async def verdict_critic_node(state: ContactExpertState) -> Dict[str, Any]:
     # 파싱 및 결과 처리
     try:
         # [Debug/Safety] 응답 텍스트 확인 및 안전 파싱
-        response_text = getattr(response, 'text', None)
-        finish_reason = "Unknown"
-        if hasattr(response, 'candidates') and response.candidates:
-            finish_reason = getattr(response.candidates[0], 'finish_reason', "Unknown")
-            
-        logger.debug(f"Critic: Finish reason: {finish_reason}")
-        
-        if not response_text:
-            raise ValueError(f"Gemini API 응답 텍스트가 비어있습니다. (Finish Reason: {finish_reason})")
+        response_text = validate_gemini_response(response, context_name="Critic")
+        logger.debug(f"Critic: Finish reason: {extract_finish_reason(response)}")
 
         # Pydantic 안전 파싱 (공식 권장 방식: model_validate_json)
         critique_result = CritiqueResult.model_validate_json(response_text)
@@ -1189,7 +957,7 @@ async def verdict_finalize_node(state: ContactExpertState) -> Dict[str, Any]:
     critique = state.get("critique_points", "")
     results = state.get("analysis_results", [])
     
-    MAX_ITERATIONS = 3
+    MAX_ITERATIONS = MAX_DEBATE_ITERATIONS
     
     logger.info(f"Finalize: Consolidating verdict (Debate Rounds: {debate_iter})...")
     logger.debug(f"Finalize: Accumulated results count: {len(results)}")
