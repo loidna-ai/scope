@@ -156,6 +156,7 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     # 반환값 준비 (image_path는 graph 결과에서 가져옴)
     return_dict = {
         "final_verdict": result.get("final_verdict", "분석 실패"),
+        "final_verdict_structured": result.get("final_verdict_structured"),  # 구조화된 최종 판정 데이터
         "expert_reports": result.get("expert_reports", []),
         "arbiter_debate_messages": result.get("arbiter_debate_messages", []),  # 아비터 토론 메시지 추가
         "errors": result.get("errors", []),

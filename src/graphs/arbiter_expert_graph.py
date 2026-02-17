@@ -37,7 +37,24 @@ def build_arbiter_expert_graph():
     START → data_extractor → (contact/deform/necking)_debater → fact_checker 
          → fact_check_router → (retry OR moderator) → (다음 라운드 OR judge) → END
     """
+    # #region agent log
+    import json
+    import time
+    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"arbiter_expert_graph.py:40","message":"build_arbiter_expert_graph entry","data":{"ArbiterDebateState_type":str(type(ArbiterDebateState))},"timestamp":int(time.time()*1000)})+"\n")
+    except: pass
+    # #endregion
+    
     builder = StateGraph(ArbiterDebateState)
+    
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"arbiter_expert_graph.py:40","message":"StateGraph created successfully","data":{},"timestamp":int(time.time()*1000)})+"\n")
+    except: pass
+    # #endregion
     
     # 노드 추가
     builder.add_node("data_extractor", debate_data_extractor_node)
@@ -207,6 +224,7 @@ def arbiter_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
             "current_speaker": None,
             "fact_check_failures": {"contact": 0, "deform": 0, "necking": 0},
             "final_verdict": None,
+            "final_verdict_structured": None,  # 구조화된 데이터 초기화
             "consensus_reached": False,
             "errors": []
         }
@@ -264,6 +282,7 @@ def arbiter_expert_wrapper_node(state: InvestigationState) -> Dict[str, Any]:
         
         result = {
             "final_verdict": final_state.get("final_verdict"),
+            "final_verdict_structured": final_state.get("final_verdict_structured"),  # 구조화된 데이터 전달
             "arbiter_debate_messages": debate_messages,
             "errors": final_state.get("errors", [])
         }

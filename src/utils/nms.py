@@ -38,6 +38,8 @@ def non_max_suppression(
     """
     Performs NMS on a list of hotspots.
     Prioritizes hotspots with higher severity_score.
+    When suppressing overlapping hotspots, merges visual_evidence
+    from the suppressed hotspot into the kept one.
     
     Args:
         hotspots: List of hotspot dictionaries. Must have 'box_2d' and 'severity_score'.
@@ -50,7 +52,6 @@ def non_max_suppression(
         return []
         
     # Sort by severity_score descending
-    # If scores are equal, maybe use confidence? or size? Stability sort keeps original order.
     sorted_hotspots = sorted(
         hotspots, 
         key=lambda h: h.get("severity_score", 0), 
@@ -74,10 +75,11 @@ def non_max_suppression(
                 # Keep it if overlap is small
                 remaining.append(other)
             else:
-                # Suppress it (overlap is significant)
-                # Optional: Merge logic? (e.g. average coordinates, concat description)
-                # For now, just suppress the lower scoring one.
-                pass
+                # Suppress: merge visual_evidence from lower-score hotspot
+                other_evidence = other.get("visual_evidence", "")
+                current_evidence = current.get("visual_evidence", "")
+                if other_evidence and other_evidence not in current_evidence:
+                    current["visual_evidence"] = f"{current_evidence} | {other_evidence}"
                 
         sorted_hotspots = remaining
         

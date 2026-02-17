@@ -13,10 +13,10 @@ import operator
 
 # Third-party imports
 import cv2
-from google import genai
 from google.genai import types
 
 # Local imports - Config
+import config
 from config import TOP_N_HOTSPOTS
 
 # [Mitigation] API 부하 방지를 위한 동시 실행 제한 세마포어
@@ -27,23 +27,14 @@ from config import TOP_N_HOTSPOTS
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # Local imports - Utils and Tools
-from src.utils import crop_roi_from_box, async_retry_with_backoff, validate_state_keys
+from src.utils import crop_roi_from_box, async_retry_with_backoff, validate_state_keys, get_genai_client
 from src.utils.logging_config import setup_logger
 from src.tools.experts.expert_utils import _load_image_data
 
 # Initialize logger
 logger = setup_logger(__name__)
 
-# === Global Rate Limiter for Workers ===
-from aiolimiter import AsyncLimiter
-import config
-
-_worker_rate_limiter = AsyncLimiter(
-    max_rate=config.GEMINI_TIER1_RPM,
-    time_period=60
-)
-
-# Local imports - Prompts
+# Local imports - Prompts (전역 rate limit은 async_retry_with_backoff에서 적용)
 from src.prompts.common_prompts import get_component_classifier_prompt
 from src.prompts.necking_expert_prompts import (
     get_necking_wire_prompt,
@@ -122,56 +113,21 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             except Exception:
                 pass
             try:
-                # 1. 크롭된 이미지 로드 (Async I/O)
                 cropped_img = await asyncio.to_thread(cv2.imread, cropped_path)
                 if cropped_img is None:
                     raise ValueError("크롭된 이미지를 읽을 수 없습니다.")
-                
-                # 2. Enhancement (Blocking 작업을 thread로 offload)
-                def enhance_image(img, path):
-                    # #region agent log
-                    import json
-                    import time
-                    from pathlib import Path
-                    log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
-                    enhance_start = time.time()
-                    img_h, img_w = img.shape[:2]
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"necking_nodes.py:123","message":"enhance_image entry","data":{"hotspot_id":hotspot_id,"image_size_h":img_h,"image_size_w":img_w,"pixels":img_h*img_w},"timestamp":int(time.time()*1000)})+"\n")
-                    except: pass
-                    # #endregion
-                    
-                    enhancer = ImageEnhancer()
-                    enhanced_img = enhancer.upscale(img)
-                    cv2.imwrite(path, enhanced_img)
-                    
-                    # #region agent log
-                    enhance_duration = time.time() - enhance_start
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"necking_nodes.py:129","message":"enhance_image exit","data":{"hotspot_id":hotspot_id,"duration_seconds":enhance_duration},"timestamp":int(time.time()*1000)})+"\n")
-                    except: pass
-                    # #endregion
-                    
-                    return path
-                
-                enhanced_path = await asyncio.to_thread(enhance_image, cropped_img, cropped_path)
-                logger.info(f"Worker {hotspot_id}: Enhancement completed: {enhanced_path}")
-                
+                enhancer = ImageEnhancer()
+                enhanced_img = enhancer.upscale(cropped_img)
+                await asyncio.to_thread(cv2.imwrite, cropped_path, enhanced_img)
+                logger.info(f"Worker {hotspot_id}: Enhancement completed: {cropped_path}")
             except Exception as enh_err:
                 logger.warning(f"Worker {hotspot_id}: Enhancement Failed: {enh_err}")
-                # 향상 실패해도 원본 크롭 이미지는 유지됨
-
-            
             roi_image_path = cropped_path
         except Exception as e:
             logger.error(f"Worker {hotspot_id}: Crop Failed: {e}")
     
-    # ===== Step 2: Component Classification (Async) =====
     connection_type = "None"
     
-    # API 호출 함수 분리
     async def _call_classifier_api(client, model_name, parts, safety_settings):
         """Component Classification API 호출"""
         response = await asyncio.to_thread(
@@ -184,15 +140,12 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
                 "safety_settings": safety_settings,
             }
         )
-        
-        # [Debug/Safety] 응답 텍스트 확인 및 안전 파싱
         response_text = getattr(response, 'text', None)
         if not response_text:
             finish_reason = "Unknown"
             if hasattr(response, 'candidates') and response.candidates:
                 finish_reason = getattr(response.candidates[0], 'finish_reason', "Unknown")
             raise ValueError(f"Classifier 응답이 비어있습니다. (Finish Reason: {finish_reason})")
-        
         return response
     
     try:
@@ -205,8 +158,8 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
         prompt = get_component_classifier_prompt(roi_image_path)
         
         # 🔥 Pydantic Structured Output (Gemini Official Best Practice)
-        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-        model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
+        client = get_genai_client()
+        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
         
         # 이미지 파트 구성
         parts = [prompt]
@@ -297,8 +250,8 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
                 {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
             ]
             
-            client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-            model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
+            client = get_genai_client()
+            model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
             
             # 이미지 파트 구성
             parts = [prompt]
@@ -384,20 +337,19 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             # [Added] 상세 판정 결과 추출
             worker_verdict = f"[{evidence_result.step6_verdict.conclusion}] {evidence_result.step6_verdict.final_reasoning}"
             
-            # [Phase 9] 개별 분석 결과 파일 저장 (Persistence)
-            try:
-                output_dir = os.path.join(PROJECT_ROOT, "output", "necking_analysis")
-                os.makedirs(output_dir, exist_ok=True)
-                
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"hotspot_{hotspot_id}_{timestamp}.json"
-                file_path = os.path.join(output_dir, filename)
-                
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(evidence_result.model_dump(), f, ensure_ascii=False, indent=2)
-                logger.info(f"Worker {hotspot_id}: Analysis result saved to {file_path}")
-            except Exception as save_err:
-                logger.error(f"Worker {hotspot_id}: Failed to save result: {save_err}")
+            # [Phase 9] 개별 분석 결과 파일 저장 (Persistence) - config.SAVE_INDIVIDUAL_HOTSPOT_JSON=True일 때만
+            if config.SAVE_INDIVIDUAL_HOTSPOT_JSON:
+                try:
+                    output_dir = os.path.join(PROJECT_ROOT, "output", "necking_analysis")
+                    os.makedirs(output_dir, exist_ok=True)
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"hotspot_{hotspot_id}_{timestamp}.json"
+                    file_path = os.path.join(output_dir, filename)
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        json.dump(evidence_result.model_dump(), f, ensure_ascii=False, indent=2)
+                    logger.info(f"Worker {hotspot_id}: Analysis result saved to {file_path}")
+                except Exception as save_err:
+                    logger.error(f"Worker {hotspot_id}: Failed to save result: {save_err}")
 
             logger.info(f"Worker {hotspot_id}: Evidence: {observations} (Score: {severity_score})")
             
@@ -560,8 +512,8 @@ async def supervisor_verdict(state: NeckingExpertState) -> Dict[str, Any]:
         # [Gemini Native] Use genai.Client instead of LangChain
         # Consistent with worker nodes and avoid undefined globals/imports
         
-        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-        model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
+        client = get_genai_client()
+        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
         
         # Safety settings (String based for compatibility)
         safety_settings_block_none = [
@@ -609,12 +561,12 @@ async def supervisor_verdict(state: NeckingExpertState) -> Dict[str, Any]:
         
     except Exception as e:
         logger.error(f"Supervisor: Aggregation Error: {e}", exc_info=True)
-        # Fallback to Safe Default
+        # Fallback: 사용자 노출용 정제된 메시지 (Raw 에러 은닉)
         return {
             "final_verdict": {
                 "conclusion": "판독 불가",
                 "confidence": 0,
-                "reasoning": f"Supervisor Error: {str(e)}"
+                "reasoning": "분석 불가 (시스템 데이터 부족)"
             }
         }
 
@@ -830,8 +782,8 @@ async def verdict_analyst_node(state: NeckingExpertState) -> Dict[str, Any]:
         ]
         
         # Gemini Native Structured Output 사용
-        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-        model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
+        client = get_genai_client()
+        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
         
         # 🔥 Centralized Retry Logic
         response = await async_retry_with_backoff(
@@ -1003,8 +955,8 @@ async def verdict_critic_node(state: NeckingExpertState) -> Dict[str, Any]:
     
     try:
         # 🔥 핵심 변경: Gemini Native Structured Output
-        client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-        model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
+        client = get_genai_client()
+        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
 
         
         if image_data_list:

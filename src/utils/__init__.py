@@ -3,6 +3,9 @@
 한글 경로 지원 이미지 I/O 및 경로 탐색 함수를 제공합니다.
 """
 import os
+
+from src.utils.genai_client import get_genai_client
+from src.utils.api_concurrency import acquire_api_slot
 import cv2
 import numpy as np
 from pathlib import Path
@@ -23,6 +26,7 @@ _RETRIABLE_ERRORS = [
 ]
 _ERROR_HANDLERS = {
     "503": 5, "overloaded": 5,
+    "429": 5, "RESOURCE_EXHAUSTED": 5,  # Rate limit - 추가 대기
     "SSL": 8, "10054": 8, "ECONNRESET": 8, "끊겼습니다": 8,
 }
 
@@ -183,12 +187,14 @@ async def async_retry_with_backoff(
             if 'model_name' in kwargs:
                 kwargs['model_name'] = current_model
             
-            # === Execute with Semaphore ===
-            if semaphore:
-                async with semaphore:
+            # === Execute with Global Rate Limit + Semaphore (429/503 방지) ===
+            # Hotspot + Contact/Deform/Necking Expert 모두 동일 제한 공유
+            async with acquire_api_slot():
+                if semaphore:
+                    async with semaphore:
+                        return await func(*args, **kwargs)
+                else:
                     return await func(*args, **kwargs)
-            else:
-                return await func(*args, **kwargs)
                 
         except Exception as e:
             last_exception = e

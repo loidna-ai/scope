@@ -1,6 +1,7 @@
 langgraph>=0.2.0
 langchain-core>=0.3.0
-google-genai>=0.3.0
+google-genai>=0.3.0  # Vertex AI 및 Gemini API 지원
+google-auth>=2.0.0   # Vertex AI ADC용 (Application Default Credentials)
 opencv-python-headless>=4.8.0
 basicsr>=1.4.2
 realesrgan>=0.3.0
@@ -14,4 +15,5 @@ torchvision>=0.15.0
 matplotlib>=3.7.0
 python-dotenv>=1.0.0
 onnxruntime-directml>=1.16.0
+aiolimiter==1.1.0
 

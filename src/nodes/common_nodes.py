@@ -11,29 +11,22 @@ import threading
 from pathlib import Path
 from typing import Any, Dict
 
-from google import genai
 from google.genai import types
 
 from src.models.hotspot_models import HotspotDetectionResult
 from src.prompts.common_prompts import get_micro_evidence_prompt
 from src.state import InvestigationState
 from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
-from src.utils import async_retry_with_backoff
+from src.utils import async_retry_with_backoff, get_genai_client
 from src.utils.image_processing import get_image_size, map_box_to_global, slice_image
 from src.utils.logging_config import setup_logger
 from src.utils.nms import non_max_suppression
 
 logger = setup_logger("common_nodes")
 
-# === Global Rate Limiter for Hotspot Detector ===
-from aiolimiter import AsyncLimiter
+# === Hotspot Detector: 전역 Rate Limit/Semaphore 사용 (src.utils.api_concurrency) ===
+# async_retry_with_backoff 내부에서 acquire_api_slot()으로 통합 제어
 import config
-
-_hotspot_rate_limiter = AsyncLimiter(
-    max_rate=config.GEMINI_TIER1_RPM,
-    time_period=60
-)
-_hotspot_semaphore = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
 
 
 def _update_image_path_in_result(
@@ -78,12 +71,12 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
     """
     async def _async_detector_logic():
         """Async implementation of hotspot detection with Overlap Grid"""
-        # [환경 변수 검증] API Key 존재 여부 확인
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            error_msg = "Hotspot Detector: 환경 변수 GEMINI_API_KEY가 설정되지 않았습니다."
-            logger.error(error_msg)
-            return {"hotspots": [], "errors": [error_msg]}
+        # [인증 검증] Vertex AI 또는 Google AI Studio Client 획득
+        try:
+            client = get_genai_client()
+        except ValueError as e:
+            logger.error(f"Hotspot Detector: {e}")
+            return {"hotspots": [], "errors": [str(e)]}
         
         # [Memory Optimization] image_path 우선 사용
         image_path = state.get("image_path")
@@ -110,19 +103,22 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
             # Note: 임시 파일은 후속 노드에서 사용되므로 여기서 삭제하지 않음
         
         try:
-            # 1. Image Slicing
-            # [Config] Patch Size: 1024, Overlap: 200 (검토된 최적값)
+            # 1. Image Slicing (config에서 파라미터 참조)
             logger.info(f"Hotspot Detector: Slicing image {temp_image_path}...")
-            patches = await asyncio.to_thread(slice_image, temp_image_path, patch_size=1024, overlap=200)
+            patches = await asyncio.to_thread(
+                slice_image, temp_image_path, 
+                patch_size=config.HOTSPOT_PATCH_SIZE, 
+                overlap=config.HOTSPOT_OVERLAP
+            )
             
             if not patches:
                 raise ValueError("Image slicing failed (no patches generated).")
                 
-            logger.info(f"Hotspot Detector: Generated {len(patches)} patches. Starting parallel analysis...")
+            total_patches = len(patches)
+            logger.info(f"Hotspot Detector: Generated {total_patches} patches. Starting parallel analysis...")
 
-            # 2. Parallel API Execution
-            client = genai.Client(api_key=api_key)
-            model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-3-flash-preview") # Flash 권장
+            # 2. Parallel API Execution (전역 rate limit/semaphore는 async_retry_with_backoff에서 적용)
+            model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
             prompt = get_micro_evidence_prompt()
             
             # Safety settings: BLOCK_NONE
@@ -143,71 +139,102 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
                 "response_mime_type": "application/json",
                 "response_json_schema": json_schema,
                 "safety_settings": safety_settings_block_none,
-                # Flash 모델은 thinking_config 지원 여부를 확인해야 함. 일단 제외.
+            }
+
+            # Patch 통계 추적
+            patch_stats = {
+                "total": total_patches,
+                "success": 0,
+                "failed": 0,
+                "safety_blocked": 0,
             }
 
             async def _process_patch(patch_data):
-                """Process a single patch with rate limiting"""
+                """Process a single patch (전역 rate limit은 async_retry_with_backoff에서 적용)"""
                 patch_idx = patch_data['index']
-                
-                # === Apply Rate Limiting ===
-                async with _hotspot_rate_limiter:  # RPM control (20/min)
-                    async with _hotspot_semaphore:  # Concurrent control (5)
-                        try:
-                            # Part 생성 시 mime_type="image/jpeg"로 고정 (slice_image가 JPEG bytes 반환)
-                            image_part = types.Part.from_bytes(
-                                data=patch_data['image_bytes'],
-                                mime_type="image/jpeg"
-                            )
-                            
-                            # Retry logic for individual patch
-                            async def _call_api(**kwargs):
-                                # model_name in kwargs: Smart Fallback 지원 (503 시 async_retry_with_backoff가 전환)
-                                used_model = kwargs.get("model_name", model_name)
-                                # Note: Using async generate_content if available, otherwise wrap synchronous
-                                # genai.Client usually synchronous unless async_client used.
-                                # Here we wrap synchronous call in thread for true parallelism
-                                resp = await asyncio.to_thread(
-                                    client.models.generate_content,
-                                    model=used_model,
-                                    contents=[prompt, image_part],
-                                    config=api_config
-                                )
-                                return resp
-
-                            response = await async_retry_with_backoff(
-                                _call_api, 
-                                max_retries=3,  # 패치 단위는 재시도 횟수 줄임
-                                context_name=f"Patch {patch_idx}",
-                                model_name=model_name  # Smart Fallback 지원
-                            )
-                            
-                            # Validation & Parsing
-                            if not hasattr(response, "candidates") or not response.candidates:
-                                return []
-                            
-                            # Safety Block Check (skip if blocked)
-                            candidate = response.candidates[0]
-                            # Safety ratings check
-                            if hasattr(candidate, "safety_ratings") and candidate.safety_ratings:
-                                if any(r.probability in ["HIGH", "MEDIUM"] for r in candidate.safety_ratings):
-                                    logger.warning(f"Patch {patch_idx}: Safety block detected. Skipping.")
-                                    return []
-
+                hotspots = []
+                try:
+                    # Part 생성 시 mime_type="image/jpeg"로 고정 (slice_image가 JPEG bytes 반환)
+                    image_part = types.Part.from_bytes(
+                        data=patch_data['image_bytes'],
+                        mime_type="image/jpeg"
+                    )
+                    async def _call_api(**kwargs):
+                        used_model = kwargs.get("model_name", model_name)
+                        # 네이티브 async API 사용 (스레드풀 의존 제거)
+                        resp = await client.aio.models.generate_content(
+                            model=used_model,
+                            contents=[prompt, image_part],
+                            config=api_config
+                        )
+                        return resp
+                    response = await async_retry_with_backoff(
+                        _call_api,
+                        max_retries=3,
+                        context_name=f"Patch {patch_idx}",
+                        model_name=model_name
+                    )
+                    
+                    # 응답 처리 (Safety rating 로직 통합)
+                    is_safety_blocked = False
+                    if not hasattr(response, "candidates") or not response.candidates:
+                        hotspots = []
+                    else:
+                        candidate = response.candidates[0]
+                        
+                        # Safety block 체크
+                        is_safety_blocked = (
+                            hasattr(candidate, "safety_ratings") 
+                            and candidate.safety_ratings
+                            and any(r.probability in ["HIGH", "MEDIUM"] for r in candidate.safety_ratings)
+                        )
+                        
+                        if is_safety_blocked:
+                            logger.warning(f"Patch {patch_idx}: Safety block detected. Skipping.")
+                        else:
                             response_text = getattr(response, "text", None)
-                            if not response_text:
-                                return []
-                            
-                            result = HotspotDetectionResult.model_validate_json(response_text)
-                            return result.hotspots
-                            
-                        except Exception as e:
-                            logger.warning(f"Patch {patch_idx}: Analysis failed: {e}")
-                            return []
+                            if response_text:
+                                parsed = HotspotDetectionResult.model_validate_json(response_text)
+                                hotspots = parsed.hotspots
+                                # total_count 검증
+                                api_total = parsed.total_count
+                                actual_len = len(hotspots)
+                                if api_total != actual_len:
+                                    logger.warning(
+                                        f"Patch {patch_idx}: total_count mismatch — "
+                                        f"API returned {api_total}, actual hotspots: {actual_len}"
+                                    )
+                    
+                    # 통계 카운트: total == success + failed + safety_blocked 보장
+                    if is_safety_blocked:
+                        patch_stats["safety_blocked"] += 1
+                    else:
+                        patch_stats["success"] += 1
+                        
+                except Exception as e:
+                    logger.warning(f"Patch {patch_idx}: Analysis failed: {e}")
+                    patch_stats["failed"] += 1
+                    
+                await asyncio.sleep(config.API_CALL_DELAY)
+                return hotspots
 
             # Run all patches in parallel
             tasks = [_process_patch(p) for p in patches]
             patch_results_list = await asyncio.gather(*tasks)
+            
+            # 패치 통계 로깅
+            success_rate = (patch_stats["success"] / total_patches * 100) if total_patches > 0 else 0
+            logger.info(
+                f"Hotspot Detector: Patch stats — "
+                f"total: {total_patches}, success: {patch_stats['success']}, "
+                f"failed: {patch_stats['failed']}, safety_blocked: {patch_stats['safety_blocked']} "
+                f"(success rate: {success_rate:.1f}%)"
+            )
+            if success_rate < 50:
+                logger.warning(
+                    f"Hotspot Detector: Low patch success rate ({success_rate:.1f}%). "
+                    f"Results may be incomplete."
+                )
             
             # 3. Aggregation & Coordinate Mapping
             raw_hotspots = []
@@ -238,20 +265,20 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
                     # Update Info
                     h_dict['box_2d'] = global_box
                     h_dict['id'] = global_hotspot_id # 임시 ID (나중에 재정렬)
-                    h_dict['_origin_patch'] = patch_info['index'] # 디버깅용
+                    h_dict['_origin_patch'] = patch_info['index'] # 디버깅용 (NMS 후 제거)
                     
                     raw_hotspots.append(h_dict)
                     global_hotspot_id += 1
                     
             logger.info(f"Hotspot Detector: {len(raw_hotspots)} raw hotspots detected across all patches.")
             
-            # 4. Deduplication (NMS)
-            # [Config] IoU Threshold: 0.3 (겹치는 영역이 30% 이상이면 중복으로 간주하고 높은 점수 유지)
-            final_hotspots = non_max_suppression(raw_hotspots, iou_threshold=0.3)
+            # 4. Deduplication (NMS) — config에서 IoU 임계값 참조
+            final_hotspots = non_max_suppression(raw_hotspots, iou_threshold=config.HOTSPOT_NMS_IOU_THRESHOLD)
             
-            # ID Renumbering
+            # ID Renumbering + 디버깅 필드 제거
             for idx, h in enumerate(final_hotspots, 1):
                 h['id'] = idx
+                h.pop('_origin_patch', None)  # 디버깅 필드 제거
                 
             final_count = len(final_hotspots)
             logger.info(f"Hotspot Detector: {final_count} unique hotspots remaining after NMS.")
@@ -262,7 +289,7 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
                 result = {
                     "hotspots": [],
                     "corrected_total_count": 0,
-                    "analysis_status": "NO_HOTSPOTS_DETECTED"
+                    "analysis_status": "NO_HOTSPOTS_DETECTED",
                 }
                 _update_image_path_in_result(result, temp_image_path, image_path)
                 return result
@@ -276,7 +303,7 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
             result = {
                 "hotspots": final_hotspots,
                 "corrected_total_count": final_count,
-                "analysis_status": "DETECTED"
+                "analysis_status": "DETECTED",
             }
             _update_image_path_in_result(result, temp_image_path, image_path)
             
@@ -285,8 +312,12 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
         except Exception as e:
             error_msg = f"Hotspot Detector: Global Error: {e}"
             logger.error(error_msg, exc_info=True)
-            # 에러 발생 시에도 임시 파일을 생성한 경우 image_path 업데이트
-            result = {"hotspots": [], "errors": [error_msg]}
+            # 에러 발생 시에도 analysis_status 설정 + 임시 파일 경로 업데이트
+            result = {
+                "hotspots": [], 
+                "errors": [error_msg],
+                "analysis_status": "ERROR",
+            }
             _update_image_path_in_result(result, temp_image_path, image_path)
             return result
         # Note: 임시 파일 정리는 하지 않음. image_path가 State에 저장되어 후속 노드에서 사용됨.
@@ -301,8 +332,7 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
         # Check if we're already in a running event loop
         if loop.is_running():
             # We're inside an async context (e.g., LangGraph's astream)
-            # Use asyncio.ensure_future and wait for completion synchronously
-            # Note: This is a workaround for sync-in-async compatibility
+            # Use a separate thread with its own event loop
             result_container = {}
             exception_container = {}
             
@@ -321,11 +351,28 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
             # Run in a separate thread to avoid event loop conflicts
             thread = threading.Thread(target=run_in_new_loop)
             thread.start()
-            thread.join()
+            thread.join(timeout=config.HOTSPOT_THREAD_JOIN_TIMEOUT)
+            
+            # 타임아웃 체크
+            if thread.is_alive():
+                error_msg = (
+                    f"Hotspot Detector: Thread timed out after {config.HOTSPOT_THREAD_JOIN_TIMEOUT}s. "
+                    f"Consider increasing HOTSPOT_THREAD_JOIN_TIMEOUT in config.py."
+                )
+                logger.error(error_msg)
+                return {
+                    "hotspots": [], 
+                    "errors": [error_msg],
+                    "analysis_status": "ERROR",
+                }
             
             if 'error' in exception_container:
                 raise exception_container['error']
-            return result_container.get('value', {"hotspots": [], "errors": ["Unknown execution error"]})
+            return result_container.get('value', {
+                "hotspots": [], 
+                "errors": ["Unknown execution error"],
+                "analysis_status": "ERROR",
+            })
         else:
             # No running loop - safe to use asyncio.run()
             return asyncio.run(_async_detector_logic())
@@ -333,5 +380,3 @@ def hotspot_detector_node(state: InvestigationState) -> Dict[str, Any]:
     except RuntimeError:
         # No event loop exists - create one with asyncio.run()
         return asyncio.run(_async_detector_logic())
-
-

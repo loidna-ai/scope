@@ -97,6 +97,7 @@ def debate_moderator_node(state: ArbiterDebateState) -> Dict[str, Any]:
     import time
     from pathlib import Path
     log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"debate_moderator_node.py:67","message":"moderator entry","data":{"current_stage":current_stage,"current_round":current_round,"available_experts":list(expert_opinions.keys()),"messages_count":len(messages)},"timestamp":int(time.time()*1000)})+"\n")

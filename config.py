@@ -16,6 +16,12 @@ CLAHE_TILE_GRID_SIZE = (8, 8)  # CLAHE 타일 그리드 크기
 # 출력 디렉토리
 OUTPUT_DIR = "outputs"  # 기본 출력 디렉토리
 
+# 개별 Hotspot 분석 결과 JSON 저장 (output/contact_analysis, deform_analysis, necking_analysis)
+SAVE_INDIVIDUAL_HOTSPOT_JSON = False  # True: 각 Worker별 JSON 저장 (디버그/감사용), False: 저장 안 함
+
+# 리포트 생성 방식: True=LLM 기반(프롬프트), False=정규식/템플릿 기반
+USE_LLM_REPORT_GENERATOR = True  # True: LLM이 Raw Log를 전문 보고서로 변환, False: 기존 format_investigation_result 사용
+
 # 데이터 디렉토리
 DATA_DIR = "data"  # 입력 이미지가 있는 디렉토리
 
@@ -37,11 +43,12 @@ TOP_N_HOTSPOTS = 5  # 각 Expert가 분석할 최대 Hotspot 개수 (기본값: 
                      # 값이 클수록: 더 많은 증거 수집, 높은 비용/시간
                      # 값이 작을수록: 빠른 처리, 낮은 비용, 증거 누락 위험
 
-# API Rate Limit 방지
-API_CALL_DELAY = 1.5  # Hotspot 간 대기 시간 (초)
-                      # Gemini API RPM 제한 방지용
-                      # 값이 클수록: 안정적이나 느림
-                      # 값이 작을수록: 빠르나 Rate Limit 위험
+# API Rate Limit 방지 (Vertex AI traffic smoothing)
+# 공식 문서: "Distributing API calls more evenly... Avoid sharp second-level spikes"
+# 참고: https://cloud.google.com/vertex-ai/generative-ai/docs/standard-paygo
+API_CALL_DELAY = 2.0  # 패치 간 대기(초) - 429 완화를 위해 traffic smoothing 강화
+                        # 값이 클수록: 안정적이나 느림
+                        # 값이 작을수록: 빠르나 429 throttling 위험
 
 # Media Resolution 설정
 MEDIA_RESOLUTION_DEFAULT = "MEDIA_RESOLUTION_HIGH"  # 기본값: HIGH 해상도
@@ -51,16 +58,20 @@ MEDIA_RESOLUTION_ULTRA_HIGH_ENABLED = False  # ULTRA_HIGH 사용 여부 (향후 
                                               # True로 설정 시 특정 중요 Hotspot에만 ULTRA_HIGH 적용 가능
                                               # 참고: ULTRA_HIGH는 비용이 2배 증가 (1120 → 2240 tokens/이미지)
 
-# === Gemini API Rate Limiting (Tier 1 Paid) ===
+# === Gemini API Rate Limiting ===
 GEMINI_TIER = 1
 GEMINI_MODEL_NAME = "gemini-3-flash-preview"
 GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
 
-# Tier 1 Preview Model Limits
-# Preview 모델은 일반 Tier 1보다 제한적 (RPM: 20-25, RPD: 250)
-GEMINI_TIER1_RPM = 20  # 분당 요청 제한 (보수적으로 20 설정)
-GEMINI_TIER1_RPD = 250  # 일일 요청 제한
-GEMINI_TIER1_CONCURRENT = 3  # 동시 실행 제한 (503 에러 완화를 위해 5→3으로 감소)
+# Vertex AI gemini-3-flash-preview 기준 (공식 문서)
+# - Standard PayGo: Flash 모델 Tier 1 = 2M TPM (Preview는 tier 미적용, 모델별 문서 참조)
+# - 플랫폼 한도: 30,000 RPM per model per region (vertex-ai/docs/quotas)
+# - 권장: Global endpoint + traffic smoothing (요청 분산)
+# 참고: https://cloud.google.com/vertex-ai/generative-ai/docs/standard-paygo
+#       https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-flash
+GEMINI_TIER1_RPM = 30   # 분당 요청 제한 (Preview 모델 안정성을 위해 30으로 하향)
+GEMINI_TIER1_RPD = 5000 # 일일 요청 제한 (Vertex AI 상한)
+GEMINI_TIER1_CONCURRENT = 2  # 동시 실행 (Semaphore 2: 429 에러 방지를 위한 최적값)
 
 # Model Fallback 전략
 GEMINI_ENABLE_FALLBACK = True  # 자동 Fallback 활성화
@@ -69,3 +80,31 @@ GEMINI_FALLBACK_THRESHOLD = 2  # 연속 503 에러 2회 시 Fallback
 # Daily Budget 관리
 GEMINI_ENABLE_BUDGET_GUARD = True  # Retry Budget 보호 활성화
 GEMINI_DAILY_RETRY_BUDGET = 100  # 하루 최대 재시도 횟수 제한
+
+# === Hotspot Detector Slicing ===
+HOTSPOT_PATCH_SIZE = 1024       # 패치 크기 (px)
+HOTSPOT_OVERLAP = 200           # 패치 간 오버랩 (px)
+HOTSPOT_NMS_IOU_THRESHOLD = 0.3 # NMS IoU 임계값 (0.0~1.0)
+
+# === Event Loop ===
+HOTSPOT_THREAD_JOIN_TIMEOUT = 600  # hotspot_detector_node 스레드 타임아웃 (초)
+
+# === Vertex AI (선택) ===
+USE_VERTEX_AI = True  # Vertex AI 사용
+GOOGLE_CLOUD_PROJECT = "loidna-ai-scope"
+GOOGLE_CLOUD_LOCATION = "global"  # gemini-3-flash-preview는 global 전용
+
+# === Main.py Configuration ===
+# 이미지 파일 처리 설정
+MAX_IMAGE_SIZE_MB = 50  # 이미지 크기 제한 (MB)
+IMAGE_EXTENSIONS = ["*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG", "*.heic", "*.HEIC"]  # 지원 이미지 확장자 목록
+TEST_IMAGE_CANDIDATES = ["Primary_Arc_Bead_1.png", "Primary_Arc_Bead_1.jpg"]  # 테스트 모드에서 사용할 이미지 파일명 우선순위
+
+# 리포트 포맷팅 설정
+REASONING_TEXT_TRUNCATE_LENGTH = 300  # 텍스트 자르기 길이 (문자 수)
+CONTENT_LINES_TRUNCATE_THRESHOLD = 8  # 콘텐츠 줄 수 제한 (이 값보다 많으면 중략)
+MAX_BULLET_POINTS = 5  # bullet 포인트 최대 개수
+
+# 신뢰도 임계값 설정
+CONFIDENCE_HIGH_THRESHOLD = 80  # High 신뢰도 임계값 (%)
+CONFIDENCE_MEDIUM_THRESHOLD = 60  # Medium 신뢰도 임계값 (%)

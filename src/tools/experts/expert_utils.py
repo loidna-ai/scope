@@ -7,7 +7,6 @@ import json
 import base64
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
@@ -31,23 +30,21 @@ except AttributeError:
 env_path = Path(__file__).parent.parent.parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-# Google GenAI 설정
-API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-3-flash-preview")
+import config
+from src.utils.genai_client import get_genai_client
 
-# Google GenAI Client 초기화 (최신 SDK 방식)
-if API_KEY:
-    try:
-        client = genai.Client(api_key=API_KEY)
-        generation_config = types.GenerateContentConfig(
-            temperature=0.3,
-            response_mime_type="application/json"
-        )
-    except Exception as e:
-        print(f"경고: Google GenAI 초기화 실패: {e}")
-        client = None
-        generation_config = None
-else:
+# Google GenAI 설정 (config 또는 환경 변수)
+MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+
+# Google GenAI Client 초기화 (Vertex AI 또는 Google AI Studio)
+try:
+    client = get_genai_client()
+    generation_config = types.GenerateContentConfig(
+        temperature=0.3,
+        response_mime_type="application/json"
+    )
+except Exception as e:
+    print(f"경고: Google GenAI 초기화 실패: {e}")
     client = None
     generation_config = None
 

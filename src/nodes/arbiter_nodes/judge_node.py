@@ -1,12 +1,20 @@
 """
 Judge 노드
-최종 판정 도출
+최종 판정 도출 (구조화된 출력 사용)
+전문가 노드와 동일한 패턴 적용
 """
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import os
+import asyncio
+from google.genai import types
+
 from src.states.arbiter_debate_state import ArbiterDebateState
 from src.prompts.arbiter_debate_prompts import build_judge_prompt
-from src.tools.experts.expert_utils import call_gemini_text
+from src.models.verdict_models import FinalVerdictResult
+from src.utils.genai_client import get_genai_client
+from src.utils import async_retry_with_backoff
 from src.utils.logging_config import setup_logger
+import config
 
 logger = setup_logger(__name__)
 
@@ -54,7 +62,7 @@ def format_debate_summary(messages: list) -> str:
     
     return "\n".join(summary_parts) if summary_parts else "논쟁 기록이 없습니다."
 
-def judge_node(state: ArbiterDebateState) -> Dict[str, Any]:
+async def judge_node_async(state: ArbiterDebateState) -> Dict[str, Any]:
     """
     Judge: 최종 판정
     
@@ -84,25 +92,97 @@ def judge_node(state: ArbiterDebateState) -> Dict[str, Any]:
         verdict = generate_disqualification_verdict(disqualified, remaining_experts, messages)
         logger.info("Judge: Generated disqualification verdict")
     else:
-        # 정상적인 논쟁 종료 - LLM으로 최종 판정 생성
-        logger.info(f"Judge: Generating normal verdict (consensus: {consensus_reached})")
+        # 정상적인 논쟁 종료 - 구조화된 출력으로 최종 판정 생성
+        logger.info(f"Judge: Generating structured final verdict (consensus: {consensus_reached})")
+        
+        prompt = build_judge_prompt(
+            expert_opinions,
+            messages,
+            expert_reports,
+            consensus_reached
+        )
+        
+        # 🔥 API 호출 함수 분리 (전문가 노드와 동일한 패턴)
+        async def _call_judge_api(client, model_name, prompt, safety_settings):
+            """Judge API 호출 (구조화된 출력)"""
+            # thinking level 지원 모델에만 추가
+            thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
+            config_dict = {
+                "temperature": 1.0,  # 공식 문서 권장사항: 1.0으로 통일
+                "response_mime_type": "application/json",
+                "response_json_schema": FinalVerdictResult.model_json_schema(),
+                "safety_settings": safety_settings
+            }
+            if any(m in model_name for m in thinking_supported_models):
+                config_dict["thinking_config"] = types.ThinkingConfig(thinking_level="high")
+            
+            response = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(**config_dict)
+            )
+            return response
+        
         try:
-            prompt = build_judge_prompt(
-                expert_opinions,
-                messages,
-                expert_reports,
-                consensus_reached
+            # [Gemini Official Best Practice] Safety settings BLOCK_NONE
+            safety_settings_block_none = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
+            # Gemini Native Structured Output 사용
+            client = get_genai_client()
+            model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+            
+            # 🔥 Centralized Retry Logic (전문가 노드와 동일)
+            response = await async_retry_with_backoff(
+                _call_judge_api,
+                client=client,
+                model_name=model_name,
+                prompt=prompt,
+                safety_settings=safety_settings_block_none,
+                max_retries=5,
+                context_name="Judge"
             )
             
-            logger.debug("Judge: Calling LLM for final verdict")
-            response_text, _ = call_gemini_text(
-                prompt,
-                step_name="arbiter_judge",
-                verbose=False,
-                temperature=0.3
-            )
-            verdict = response_text
-            logger.info(f"Judge: Final verdict generated ({len(verdict)} chars)")
+            # [Debug/Safety] 응답 텍스트 확인 및 안전 파싱
+            response_text = getattr(response, 'text', None)
+            finish_reason = "Unknown"
+            if hasattr(response, 'candidates') and response.candidates:
+                finish_reason = getattr(response.candidates[0], 'finish_reason', "Unknown")
+            
+            logger.debug(f"Judge: Finish reason: {finish_reason}")
+            
+            if not response_text:
+                raise ValueError(f"Gemini API 응답 텍스트가 비어있습니다. (Finish Reason: {finish_reason})")
+            
+            # 🔥 구조화된 데이터 파싱 (전문가 노드와 동일: model_validate_json 사용)
+            verdict_structured = FinalVerdictResult.model_validate_json(response_text)
+            
+            # 하위 호환성을 위한 텍스트 생성
+            verdict = verdict_structured.to_text_summary()
+            
+            logger.info(f"Judge: Structured final verdict generated (confidence: {verdict_structured.confidence_score}%)")
+            
+            return {
+                # [구조화 데이터] - 전문가 노드의 "analyst_hypothesis"와 동일한 패턴
+                "final_verdict_structured": verdict_structured,
+                
+                # [하위 호환성] - 전문가 노드의 "current_hypothesis"와 동일한 패턴
+                "final_verdict": verdict,
+                
+                "debate_messages": [{
+                    "speaker": "judge",
+                    "content": verdict,
+                    "validated": True,
+                    "stage": "judgment",
+                    "round_num": state.get("current_round", 1)
+                }]
+            }
+            
         except Exception as e:
             # Fallback: 간단한 판정 생성
             logger.error(f"Judge: LLM call failed - {e}", exc_info=True)
@@ -117,19 +197,53 @@ LLM 호출 실패: {str(e)}
 [임시 판정]
 각 전문가의 의견을 종합하여 판정하세요."""
             logger.warning("Judge: Using fallback verdict")
+            
+            return {
+                "final_verdict": verdict,
+                "final_verdict_structured": None,  # 구조화 데이터 없음
+                "debate_messages": [{
+                    "speaker": "judge",
+                    "content": verdict,
+                    "validated": False,
+                    "stage": "judgment",
+                    "round_num": state.get("current_round", 1)
+                }]
+            }
     
-    # Judge 메시지 생성
-    judge_message = {
-        "speaker": "judge",
-        "content": verdict,
-        "validated": True,
-        "stage": "judgment",
-        "round_num": state.get("current_round", 1)
-    }
-    
+    # 실격 케이스는 이미 반환됨 (위의 if disqualified 블록에서)
+    # 이 코드는 실행되지 않지만 하위 호환성을 위해 유지
     logger.info("Judge node: Final verdict completed")
     
     return {
         "final_verdict": verdict,
-        "debate_messages": [judge_message]
+        "final_verdict_structured": None,  # 실격 케이스는 구조화 데이터 없음
+        "debate_messages": [{
+            "speaker": "judge",
+            "content": verdict,
+            "validated": True,
+            "stage": "judgment",
+            "round_num": state.get("current_round", 1)
+        }]
     }
+
+
+# 동기 함수로 래핑 (LangGraph 호환성)
+def judge_node(state: ArbiterDebateState) -> Dict[str, Any]:
+    """Judge 노드 (동기 버전, LangGraph 호환)"""
+    logger.debug("Judge node sync entry")
+    
+    import concurrent.futures
+    try:
+        # 이미 실행 중인 이벤트 루프 확인
+        loop = asyncio.get_running_loop()
+        logger.debug("Event loop already running, using ThreadPoolExecutor")
+        # 이벤트 루프가 실행 중이면 ThreadPoolExecutor 사용
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, judge_node_async(state))
+            result = future.result()
+    except RuntimeError:
+        logger.debug("No event loop, using asyncio.run")
+        # 이벤트 루프가 없으면 asyncio.run 사용
+        result = asyncio.run(judge_node_async(state))
+    
+    return result

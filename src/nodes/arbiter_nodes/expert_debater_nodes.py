@@ -107,6 +107,7 @@ def contact_debater_node_sync(state: ArbiterDebateState) -> Dict[str, Any]:
     import time
     from pathlib import Path
     log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"expert_debater_nodes.py:89","message":"contact_debater_node_sync entry","data":{},"timestamp":int(time.time()*1000)})+"\n")

@@ -2,9 +2,19 @@
 Arbiter Debate State 정의
 논쟁 시스템을 위한 독립적인 State 스키마
 """
+from __future__ import annotations  # 모든 타입 힌트를 문자열로 평가하여 런타임 평가 방지
+
 from typing import Literal, TypedDict, List, Dict, Any, Optional
 from typing_extensions import Annotated
 import operator
+
+# FinalVerdictResult를 런타임에 사용 가능하도록 import
+# verdict_models는 arbiter_debate_state를 import하지 않으므로 순환 참조 없음
+try:
+    from src.models.verdict_models import FinalVerdictResult
+except ImportError:
+    # Import 실패 시 Any로 대체 (타입 체크용)
+    FinalVerdictResult = Any
 
 # 논쟁 단계 타입
 DebateStage = Literal["opening", "rebuttal", "final_argument", "judgment"]
@@ -51,7 +61,8 @@ class ArbiterDebateState(TypedDict):
     fact_check_failures: Dict[ExpertName, int]  # 각 전문가의 Fact Check 실패 횟수
     
     # 최종 결과
-    final_verdict: Optional[str]  # 최종 판정 리포트
+    final_verdict: Optional[str]  # 최종 판정 리포트 (하위 호환성)
+    final_verdict_structured: Optional["FinalVerdictResult"]  # 구조화된 최종 판정 데이터
     consensus_reached: bool  # 합의 도달 여부
     
     # 에러 수집

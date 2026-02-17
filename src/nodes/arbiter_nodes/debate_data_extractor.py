@@ -27,6 +27,7 @@ def extract_expert_opinions(state: InvestigationState) -> Dict[ExpertName, Exper
     import time
     from pathlib import Path
     log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"debate_data_extractor.py:9","message":"extract_expert_opinions entry","data":{"expert_analysis_results_keys":list(expert_analysis_results.keys())},"timestamp":int(time.time()*1000)})+"\n")

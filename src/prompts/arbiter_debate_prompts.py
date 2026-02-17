@@ -127,52 +127,57 @@ def build_judge_prompt(
     expert_reports: List[str],
     consensus_reached: bool
 ) -> str:
-    """Judge 노드용 프롬프트"""
+    """Judge 노드용 프롬프트 (구조화된 출력용)
+    
+    중요: 이 프롬프트는 JSON Schema에 맞춰 응답하도록 설계됨
+    """
     debate_summary = format_debate_summary(debate_messages)
     opinions_summary = format_expert_opinions(expert_opinions)
     
     return f"""당신은 화재조사 최종 판정 Judge입니다.
+제공된 전문가 분석 결과와 토론 내용을 종합하여 최종 판정을 내리세요.
 
-[논쟁 요약]
+[입력 데이터]
+
+**1. 논쟁 요약:**
 {debate_summary}
 
-[전문가 의견]
+**2. 전문가 의견:**
 {opinions_summary}
 
-[전문가 리포트]
-{chr(10).join(expert_reports) if expert_reports else '전문가 리포트 없음'}
+**3. 전문가 리포트:**
+{chr(10).join(f'--- {i+1}번 전문가 ---{chr(10)}{report}' for i, report in enumerate(expert_reports)) if expert_reports else '전문가 리포트 없음'}
 
-[합의 상태]
+**4. 합의 상태:**
 {'합의 도달' if consensus_reached else '합의 미도달'}
 
-[판정 지시사항]
-1. 각 전문가의 의견을 객관적으로 평가하세요
-2. 논쟁 과정에서 제시된 증거와 논리를 종합하세요
-3. 합의가 이루어졌다면 합의 내용을 반영하세요
-4. 합의가 이루어지지 않았다면:
-   - 각 전문가의 신뢰도 점수와 증거의 강도를 고려하세요
-   - 가장 강력한 증거를 가진 전문가의 의견을 채택하거나
-   - 다수결로 결정하세요
-5. 판단 불가한 경우 (증거 부족, 모든 전문가 신뢰도 낮음 등) UNDETERMINED을 선언하세요
+[판정 지침]
+1. **중요: 하나의 주요 원인만 선택하세요.** 여러 전문가의 의견이 모두 유력하더라도, 가장 지배적인 원인 하나만 판정하세요.
+2. 3명의 전문가(Contact, Deform, Necking)의 의견을 검토하되, 신뢰도 점수와 증거의 강도를 비교하여 **가장 유력한 단일 원인**을 선택하세요.
+3. 신뢰도 점수는 0-100 사이의 값으로 설정하세요.
+4. 핵심 증거는 최대 5개까지 나열하세요.
+5. Zone 정보는 분석에 사용된 Zone만 포함하세요 (Zone 1, 3, 4 등).
+6. 각 전문가의 판정 요약을 expert_summaries에 포함하세요 (반드시 3명 모두 포함).
+7. 합의가 이루어졌다면 합의 내용을 반영하세요.
+8. 합의가 이루어지지 않았다면 각 전문가의 신뢰도 점수와 증거의 강도를 비교하여 **가장 높은 신뢰도를 가진 단일 판정**을 선택하세요.
+9. 판단 불가한 경우 (증거 부족, 모든 전문가 신뢰도 낮음 등) UNDETERMINED을 선언하세요.
+10. **절대 "A 및 B" 형태의 복합 판정을 하지 마세요.** 하나의 원인만 선택하세요 (예: "접촉불량(유력)" 또는 "반단선(유력)" 중 하나만).
 
 [출력 형식]
-다음 형식으로 최종 판정을 작성하세요:
+**반드시 제공된 JSON Schema에 맞춰 응답하세요.**
 
-## 화재조사 최종 결론 (Arbiter Agent)
+필수 필드:
+- verdict: 최종 판정 결과 - **반드시 하나의 원인만** (예: "접촉불량(유력)", "압착·손상(의심)", "반단선(유력)", "UNDETERMINED")
+  **주의: "반단선 및 접촉불량" 같은 복합 판정은 금지됩니다.**
+- confidence_score: 신뢰도 점수 (0-100)
+- confidence_level: 신뢰도 레벨 (High: 80+, Medium: 60-79, Low: <60)
+- reasoning_summary: 판정 근거 요약 (2-3문장)
+- key_evidence: 핵심 증거 목록 (최대 5개)
+- zones: Zone별 상세 정보 (있는 경우만)
+- expert_summaries: 각 전문가의 판정 요약 (반드시 3명: CONTACT, DEFORM, NECKING)
+- recommendations: 추가 조사 권고 사항 (있는 경우만)
 
-[종합 분석]
-(각 전문가의 의견을 종합한 분석)
-
-[최종 판정]
-(화재 원인 결정 또는 UNDETERMINED)
-
-[판정 근거]
-(판정에 대한 상세 근거)
-
-[추가 조사 필요 사항]
-(필요한 경우)
-
-최종 판정을 작성하세요."""
+위 정보를 바탕으로 구조화된 최종 판정을 생성하세요."""
 
 def build_fact_check_prompt(
     message: str,

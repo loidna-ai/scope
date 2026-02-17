@@ -172,6 +172,7 @@ class InvestigationState(TypedDict):
     
     # 최종 결론
     final_verdict: Annotated[Optional[str], keep_last]  # 마지막에 설정된 값만 유지
+    final_verdict_structured: Annotated[Optional[Any], keep_last]  # 구조화된 최종 판정 데이터 (FinalVerdictResult)
     
     # 아비터 토론 메시지
     arbiter_debate_messages: Annotated[Optional[List[Dict[str, Any]]], keep_last_list]  # 아비터 토론 메시지 히스토리

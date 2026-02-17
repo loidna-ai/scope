@@ -48,6 +48,9 @@ def distribute_work(state: ContactExpertState) -> Union[str, List[Send]]:
     if analysis_status == "NO_HOTSPOTS_DETECTED":
         logger.info("Contact Expert: No hotspots detected by detector, skipping analysis")
         return "supervisor_verdict"
+    if analysis_status == "ERROR":
+        logger.warning("Contact Expert: Detector returned ERROR status, skipping analysis")
+        return "supervisor_verdict"
     
     hotspots = state.get("hotspots") or []  # None-safe: None일 경우 빈 리스트로 처리
     image_path = state.get("image_path")
