@@ -9,9 +9,7 @@ scikit-image>=0.22.0
 numpy<2.0.0
 pillow>=10.0.0
 torch>=2.0.0
-torchvision<=0.16.1
-torch>=2.0.0
-torchvision>=0.15.0
+torchvision>=0.15.0,<=0.16.1
 matplotlib>=3.7.0
 python-dotenv>=1.0.0
 onnxruntime-directml>=1.16.0

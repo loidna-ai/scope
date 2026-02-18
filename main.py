@@ -9,6 +9,7 @@ import time
 import re
 import base64
 import traceback
+import asyncio
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import config
@@ -464,7 +465,7 @@ def _format_evidence_breakdown(reasoning_text: Optional[str]) -> List[str]:
             if m and len(m.group(1).strip()) > 4:
                 custom = m.group(1).strip()[:100] + ("." if not m.group(1).strip().endswith(".") else "")
         zone_desc = custom if custom else z_default
-        output.append(f"- **Zone {z_num} ({z_desc})**: {zone_desc}")
+        output.append(f"- **{z_desc}**: {zone_desc}")
     output.append("")
     return output
 
@@ -495,14 +496,14 @@ def _format_evidence_breakdown_structured(zones: List[Any]) -> List[str]:
                 z_desc = zone.get("description", "")
                 z_obs = zone.get("observation", "")
             
-            output.append(f"- **Zone {z_num} ({z_desc})**: {z_obs}")
+            output.append(f"- **{z_desc}**: {z_obs}")
     else:
         # 기본 Zone 정보 (Fallback)
         zone_info = [(1, "압착부 경계", "소선 간 탄화물 고착 심화. 물리적 틈새(Gap) 존재."),
                      (3, "도체 표면", "장기 과열 특유의 적갈색/회색 산화 스케일 관찰."),
                      (4, "말단부", "용융흔 없음. 원형 유지.")]
         for z_num, z_desc, z_default in zone_info:
-            output.append(f"- **Zone {z_num} ({z_desc})**: {z_default}")
+            output.append(f"- **{z_desc}**: {z_default}")
     
     output.append("")
     return output
@@ -694,15 +695,20 @@ def _format_audit_trail_section(arbiter_debate_messages: List[Dict[str, Any]]) -
                 output.append(f"*{content.strip()}*\n\n")
             continue
         if speaker in ["contact", "deform", "necking"]:
-            content_lines = content.split('\n')
-            if len(content_lines) > config.CONTENT_LINES_TRUNCATE_THRESHOLD:
-                first_part = "\n".join(content_lines[:3])
-                last_part = "\n".join([line for line in content_lines[-2:] if line.strip()])
-                output.append(f"{first_part}\n\n*... (중략) ...*\n\n{last_part}\n")
-            else:
+            if getattr(config, "FULL_AUDIT_TRAIL_OUTPUT", False):
                 output.append(f"{content}\n")
+            else:
+                content_lines = content.split('\n')
+                if len(content_lines) > config.CONTENT_LINES_TRUNCATE_THRESHOLD:
+                    first_part = "\n".join(content_lines[:3])
+                    last_part = "\n".join([line for line in content_lines[-2:] if line.strip()])
+                    output.append(f"{first_part}\n\n*... (중략) ...*\n\n{last_part}\n")
+                else:
+                    output.append(f"{content}\n")
         elif speaker == "fact_checker":
-            if "통과" in content or "일관성" in content:
+            if getattr(config, "FULL_AUDIT_TRAIL_OUTPUT", False):
+                output.append(f"*{content}*\n")
+            elif "통과" in content or "일관성" in content:
                 output.append(f"*{content[:100]}...*\n")
         output.append("")
     return "\n".join(output)
@@ -1025,7 +1031,8 @@ def _save_investigation_result(
     """통합 분석 결과 파일 저장"""
     timestamp_str = time.strftime('%Y-%m-%d %H:%M:%S')
     
-    # 리포트 생성: LLM 기반 또는 정규식 기반
+    # 리포트 생성: LLM 기반(통합 출력만) 또는 정규식 기반
+    llm_report = None
     if config.USE_LLM_REPORT_GENERATOR:
         llm_report = generate_report_llm(
             final_verdict=final_verdict,
@@ -1033,12 +1040,12 @@ def _save_investigation_result(
             arbiter_debate_messages=arbiter_debate_messages or [],
             input_image_path=input_image_path,
             timestamp=timestamp_str,
+            errors=errors,
         )
         if llm_report:
-            audit_section = _format_audit_trail_section(arbiter_debate_messages or [])
-            formatted_result = llm_report + ("\n\n" + audit_section if audit_section else "")
-            logger.info("LLM 기반 리포트 생성 완료")
-            print("  [리포트] LLM 기반 생성 완료")
+            formatted_result = llm_report
+            logger.info("LLM 기반 통합 리포트 생성 완료")
+            print("  [리포트] LLM 기반 통합 리포트 생성 완료")
         else:
             formatted_result = format_investigation_result(
                 final_verdict=final_verdict,
@@ -1059,34 +1066,18 @@ def _save_investigation_result(
             timestamp=timestamp_str,
             final_verdict_structured=final_verdict_structured,
         )
-    
+
+    # LLM/정규식 출력만 저장 (원본 append 제거)
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(formatted_result)
-        
-        # 추가 정보 (원본 데이터 보존용, Raw 에러 정제)
-        f.write("\n\n---\n\n")
-        f.write("## 상세 분석 내용 (원본 데이터)\n\n")
-        f.write("### 최종 판정 상세\n")
-        f.write(_sanitize_report_for_display(final_verdict))
-        f.write("\n\n")
-        
-        # 전문가 상세 리포트 (Raw 에러 정제)
-        if expert_reports:
-            f.write("### 전문가 상세 리포트\n\n")
-            for i, report in enumerate(expert_reports, 1):
-                f.write(f"#### Expert Report {i}\n\n")
-                f.write(_sanitize_report_for_display(report))
-                f.write("\n\n")
-        
-        # 오류 로그 (사용자 노출용 정제)
-        if errors:
-            f.write("\n---\n\n")
-            f.write("## 5. System Errors & Warnings\n\n")
+        # LLM 실패 시 또는 비-LLM 모드일 때만 errors 수동 추가 (LLM 성공 시엔 프롬프트에 포함됨)
+        if errors and not llm_report:
+            f.write("\n\n---\n\n## System Errors & Warnings\n\n")
             for err in errors:
                 f.write(f"- {_sanitize_user_visible_text(err)}\n")
 
 
-def run_analysis_pipeline(
+async def run_analysis_pipeline(
     input_image_path: str, 
     output_dir: Path, 
     _user_query: str = ""  # 현재 미사용, 향후 확장용
@@ -1156,7 +1147,7 @@ def run_analysis_pipeline(
     
     try:
         start_time = time.time()
-        result = analyze_fire_evidence(payload)
+        result = await analyze_fire_evidence(payload)
         duration = time.time() - start_time
         logger.info(f"분석 완료 (소요 시간: {duration:.1f}초)")
         print(f"✓ 분석 완료 (소요 시간: {duration:.1f}초)")

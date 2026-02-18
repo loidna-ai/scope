@@ -103,6 +103,7 @@ TEST_IMAGE_CANDIDATES = ["Primary_Arc_Bead_1.png", "Primary_Arc_Bead_1.jpg"]  # 
 # 리포트 포맷팅 설정
 REASONING_TEXT_TRUNCATE_LENGTH = 300  # 텍스트 자르기 길이 (문자 수)
 CONTENT_LINES_TRUNCATE_THRESHOLD = 8  # 콘텐츠 줄 수 제한 (이 값보다 많으면 중략)
+FULL_AUDIT_TRAIL_OUTPUT = True  # True: 상세 토론 내역 전체 출력, False: 중략(앞3줄+...중략...+뒤2줄)
 MAX_BULLET_POINTS = 5  # bullet 포인트 최대 개수
 
 # 신뢰도 임계값 설정

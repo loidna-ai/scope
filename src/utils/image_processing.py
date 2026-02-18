@@ -3,7 +3,7 @@ Image Processing Utilities for Overlap Grid Strategy
 """
 import io
 import math
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Dict, Any, Optional, Iterator
 from PIL import Image
 import os
 
@@ -12,7 +12,7 @@ def slice_image(
     patch_size: int = 1024, 
     overlap: int = 200,
     min_patch_size: int = 512
-) -> List[Dict[str, Any]]:
+) -> Iterator[Dict[str, Any]]:
     """
     Slices an image into overlapping patches.
     
@@ -81,18 +81,17 @@ def slice_image(
                 patch_img.save(buf, format="JPEG", quality=95)
                 patch_bytes = buf.getvalue()
                 
-                patches.append({
+                yield {
                     "image_bytes": patch_bytes,
                     "offset": (x, y),
                     "size": (pw, ph),
                     "index": (r_idx, c_idx)
-                })
-                
-        return patches
+                }
         
     except Exception as e:
         print(f"Error slicing image: {e}")
-        return []
+        # Generator must yield nothing on error or handle it gracefully
+        return
 
 def map_box_to_global(
     box_2d: Dict[str, int], 

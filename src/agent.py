@@ -76,7 +76,7 @@ def build_investigation_graph() -> StateGraph:
     
     return builder.compile()
 
-def analyze_fire_evidence(payload_data: List[Any]) -> dict:
+async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     """
     화재 증거물 분석 (외부 호출용)
     
@@ -134,7 +134,8 @@ def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     # #endregion
     
     try:
-        result = graph.invoke(initial_state)
+        # Use ainvoke for async graph execution
+        result = await graph.ainvoke(initial_state)
         
         # #region agent log
         try:
