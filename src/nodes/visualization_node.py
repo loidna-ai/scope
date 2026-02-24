@@ -47,6 +47,23 @@ def draw_annotation_node(state: InvestigationState) -> Dict[str, Any]:
     # 2. 결과 순회 및 그리기
     expert_results = state.get("expert_analysis_results", {})
     
+    # [Debug] expert_analysis_results 구조 로깅
+    logger.info(f"[Visualization Debug] expert_analysis_results keys: {list(expert_results.keys())}")
+    for exp_name, exp_data in expert_results.items():
+        multi_results = exp_data.get("multi_hotspot_results", [])
+        logger.info(f"[Visualization Debug] {exp_name}: multi_hotspot_results count={len(multi_results)}")
+        for idx, res in enumerate(multi_results):
+            hotspot_info = res.get("hotspot_info", {})
+            box_2d = hotspot_info.get("box_2d") if hotspot_info else None
+            has_hotspot_info = bool(hotspot_info)
+            has_box_2d = box_2d is not None and (isinstance(box_2d, dict) or (isinstance(box_2d, list) and len(box_2d) == 4))
+            logger.info(
+                f"[Visualization Debug]   [{exp_name}] res[{idx}]: hotspot_info={has_hotspot_info}, "
+                f"box_2d={has_box_2d}, res.keys={list(res.keys())}"
+            )
+            if not has_box_2d and has_hotspot_info:
+                logger.debug(f"[Visualization Debug]     hotspot_info.keys={list(hotspot_info.keys())}, box_2d type={type(box_2d)}")
+    
     # Color Palette (BGR)
     COLORS = {
         "contact": (0, 0, 255),    # Red
@@ -112,6 +129,11 @@ def draw_annotation_node(state: InvestigationState) -> Dict[str, Any]:
             annotated_count += 1
 
     if annotated_count == 0:
+        total_results = sum(len(rd.get("multi_hotspot_results", [])) for rd in expert_results.values())
+        logger.warning(
+            f"[Visualization] 시각화할 Hotspot이 없습니다. "
+            f"expert_count={len(expert_results)}, total_multi_results={total_results}, annotated=0"
+        )
         print("⚠️ [Visualization] 시각화할 Hotspot이 없습니다.")
         return {}
 

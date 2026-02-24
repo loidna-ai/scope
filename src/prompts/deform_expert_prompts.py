@@ -219,8 +219,8 @@ Return RAW JSON only. No markdown.
   "conclusion": "압착, 손상 / 압착, 손상 의심 / 압착, 손상 아님 / 판독 불가",
   "probability": 0-100,
   "key_evidence": [
-    "Hotspot #7: 형태학적 지문(세장화+망울) 명확",
-    "Hotspot #3: 위치적 특이성(전선 중간) 확인"
+    "Hotspot #7: 형태학적 지문(물리적 눌림+타원형 단락흔) 명확",
+    "Hotspot #3: 예리한 절단면 및 이물질 융합 관찰됨"
   ],
   "reasoning": "모든 증거를 종합적으로 판단한 근거 서술"
 }}
@@ -284,9 +284,9 @@ Return RAW JSON only. No markdown.
 
 {{
   "critique_is_valid": true,
-  "rebuttal_or_acceptance": "비평 수용: Hotspot #3 슬리빙 불명확으로 Medium → Low 하향 조정",
+  "rebuttal_or_acceptance": "비평 수용: Hotspot #3 물리적 압착흔 불명확으로 Medium → Low 하향 조정",
   "revised_hypothesis": {{
-      "conclusion": "압착, 손상 (Confirmed) / 압착, 손상 의심 (Suspected) / 압착, 손상 아님 (Not Necking) / 판독 불가 (Indeterminate)",
+      "conclusion": "압착, 손상 (Confirmed) / 압착, 손상 의심 (Suspected) / 압착, 손상 아님 (Not Deform) / 판독 불가 (Indeterminate)",
       "probability": 0-100,
       "key_evidence": ["Hotspot #3 제외 나머지 증거는 유효함"],
       "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함."
@@ -328,18 +328,18 @@ def get_critic_prompt(
 분석관의 가설을 다음 관점에서 **비판적으로 검토**하십시오:
 
 1. **시각적 증거 검증** (🔥 최우선):
-   - 분석가가 주장한 "세장화", "미세 망울"이 **실제 이미지에서 보이는가**?
-   - Pixel 레벨로 확인: 뾰족한가? 뭉툭한가? 망울이 좁쌀 크기인가? 거대한가?
+   - 분석가가 주장한 "물리적 눌림", "타원형/납작한 단락흔", "예리한 절단면"이 **실제 이미지에서 보이는가**?
+   - Pixel 레벨로 확인: 전선이 찌그러져 있는가? 단락흔이 눌린 방향을 따라 퍼져 있는가?
    
 2. **확률 점수(Probability) 적정성 검증**:
    - 제시된 증거에 비해 **점수가 과하게 높지 않은가**?
-   - 예: "슬리빙이 불명확한데 90%를 주었는가?" (감점 요인 누락)
+   - 예: "물리적 눌림 흔적이 불명확한데 90%를 주었는가?" (감점 요인 누락)
    
 3. **증거 과대해석**: 
-   - "계단식", "세장화" 등이 실제 명확한가? 모호한데 확정한 것은 아닌가?
+   - "타원형 단락흔", "칼로 자른 듯한 절단면" 등이 실제 명확한가? 모호한데 확정한 것은 아닌가?
    
 4. **프로파일 누락 간과**:
-   - 프로파일 3개 중 하나라도 불명확한데 'Confirmed' 판정한 것은 아닌가?
+   - 물리적 변형 프로파일 중 하나라도 불명확한데 'Confirmed' 판정한 것은 아닌가?
    
 5. **Hotspot 간 불일치**:
    - 여러 Hotspot 중 일부만 확실한데 전체를 압착, 손상으로 판정한 것은 아닌가?
@@ -359,12 +359,12 @@ Return RAW JSON only. No markdown.
   "is_approved": false,
   "objection_type": "NO_OBJECTION" or "증거 과대해석" or "프로파일 누락 간과" or "대안 가설 미검토",
   "flaws": [
-    "Hotspot #3: 슬리빙 불명확, 확률 85%는 과대평가임",
-    "Hotspot #2: 세장화 의심스러움"
+    "Hotspot #3: 물리적 압착흔 불명확, 확률 85%는 과대평가임",
+    "Hotspot #2: 눌림 형태 의심스러움"
   ],
   "hotspots_mentioned": [2, 3],
-  "critical_question": "Hotspot #3의 ROI 이미지를 직접 확인한 결과, 소선 끝단이 뭉툭한 형태인데 '세장화'라고 판단한 근거는?",
-  "alternative_interpretation": "Hotspot #3는 단순 열 용융 가능성 검토 필요",
+  "critical_question": "Hotspot #3의 ROI 이미지를 직접 확인한 결과, 단락흔 뒤쪽에 물리적 눌림 자국이 보이지 않는데 '압착, 손상'으로 판단한 근거는?",
+  "alternative_interpretation": "Hotspot #3는 화염에 의한 단순 열 용융 가능성 검토 필요",
   "suggestion_for_analyst": "Hotspot #3의 확률을 Medium(60%) 이하로 하향 조정할 것"
 }}
 </output_format>

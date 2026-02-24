@@ -1,3 +1,8 @@
+# ⚠️ [DEPRECATED] ReAct 에이전트 설계 문서는 사용하지 않습니다.
+
+> 이 설계 문서는 프로젝트 이력 및 설계 초기 버전을 다루는 아카이브 목적입니다.
+> 본 설계의 ReAct 패턴은 도입 검토되었으나, 현재는 각 전문가 노드 내에서 **Map-Reduce 패턴과 Analyst-Critic Debate** 체제를 직접 운용하는 방식으로 대체되어 사용되지 않습니다. 최신 워크플로우는 `WORKFLOW.md`나 `PROJECT_OVERVIEW.md`를 참고 바랍니다.
+
 # ReAct 에이전트 통합 설계 문서
 
 ## 개요
@@ -17,6 +22,7 @@
 ## 디렉토리 구조
 
 **현재 프로젝트 구조** (기존):
+
 ```
 src/
 ├── state.py                    # GraphState, InvestigationState 정의
@@ -40,6 +46,7 @@ src/
 ```
 
 **ReAct 에이전트 추가 구조** (신규 추가, 기존 구조 유지):
+
 ```
 src/
 ├── state.py                    # ReActState 추가 (기존: GraphState, InvestigationState 유지)
@@ -117,6 +124,7 @@ src/
 ```
 
 **구조 요약**:
+
 - **기존 구조**: 그대로 유지 (변경 없음)
   - `graphs/`: 전문가별 서브그래프 빌더
   - `nodes/`: 모든 노드 정의
@@ -138,6 +146,7 @@ src/
 LangGraph의 `create_react_agent`는 기본적으로 `MessagesState`를 사용합니다.
 
 **LangGraph 공식 권장사항**:
+
 - `MessagesState`는 `messages` 필드를 자동으로 포함하며 reducer 기능이 내장되어 있습니다
 - `Annotated[List[BaseMessage], operator.add]` 패턴이 자동으로 적용됩니다
 - 추가 필드가 필요하면 상속하여 확장 가능합니다
@@ -151,7 +160,7 @@ from typing import Optional, Dict, Any
 class ReActState(MessagesState):
     """
     ReAct 에이전트 상태 (MessagesState 확장)
-    
+
     LangGraph 공식 권장 방식:
     - MessagesState를 상속받아 messages 필드 자동 포함
     - reducer 기능 자동 적용 (operator.add)
@@ -174,19 +183,19 @@ from langchain_core.messages import BaseMessage
 class ReActState(TypedDict):
     """
     ReAct 에이전트 상태 (LangGraph 메시지 기반)
-    
+
     LangGraph의 prebuilt agent는 메시지 기반 상태를 사용합니다.
     """
     # 메시지 히스토리 (LangGraph 표준)
     messages: Annotated[List[BaseMessage], operator.add]
-    
+
     # InvestigationState와의 호환성을 위한 필드 (선택적)
     payload: Annotated[List[Any], keep_first]  # 기존 payload 유지
-    
+
     # 추가 컨텍스트
     task: Optional[str]  # 수행할 작업 설명
     context: Optional[Dict[str, Any]]  # 컨텍스트 정보
-    
+
     # 에러
     errors: Annotated[List[str], operator.add]
 ```
@@ -202,6 +211,7 @@ Google Gemini를 LangChain ChatModel 인터페이스로 래핑하여 LangGraph�
 ### 현재 프로젝트의 Gemini 사용 방식
 
 현재 프로젝트는 `google.genai` SDK를 직접 사용합니다:
+
 - `src/nodes/experts/expert_utils.py`에서 `call_gemini_vision()` 함수 사용
 - `google.genai.Client` 사용
 - `types.GenerateContentConfig` 사용
@@ -233,7 +243,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 
 class GeminiChatModel(BaseChatModel):
     """Google Gemini를 LangChain ChatModel로 래핑"""
-    
+
     def __init__(self):
         # 현재 프로젝트의 설정 사용
         from src.nodes.experts.expert_utils import client, generation_config
@@ -254,6 +264,7 @@ class GeminiChatModel(BaseChatModel):
 **기반 클래스**: `src/nodes/metrics.py`의 `MorphologyAnalyzer`
 
 **주요 함수**:
+
 - `analyze(image: np.ndarray) -> dict`
   - **입력**: 이미지 (BGR 형식, numpy array)
   - **출력**: 형태학적 메트릭스 딕셔너리
@@ -265,6 +276,7 @@ class GeminiChatModel(BaseChatModel):
   - **추가 출력**: 이진화된 마스크 이미지 (binary_mask)
 
 **사용 예시**:
+
 ```python
 from src.tools.image_tools import ImageAnalyzerTool
 
@@ -280,6 +292,7 @@ Real-ESRGAN을 사용하여 이미지를 4배 초해상도로 향상시키는 �
 **기반 클래스**: `src/nodes/enhancement.py`의 `ImageEnhancer`
 
 **주요 함수**:
+
 - `upscale(image: np.ndarray) -> np.ndarray`
   - **입력**: 이미지 (BGR 형식, numpy array)
   - **출력**: 향상된 이미지 (4배 확대, BGR 형식)
@@ -287,6 +300,7 @@ Real-ESRGAN을 사용하여 이미지를 4배 초해상도로 향상시키는 �
   - **Fallback**: 모델 실패 시 단순 리사이즈
 
 **사용 예시**:
+
 ```python
 from src.tools.image_tools import ImageEnhancerTool
 
@@ -302,6 +316,7 @@ Morphological Gradient 기반으로 단락흔 영역을 탐지하고 크롭하�
 **기반 클래스**: `src/nodes/crop.py`의 `ImageCropper`
 
 **주요 함수**:
+
 - `crop(image: np.ndarray) -> np.ndarray`
   - **입력**: 이미지 (BGR 형식, numpy array)
   - **출력**: 크롭된 이미지 (BGR 형식)
@@ -320,6 +335,7 @@ CLAHE (Contrast Limited Adaptive Histogram Equalization) 필터를 적용하는 
 **기반 클래스**: `src/nodes/filter.py`의 `TextureFilter`
 
 **주요 함수**:
+
 - `apply_clahe(image: np.ndarray) -> np.ndarray`
   - **입력**: 이미지 (BGR 형식, numpy array)
   - **출력**: 필터 적용된 이미지 (BGR 형식)
@@ -330,6 +346,7 @@ CLAHE (Contrast Limited Adaptive Histogram Equalization) 필터를 적용하는 
   - **파라미터**: `clipLimit=4.0`, `tileGridSize=(8, 8)`
 
 **도구 구현 예시**:
+
 ```python
 from langchain_core.tools import BaseTool
 from src.nodes.metrics import MorphologyAnalyzer
@@ -339,46 +356,46 @@ import numpy as np
 
 class ImageAnalyzerTool(BaseTool):
     """이미지 형태학적 분석 도구"""
-    
+
     name = "analyze_image_morphology"
     description = "이미지의 형태학적 특성을 분석합니다 (원형도, 고형도, 면적)"
-    
+
     def _run(self, image_path: str) -> str:
         """이미지 형태학적 분석 실행"""
         # 이미지 로드
         img = cv2.imread(image_path)
         if img is None:
             return f"이미지 로드 실패: {image_path}"
-        
+
         # 분석 수행
         analyzer = MorphologyAnalyzer()
         metrics, binary_mask = analyzer.analyze(img)
-        
+
         return f"형태학적 분석 결과: 원형도={metrics['circularity']:.3f}, " \
                f"고형도={metrics['solidity']:.3f}, 면적={metrics['area']}픽셀"
 
 class ImageEnhancerTool(BaseTool):
     """Real-ESRGAN 기반 이미지 향상 도구"""
-    
+
     name = "enhance_image"
     description = "Real-ESRGAN을 사용하여 이미지를 4배 초해상도로 향상시킵니다"
-    
+
     def _run(self, image_path: str, output_path: str = None) -> str:
         """이미지 향상 실행"""
         # 이미지 로드
         img = cv2.imread(image_path)
         if img is None:
             return f"이미지 로드 실패: {image_path}"
-        
+
         # 향상 수행
         enhancer = ImageEnhancer()
         enhanced_img = enhancer.upscale(img)
-        
+
         # 저장 (선택적)
         if output_path:
             cv2.imwrite(output_path, enhanced_img)
             return f"이미지 향상 완료: {output_path} (크기: {enhanced_img.shape})"
-        
+
         return f"이미지 향상 완료 (크기: {enhanced_img.shape})"
 ```
 
@@ -400,6 +417,7 @@ class ImageEnhancerTool(BaseTool):
 각 전문가의 step 함수를 도구로 래핑하는 예시:
 
 **Contact 전문가 도구** (`src/tools/contact_tools.py` - 필요시 생성):
+
 - `AnalyzeLocationContextTool`: `src/nodes/experts/contact_expert.py`의 `step1_location_context()` 래핑
 - `AnalyzeSpectralPatternTool`: `step2_spectral_analysis()` 래핑
 - `AnalyzeThermalGradientTool`: `step3_thermal_gradient()` 래핑
@@ -418,11 +436,11 @@ class ImageEnhancerTool(BaseTool):
 ```python
 class ToolRegistry:
     """도구 레지스트리 싱글톤"""
-    
+
     def get_tools(self) -> List[BaseTool]:
         """모든 도구 반환"""
         return self._tools
-    
+
     def get_tools_by_category(self, category: str) -> List[BaseTool]:
         """카테고리별 도구 반환 (예: 'common', 'contact', 'tracking')"""
         return [tool for tool in self._tools if tool.category == category]
@@ -437,6 +455,7 @@ class ToolRegistry:
 모든 도구를 사용하는 통합 ReAct 에이전트:
 
 **LangGraph 공식 권장사항**:
+
 - `create_react_agent`는 `MessagesState`를 기본으로 사용합니다
 - `state_modifier`는 시스템 메시지로 자동 추가됩니다
 - 도구는 LangChain `BaseTool` 형식이어야 합니다
@@ -450,7 +469,7 @@ from src.tools.registry import ToolRegistry
 def build_react_agent_graph() -> CompiledGraph:
     """
     ReAct 에이전트 서브그래프 빌드 (통합)
-    
+
     LangGraph 공식 권장 방식:
     - create_react_agent는 MessagesState를 기본으로 사용
     - 반환 타입은 CompiledGraph (StateGraph가 아님)
@@ -459,7 +478,7 @@ def build_react_agent_graph() -> CompiledGraph:
     llm = GeminiChatModel()
     registry = ToolRegistry()
     tools = registry.get_tools()  # 모든 도구 (기본: image_tools, pipeline_tools)
-    
+
     # LangGraph 공식 권장: create_react_agent 사용
     agent = create_react_agent(
         llm=llm,
@@ -470,17 +489,19 @@ def build_react_agent_graph() -> CompiledGraph:
             "기존 파이프라인 도구를 사용하여 전문가 분석을 수행할 수 있습니다."
         )
     )
-    
+
     # create_react_agent는 이미 컴파일된 그래프를 반환
     return agent
 ```
 
 **LangGraph 공식 문서 참고사항**:
+
 - `create_react_agent`는 내부적으로 `StateGraph`를 생성하고 컴파일하여 반환합니다
 - 반환 타입은 `CompiledGraph`이므로 추가 컴파일이 필요 없습니다
 - `state_modifier`는 첫 번째 메시지로 자동 추가됩니다
 
 **주요 도구**:
+
 - `RunPreprocessingPipelineTool`: 기존 전처리 파이프라인 호출
 - `RunInvestigationPipelineTool`: 기존 조사 파이프라인 호출 (모든 전문가 포함)
 - `ImageAnalyzerTool`: 이미지 형태학적 분석
@@ -498,11 +519,11 @@ def build_react_agent_graph() -> CompiledGraph:
 def build_contact_react_agent_graph() -> StateGraph:
     """
     Contact 전문가용 ReAct 에이전트 서브그래프 (선택적)
-    
+
     Contact 전문가가 사용할 수 있는 특화 도구만 제공
     """
     llm = GeminiChatModel()
-    
+
     # 공통 도구 + Contact 특화 도구
     tools = [
         registry.get_tool("analyze_image"),  # 공통 도구
@@ -511,7 +532,7 @@ def build_contact_react_agent_graph() -> StateGraph:
         AnalyzeThermalGradientTool(),        # Contact 특화
         AnalyzeSurfaceErosionTool(),         # Contact 특화
     ]
-    
+
     agent = create_react_agent(
         llm=llm,
         tools=tools,
@@ -525,7 +546,7 @@ def build_contact_react_agent_graph() -> StateGraph:
             "각 단계의 결과를 종합하여 최종 판단을 내리세요."
         )
     )
-    
+
     return agent
 ```
 
@@ -554,6 +575,7 @@ def _get_react_agent_graph() -> CompiledGraph:
 ```
 
 **참고**: `src/agent.py`의 `build_investigation_graph()`에서 서브그래프를 직접 노드로 추가하는 방식:
+
 ```python
 # 기존 전문가 서브그래프 (유지)
 builder.add_node("contact", build_contact_expert_graph())
@@ -578,6 +600,7 @@ ReAct 에이전트는 다음 사이클을 반복합니다:
 ### 5.2 도구 선택 메커니즘
 
 LangGraph의 `create_react_agent`는 자동으로:
+
 - 사용 가능한 도구 목록을 LLM에 제공
 - LLM이 상황에 맞는 도구를 선택
 - 도구를 실행하고 결과를 관찰
@@ -598,21 +621,22 @@ LangGraph의 `create_react_agent`는 자동으로:
 ### 옵션 1: 서브그래프를 직접 노드로 추가 (권장, 현재 프로젝트 패턴)
 
 `src/agent.py`에서:
+
 ```python
 def build_investigation_graph_with_react() -> StateGraph:
     """조사 그래프에 ReAct 에이전트 노드 추가"""
     builder = StateGraph(InvestigationState)
-    
+
     # 기존 전문가 노드들
     builder.add_node("contact", build_contact_expert_graph())
     # ...
-    
+
     # ReAct 에이전트를 서브그래프로 직접 노드로 추가
     builder.add_node("react_agent", build_react_agent_graph())
-    
+
     # 엣지 추가
     add_investigation_edges(builder)
-    
+
     return builder.compile()
 ```
 
@@ -624,15 +648,15 @@ def build_investigation_graph_with_react() -> StateGraph:
 def react_agent_node(state: InvestigationState) -> Dict[str, Any]:
     """
     ReAct 에이전트 노드 (서브그래프 사용)
-    
+
     InvestigationState를 ReActState로 변환하여 실행
     """
     # 서브그래프 가져오기
     react_graph = _get_react_agent_graph()
-    
+
     # InvestigationState → ReActState 변환
     from langchain_core.messages import HumanMessage
-    
+
     subgraph_state: ReActState = {
         "messages": [HumanMessage(content=str(state.get("task", "")))],
         "task": state.get("task"),
@@ -642,13 +666,13 @@ def react_agent_node(state: InvestigationState) -> Dict[str, Any]:
         },
         "errors": []
     }
-    
+
     # 서브그래프 실행
     result = react_graph.invoke(subgraph_state)
-    
+
     # ReActState → InvestigationState 변환
     final_message = result.get("messages", [])[-1] if result.get("messages") else None
-    
+
     return {
         "expert_reports": [final_message.content if final_message else ""],
         "errors": result.get("errors", [])
@@ -667,14 +691,14 @@ ReAct 에이전트를 독립적으로 실행:
 def run_react_agent_standalone(input_image_path: str, user_query: str):
     """ReAct 에이전트를 독립적으로 실행"""
     react_graph = build_react_agent_graph()
-    
+
     initial_state = {
         "messages": [HumanMessage(content=f"{user_query}\n이미지: {input_image_path}")],
         "task": user_query,
         "context": {"image_path": input_image_path},
         "errors": []
     }
-    
+
     result = react_graph.invoke(initial_state)
     return result
 ```
@@ -692,44 +716,44 @@ def run_react_agent_standalone(input_image_path: str, user_query: str):
 def build_investigation_graph() -> StateGraph:
     """기존 조사 그래프 (변경 없음)"""
     builder = StateGraph(InvestigationState)
-    
+
     # 기존 전문가 서브그래프들 (그대로 유지)
     builder.add_node("contact", build_contact_expert_graph())
     builder.add_node("dielectric", build_dielectric_expert_graph())
     builder.add_node("mechanical", build_mechanical_expert_graph())
     builder.add_node("tracking", build_tracking_expert_graph())
     builder.add_node("strand_fracture", build_strand_fracture_expert_graph())
-    
+
     # Arbiter Agent 노드 추가
     builder.add_node("chief_investigator", node_arbiter)
-    
+
     # 엣지 추가
     add_investigation_edges(builder)
-    
+
     return builder.compile()
 
 # ReAct 에이전트를 포함한 새로운 함수 추가 (선택적)
 def build_investigation_graph_with_react() -> StateGraph:
     """조사 그래프에 ReAct 에이전트 노드 추가 (선택적)"""
     builder = StateGraph(InvestigationState)
-    
+
     # 기존 전문가 서브그래프들 (그대로 유지)
     builder.add_node("contact", build_contact_expert_graph())
     builder.add_node("dielectric", build_dielectric_expert_graph())
     builder.add_node("mechanical", build_mechanical_expert_graph())
     builder.add_node("tracking", build_tracking_expert_graph())
     builder.add_node("strand_fracture", build_strand_fracture_expert_graph())
-    
+
     # ReAct 에이전트 서브그래프 추가 (신규)
     builder.add_node("react_agent", build_react_agent_graph())
-    
+
     # Arbiter Agent 노드 추가
     builder.add_node("chief_investigator", node_arbiter)
-    
+
     # 엣지 추가 (src/edges/investigation_edges.py 사용)
     # ReAct 에이전트를 포함하도록 엣지 수정 필요
     add_investigation_edges_with_react(builder)
-    
+
     return builder.compile()
 ```
 
@@ -741,31 +765,32 @@ def build_investigation_graph_with_react() -> StateGraph:
 def build_investigation_graph(include_react: bool = False) -> StateGraph:
     """조사 그래프 빌드 (ReAct 에이전트 선택적 포함)"""
     builder = StateGraph(InvestigationState)
-    
+
     # 기존 전문가 서브그래프들 (항상 포함)
     builder.add_node("contact", build_contact_expert_graph())
     builder.add_node("dielectric", build_dielectric_expert_graph())
     builder.add_node("mechanical", build_mechanical_expert_graph())
     builder.add_node("tracking", build_tracking_expert_graph())
     builder.add_node("strand_fracture", build_strand_fracture_expert_graph())
-    
+
     # ReAct 에이전트 (선택적)
     if include_react:
         builder.add_node("react_agent", build_react_agent_graph())
-    
+
     # Arbiter Agent 노드 추가
     builder.add_node("chief_investigator", node_arbiter)
-    
+
     # 엣지 추가
     if include_react:
         add_investigation_edges_with_react(builder)
     else:
         add_investigation_edges(builder)
-    
+
     return builder.compile()
 ```
 
 **권장**: 방법 1 (기존 함수 유지 + 별도 함수 추가)
+
 - 기존 코드 안정성 보장
 - 기존 사용처에 영향 없음
 - ReAct는 필요시에만 사용
@@ -783,14 +808,14 @@ from src.state import GraphState, InvestigationState
 
 class RunPreprocessingPipelineTool(BaseTool):
     """기존 전처리 파이프라인을 ReAct 도구로 제공"""
-    
+
     name = "run_preprocessing_pipeline"
     description = "이미지 전처리 파이프라인을 실행합니다 (load → crop → enhance → filter/metrics → packaging)"
-    
+
     def _run(self, image_path: str) -> str:
         """전처리 파이프라인 실행"""
         graph = build_graph()  # src/agent.py의 build_graph() 사용
-        
+
         initial_state: GraphState = {
             "input_image_path": image_path,
             "original_image": None,
@@ -802,16 +827,16 @@ class RunPreprocessingPipelineTool(BaseTool):
             "analysis_data": None,
             "errors": []
         }
-        
+
         result = graph.invoke(initial_state)
         return f"전처리 완료: {result.get('analysis_data', {})}"
 
 class RunInvestigationPipelineTool(BaseTool):
     """기존 조사 파이프라인을 ReAct 도구로 제공"""
-    
+
     name = "run_investigation_pipeline"
     description = "화재조사 멀티 에이전트 분석 파이프라인을 실행합니다"
-    
+
     def _run(self, payload_data: List[Any]) -> str:
         """조사 파이프라인 실행"""
         from src.agent import analyze_fire_evidence  # src/agent.py의 함수 사용
@@ -869,12 +894,14 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 ### 9.1 서브그래프 패턴
 
 **LangGraph 공식 권장 방식**:
+
 - ✅ 서브그래프를 컴파일된 그래프 객체로 직접 노드로 추가
 - ✅ `builder.add_node("subgraph_name", compiled_subgraph)` 패턴 사용
 - ✅ 같은 State 스키마 사용 시 상태가 자동으로 공유됨
 - ✅ 체크포인터는 부모 그래프에만 전달하면 자동으로 서브그래프에 전달됨
 
 **현재 프로젝트 패턴**:
+
 - ✅ 서브그래프를 직접 노드로 추가하는 방식 (LangGraph 공식 권장과 일치)
 - ✅ 싱글톤 패턴으로 서브그래프 재사용 (선택적, 성능 최적화)
 - ✅ Thread-safe 초기화 (선택적, 멀티스레드 환경 고려)
@@ -882,6 +909,7 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 ### 9.2 Prebuilt Agent 사용
 
 **LangGraph 공식 권장 방식**:
+
 - ✅ `create_react_agent` 사용 (LangGraph 공식 권장)
 - ✅ 자동으로 ReAct 패턴 구현 (Reasoning → Acting → Observing)
 - ✅ 도구 호출 및 반복 로직 자동 처리
@@ -889,6 +917,7 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 - ✅ `tools_condition`을 사용하여 도구 호출 여부 자동 판단
 
 **구현 세부사항**:
+
 - `create_react_agent`는 내부적으로 `ToolNode`와 `tools_condition`을 사용합니다
 - 도구 호출이 필요하면 `ToolNode`로 라우팅, 아니면 에이전트 노드로 라우팅
 - 최대 반복 횟수는 기본값 사용하거나 `checkpoint` 옵션으로 제어 가능
@@ -896,12 +925,14 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 ### 9.3 상태 관리
 
 **LangGraph 공식 권장 방식**:
+
 - ✅ 메시지 기반 상태 (LangGraph 표준)
 - ✅ `MessagesState` 사용 시 `Annotated[List[BaseMessage], operator.add]` 자동 적용
 - ✅ Partial State 반환 (업데이트할 필드만 반환)
 - ✅ Reducer 함수를 통해 상태 병합 (병렬 실행 시 중요)
 
 **현재 프로젝트와의 통합**:
+
 - `InvestigationState`: 커스텀 TypedDict (기존 전문가 서브그래프용)
 - `ReActState`: MessagesState 확장 (ReAct 에이전트용)
 - 두 상태 간 변환이 필요할 경우 노드 함수에서 처리
@@ -960,6 +991,7 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 ### 12.1 기존 그래프와의 관계
 
 **현재 프로젝트의 그래프** (`src/agent.py`):
+
 - `build_graph()`: 이미지 전처리 파이프라인 (고정 워크플로우)
   - `GraphState` 사용
   - `load → crop → enhance → [filter, metrics] → packaging`
@@ -968,6 +1000,7 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
   - `[contact, dielectric, mechanical, tracking, strand_fracture] → chief_investigator`
 
 **ReAct 에이전트 그래프** (신규):
+
 - `build_react_agent_graph()`: ReAct 에이전트 (동적 의사결정)
   - `MessagesState` 또는 `ReActState` 사용
   - 도구를 동적으로 선택하여 실행
@@ -986,6 +1019,7 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 **중요**: **옵션 1 (기존 방식 유지 + ReAct 추가)** 방식으로 설계됩니다.
 
 #### 기존 서브그래프 빌더 (유지 - 변경 없음)
+
 - `src/graphs/contact_expert_graph.py` → `build_contact_expert_graph()`
 - `src/graphs/dielectric_expert_graph.py` → `build_dielectric_expert_graph()`
 - `src/graphs/mechanical_expert_graph.py` → `build_mechanical_expert_graph()`
@@ -996,6 +1030,7 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 - **상태**: 그대로 유지, 변경 없음
 
 #### ReAct 에이전트 (신규 추가)
+
 - `src/agents/react_agent.py` → `build_react_agent_graph()` (통합 ReAct)
 - **용도**: 동적 도구 선택 및 실행
 - **사용**: 독립 실행 또는 기존 그래프에 추가
@@ -1010,41 +1045,42 @@ python main.py data/image.png --react-mode --query "이미지를 분석하세요
 def build_investigation_graph() -> StateGraph:
     """기존 조사 그래프 (변경 없음)"""
     builder = StateGraph(InvestigationState)
-    
+
     # 기존 전문가 서브그래프들 (그대로 유지)
     builder.add_node("contact", build_contact_expert_graph())
     builder.add_node("dielectric", build_dielectric_expert_graph())
     builder.add_node("mechanical", build_mechanical_expert_graph())
     builder.add_node("tracking", build_tracking_expert_graph())
     builder.add_node("strand_fracture", build_strand_fracture_expert_graph())
-    
+
     builder.add_node("chief_investigator", node_arbiter)
     add_investigation_edges(builder)
-    
+
     return builder.compile()
 
 # ReAct 에이전트를 포함한 새로운 함수 추가 (선택적)
 def build_investigation_graph_with_react() -> StateGraph:
     """조사 그래프에 ReAct 에이전트 노드 추가"""
     builder = StateGraph(InvestigationState)
-    
+
     # 기존 전문가 서브그래프들 (그대로 유지)
     builder.add_node("contact", build_contact_expert_graph())
     builder.add_node("dielectric", build_dielectric_expert_graph())
     builder.add_node("mechanical", build_mechanical_expert_graph())
     builder.add_node("tracking", build_tracking_expert_graph())
     builder.add_node("strand_fracture", build_strand_fracture_expert_graph())
-    
+
     # ReAct 에이전트 추가 (신규)
     builder.add_node("react_agent", build_react_agent_graph())
-    
+
     builder.add_node("chief_investigator", node_arbiter)
     add_investigation_edges_with_react(builder)  # ReAct 포함 엣지
-    
+
     return builder.compile()
 ```
 
 **장점**:
+
 - ✅ 기존 코드 안정성 유지
 - ✅ 기존 사용처에 영향 없음
 - ✅ ReAct는 필요시에만 사용
@@ -1060,6 +1096,7 @@ def build_investigation_graph_with_react() -> StateGraph:
   - 사용자 질문에 유연하게 응답
 
 **전문가별 ReAct 에이전트**: 선택적 (필요시 추가)
+
 - 특화 도구만 사용, 정확도 향상 가능
 - 기본 설계에서는 포함하지 않음
 
@@ -1078,12 +1115,14 @@ def build_investigation_graph_with_react() -> StateGraph:
 - 등등...
 
 **이유:**
+
 1. **안정성**: 검증된 고정 워크플로우 유지
 2. **성능**: 순차 실행이 예측 가능하고 최적화됨
 3. **호환성**: 기존 코드와의 호환성 유지
 4. **선택권**: 필요에 따라 기존 방식 또는 ReAct 방식 선택 가능
 
 **ReAct 에이전트는 추가 기능으로 제공:**
+
 - 동적 의사결정이 필요한 경우 사용
 - 사용자 질문에 대한 유연한 응답 필요 시 사용
 - 기존 서브그래프와 병행 사용 가능
@@ -1148,4 +1187,3 @@ def build_investigation_graph_with_react() -> StateGraph:
 - 서브그래프는 같은 State 스키마를 사용하면 상태가 자동으로 공유됩니다
 - 체크포인터는 부모 그래프에만 전달하면 자동으로 서브그래프에 전달됩니다
 - `state_modifier`는 첫 번째 메시지로 자동 추가되어 시스템 메시지 역할을 합니다
-

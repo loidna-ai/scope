@@ -16,13 +16,14 @@ from src.state import InvestigationState
 # from src.nodes.arbiter_node import node_arbiter  # [Disabled] 논쟁 시스템으로 교체
 from src.nodes.common_nodes import hotspot_detector_node
 from src.nodes.visualization_node import draw_annotation_node
+from src.nodes.preprocessor_node import preprocess_hotspots_node  # [#5] 공유 전처리 노드
 from src.edges.investigation_edges import add_investigation_edges
 from src.graphs.contact_expert_graph import contact_expert_wrapper_node
-# from src.graphs.aging_expert_graph import aging_expert_wrapper_node  # [Disabled] Loop Pattern - Map-Reduce만 사용
+from src.graphs.aging_expert_graph import aging_expert_wrapper_node
 from src.graphs.deform_expert_graph import deform_expert_wrapper_node
-# from src.graphs.tracking_expert_graph import tracking_expert_wrapper_node  # [Disabled] Loop Pattern - Map-Reduce만 사용
+# from src.graphs.tracking_expert_graph import tracking_expert_wrapper_node
 from src.graphs.necking_expert_graph import necking_expert_wrapper_node
-from src.graphs.arbiter_expert_graph import arbiter_expert_wrapper_node  # [New] 논쟁 시스템 서브그래프
+from src.graphs.arbiter_expert_graph import arbiter_expert_wrapper_node
 from src.utils.logging_config import setup_logger
 
 logger = setup_logger("agent")
@@ -36,7 +37,7 @@ def build_investigation_graph() -> StateGraph:
          → [contact, deform, necking] (병렬, Map-Reduce Pattern만 사용)
          → chief_investigator → END
     
-    Note: Aging, Tracking은 Loop Pattern이므로 주석처리됨
+    Note: Aging, Tracking은 작업 미완료로 비활성화됨
     
     Returns:
         컴파일된 멀티 에이전트 분석 그래프
@@ -45,35 +46,24 @@ def build_investigation_graph() -> StateGraph:
     
     # 공통 Hotspot Detector 노드 추가
     builder.add_node("hotspot_detector", hotspot_detector_node)
-    
-    # 전문가 래퍼 노드 추가 (Map-Reduce Pattern만 사용)
+
+    # [#5] 공유 전처리 노드 (Crop + Enhancement + Classification 1회)
+    builder.add_node("preprocessor", preprocess_hotspots_node)
+
+    # 전문가 래퍼 노드 추가 (Map-Reduce Pattern)
     builder.add_node("contact", contact_expert_wrapper_node)
-    # builder.add_node("aging", aging_expert_wrapper_node)  # [Disabled] Loop Pattern
+    builder.add_node("aging", aging_expert_wrapper_node)
     builder.add_node("deform", deform_expert_wrapper_node)
-    # builder.add_node("tracking", tracking_expert_wrapper_node)  # [Disabled] Loop Pattern
+    # builder.add_node("tracking", tracking_expert_wrapper_node)
     builder.add_node("necking", necking_expert_wrapper_node)
-    
-    # Arbiter Expert 서브그래프 추가 (다른 전문가와 동일한 패턴)
-    builder.add_node("arbiter", arbiter_expert_wrapper_node)  # [Changed] 서브그래프 패턴으로 변경
-    
-    # Visualization Node 추가
+
+    # Arbiter 서브그래프 + Visualizer
+    builder.add_node("arbiter", arbiter_expert_wrapper_node)
     builder.add_node("visualizer", draw_annotation_node)
-    
-    # 엣지 추가
+
+    # 엣지 추가 (investigation_edges.py에서 preprocessor 경유 경로 정의)
     add_investigation_edges(builder)
-    
-    # Arbiter -> Visualizer -> END 연결 수정이 필요함
-    # 기존 add_investigation_edges에서는 chief_investigator -> END 였을 것임.
-    # 이를 수동으로 재설정하거나, edges 파일 수정 필요.
-    # 여기서는 edges 파일 수정 없이, 그래프 빌더 레벨에서 덮어쓰기/추가 시도.
-    # 하지만 langgraph는 edge 재정의를 경고할 수 있음.
-    # 가장 깔끔한 방법은 src/edges/investigation_edges.py를 수정하는 것임.
-    # 일단 여기서는 edge 추가를 시도.
-    
-    # 주의: add_investigation_edges 내부 구현을 모르므로, 
-    # visualizer 연결은 edges 파일에서 처리하는 것이 맞음.
-    # 따라서 이 파일에서는 add_node만 하고, edges 파일 수정을 별도로 진행해야 함.
-    
+
     return builder.compile()
 
 async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
@@ -109,57 +99,38 @@ async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
             print(f"⚠️ [System] Failed to save initial image: {e}")
     
     initial_state = {
-        "payload": [], # [Optimization] 바이너리 데이터 제거 (빈 리스트 전달)
-        "image_path": temp_image_path, # 파일 경로 전달
+        "payload": [],             # [Optimization] 바이너리 데이터 제거
+        "image_path": temp_image_path,
         "hotspots": None,
+        "preprocessed_hotspots": None,  # [#5] 전처리 결과 초기화
         "expert_reports": [],
         "expert_analysis_results": {},
         "expert_confidence_scores": {},
         "expert_evidence": {},
         "final_verdict": None,
-        "arbiter_debate_messages": None,  # 아비터 토론 메시지 초기화
+        "arbiter_debate_messages": None,
         "errors": [],
     }
     
     invoke_start_time = time.time()
-    
-    # #region agent log
-    import json
-    from pathlib import Path
-    log_path = Path(__file__).parent.parent / ".cursor" / "debug.log"
+
     try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"agent.py:119","message":"graph.invoke entry","data":{"initial_state_keys":list(initial_state.keys())},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
-    
-    try:
-        # Use ainvoke for async graph execution
         result = await graph.ainvoke(initial_state)
-        
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"agent.py:125","message":"graph.invoke completed","data":{"result_keys":list(result.keys()) if result else None,"has_final_verdict":bool(result.get("final_verdict")),"has_arbiter_debate_messages":"arbiter_debate_messages" in result if result else False,"arbiter_debate_messages_count":len(result.get("arbiter_debate_messages", [])) if result else 0,"arbiter_debate_messages_type":type(result.get("arbiter_debate_messages")).__name__ if result and result.get("arbiter_debate_messages") else "None"},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-    except Exception as e:
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"agent.py:131","message":"graph.invoke exception","data":{"error_type":type(e).__name__,"error_message":str(e)},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
+    except Exception:
         raise
-    invoke_duration_ms = (time.time() - invoke_start_time) * 1000
-    
+    logger.info(f"Graph execution: {(time.time() - invoke_start_time)*1000:.0f}ms")
+
+
     # 반환값 준비 (image_path는 graph 결과에서 가져옴)
+    arbiter_debate_messages = result.get("arbiter_debate_messages")
+    if arbiter_debate_messages is None:
+        arbiter_debate_messages = []
+    
     return_dict = {
         "final_verdict": result.get("final_verdict", "분석 실패"),
         "final_verdict_structured": result.get("final_verdict_structured"),  # 구조화된 최종 판정 데이터
         "expert_reports": result.get("expert_reports", []),
-        "arbiter_debate_messages": result.get("arbiter_debate_messages", []),  # 아비터 토론 메시지 추가
+        "arbiter_debate_messages": arbiter_debate_messages,  # 아비터 토론 메시지 추가 (None 체크 완료)
         "errors": result.get("errors", []),
     }
     
@@ -206,5 +177,23 @@ async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
                     logger.debug(f"임시 파일 정리 완료: {temp_image_path}")
             except Exception as e:
                 logger.warning(f"임시 파일 정리 실패: {e}")
+    
+    # [OOM/Resource Leak Fix] 전처리된 핫스팟의 모든 임시 ROI 이미지 삭제
+    preprocessed_hotspots = result.get("preprocessed_hotspots", [])
+    if preprocessed_hotspots:
+        try:
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            temp_dir_normalized = os.path.normpath(temp_dir).lower()
+            for hp in preprocessed_hotspots:
+                roi_path = hp.get("roi_image_path")
+                # 메인 이미지나 원본 임시파일과 경로가 다르고 실제로 존재하는 경우
+                if roi_path and roi_path != final_image_path and roi_path != temp_image_path and os.path.exists(roi_path):
+                    roi_path_normalized = os.path.normpath(roi_path).lower()
+                    if roi_path_normalized.startswith(temp_dir_normalized):
+                        os.remove(roi_path)
+                        logger.debug(f"전처리 임시 파일 정리 완료: {roi_path}")
+        except Exception as e:
+            logger.warning(f"전처리 임시 파일 정리 실패: {e}")
     
     return return_dict

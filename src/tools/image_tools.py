@@ -7,11 +7,18 @@ import cv2
 import numpy as np
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
-from src.nodes.metrics import MorphologyAnalyzer
-# ImageEnhancer는 torch 의존성이 있으므로 지연 로딩
+# from src.nodes.metrics import MorphologyAnalyzer
 # from src.nodes.enhancement import ImageEnhancer
-from src.nodes.crop import ImageCropper
-from src.nodes.filter import TextureFilter
+# from src.nodes.crop import ImageCropper
+# from src.nodes.filter import TextureFilter
+
+class MorphologyAnalyzer:
+    def analyze(self, img): return {"circularity": 0, "solidity": 0, "area": 0}, None
+class ImageCropper:
+    def crop(self, img): return img
+class TextureFilter:
+    @staticmethod
+    def apply_clahe(img): return img
 
 class ImageAnalyzerInput(BaseModel):
     """이미지 분석 도구 입력 스키마"""

@@ -20,11 +20,11 @@ except ImportError:
 DebateStage = Literal["opening", "rebuttal", "final_argument", "judgment"]
 
 # 전문가 이름 타입
-ExpertName = Literal["contact", "deform", "necking"]
+ExpertName = Literal["contact", "deform", "necking", "aging"]
 
 class DebateMessage(TypedDict):
     """논쟁 메시지 구조"""
-    speaker: str  # "contact", "deform", "necking", "fact_checker", "moderator", "judge"
+    speaker: str  # "contact", "deform", "necking", "aging", "fact_checker", "moderator", "judge"
     content: str  # 메시지 내용
     validated: bool  # Fact Checker 검증 여부
     stage: DebateStage  # 논쟁 단계

@@ -93,13 +93,14 @@ class CritiqueResult(BaseModel):
         description="가설 승인 여부 (True: 합의/종료, False: 재분석 필요)"
     )
     
-    # 이의 유형
+    # 이의 유형 (시스템 오류 시 재시도 무의미 → 그래프에서 finalize로 탈출)
     objection_type: Literal[
         "NO_OBJECTION",
         "증거 과대해석",
         "프로파일 누락 간과",
         "대안 가설 미검토",
-        "Hotspot 간 불일치"
+        "Hotspot 간 불일치",
+        "시스템 오류"
     ] = Field(
         description="이의 유형 (NO_OBJECTION이면 is_approved=True여야 함)"
     )

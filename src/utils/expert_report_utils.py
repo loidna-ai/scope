@@ -35,6 +35,12 @@ def format_report_summary(
             component_filter_func = lambda ct: (
                 "Terminal" in ct or "Splice" in ct or "Plug" in ct or ct == "Unknown"
             )
+        elif expert_type == "tracking":
+            component_filter_func = lambda ct: (
+                "Terminal" in ct or "Plug" in ct or "PCB" in ct or "기판" in ct or "단자" in ct or "플러그" in ct or ct == "Unknown"
+            )
+        elif expert_type == "aging":
+            component_filter_func = lambda ct: "Wire" in ct or "PCB" in ct or "전선" in ct or "기판" in ct or ct == "Unknown"
         else:  # necking, deform
             component_filter_func = lambda ct: "Wire" in ct or ct == "Unknown"
     
@@ -89,8 +95,19 @@ def format_report_summary(
                 summary += f"  - Strand State: {facts.get('strand_state_observation', 'N/A')}\n"
                 summary += f"  - Bead Scan (Zone4): {facts.get('bead_scan', 'N/A')}\n"
             elif expert_type == "contact":
-                # Contact 관련 필드들
+                # Contact 관련 필드들 (Zone 1~4 상세)
                 summary += f"  - Visual Description: {facts.get('visual_description', 'N/A')}\n"
+                summary += f"  - Conductor Shape (Z1): {facts.get('conductor_shape', 'N/A')}\n"
+                summary += f"  - Conductor Discoloration (Z1): {facts.get('conductor_discoloration', 'N/A')}\n"
+                summary += f"  - Transition Shape (Z2): {facts.get('transition_shape', 'N/A')}\n"
+                summary += f"  - Transition Discoloration (Z2): {facts.get('transition_discoloration', 'N/A')}\n"
+                summary += f"  - Contact Shape (Z3): {facts.get('contact_shape', 'N/A')}\n"
+                summary += f"  - Contact Discoloration (Z3): {facts.get('contact_discoloration', 'N/A')}\n"
+                summary += f"  - Bead Scan (Z4): {facts.get('bead_scan', 'N/A')}\n"
+            elif expert_type == "aging":
+                summary += f"  - Visual Observation: {facts.get('visual_description', facts.get('visual_observation', 'N/A'))}\n"
+            elif expert_type == "tracking":
+                summary += f"  - Visual Description: {facts.get('visual_description', facts.get('visual_observation', 'N/A'))}\n"
 
             summary += f"2. OPINION (Verdict):\n"
             summary += f"  - Verdict: {verdict}\n"

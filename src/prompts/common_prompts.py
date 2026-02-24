@@ -5,8 +5,10 @@
 - get_component_classifier_prompt: 전기 부품 유형 식별 (Contact/Deform/Necking 등 전문가 노드)
 """
 
+import config
 
-def get_micro_evidence_prompt() -> str:
+
+def get_micro_evidence_prompt(patch_size: int | None = None) -> str:
     """
     [Overlap Grid Strategy] 패치 단위 미세 증거 탐지를 위한 프롬프트.
 
@@ -15,14 +17,16 @@ def get_micro_evidence_prompt() -> str:
     - Hallucination 방지용 네거티브 프롬프트
     - JSON 구조화 출력
     """
-    return """
+    size = patch_size or config.HOTSPOT_PATCH_SIZE
+    return f"""
 <role>
 당신은 냉철하고 객관적인 **'법과학 영상 분석가(Forensic Image Analyst)'**입니다.
 이미지 픽셀을 분석하는 기계적 시스템으로, 시각적 패턴만 탐지합니다.
 </role>
 
 <input_data>
-**Image**: 분석 대상 영역 (1024x1024px 패치)
+당신에게는 1장 또는 여러 장의 이미지(각각 {size}x{size}px 패치) 배열이 순서대로 제공됩니다.
+객체(이미지 파트) 앞에는 파트 식별 문자열이 텍스트로 삽입되어 있습니다. (예: "Image 1:", "Image 2:" ...)
 </input_data>
 
 <task>
@@ -32,9 +36,10 @@ def get_micro_evidence_prompt() -> str:
 
 <rules>
 - 관찰 우선: Step 1~3를 거쳐 검증된 사실만 Step 4에서 출력합니다.
+- 복수 이미지 처리: 여러 장의 이미지가 제시되었을 경우 각 이미지를 순차적으로 모두 검사하십시오. 어느 이미지에서 손상이 감지되었는지 `image_index` (1부터 시작하는 정수) 필드에 반드시 명시하십시오. (예: "Image 3:"에서 감지된 경우 3)
 - 원인 추론 금지: "단락흔이다", "화재다"라고 쓰지 말고 "구형 물체다", "검게 변했다"라고 쓰십시오.
 - 좌표 포맷: box_2d는 이미지 전체 크기를 1000으로 보았을 때의 정규화 좌표(0~1000 정수)를 사용합니다.(ymax > ymin, xmax > xmin)
-- 빈 결과 허용: 손상이 확실하지 않으면 `hotspots` 배열을 비워서 반환하십시오.
+- 빈 결과 허용: 주어지는 모든 이미지에서 단 하나의 손상도 확실하지 않다면 `hotspots` 배열을 비워서 반환하십시오.
 </rules>
 
 <analysis_process>
@@ -66,19 +71,20 @@ Step 4: 최종 손상 추출 (Final Extraction)
 <output_format>
 결과는 반드시 아래 JSON 형식으로만 반환하십시오. Markdown이나 추가 설명을 붙이지 마십시오.
 
-{
-  "reasoning": "Step 1: 이미지 중앙 하단에 뚜렷한 구형 물체가 관찰됨. Step 2: 표면이 매끄럽고 광택이 있어 용융된 금속으로 판단됨. Step 3: 주변에 검게 탄화된 흔적이 동반됨. Step 4: 따라서 이는 전기적 아크에 의한 용융흔(Bead)으로 식별됨.",
+{{
+  "reasoning": "Step 1: Image 1은 배경뿐임. Image 2의 중앙 하단에 뚜렷한 구형 물체가 관찰됨. Step 2: 표면이 매끄럽고 광택이 있어 용융된 금속으로 판단됨. Step 3: 주변에 검게 탄화된 흔적이 동반됨. Step 4: 따라서 이는 전기적 아크에 의한 용융흔(Bead)으로 식별됨. Image 3, 4, 5는 특이사항 없음.",
   "hotspots": [
-    {
+    {{
       "id": 1,
+      "image_index": 2,
       "visual_evidence": "중앙 하단에 직경 2mm 추정의 매끄러운 구형 비드 식별됨. 표면 광택이 뚜렷함.",
       "severity_score": 95,
       "location_description": "패치 중앙 하단",
-      "box_2d": {"ymin": 100, "xmin": 200, "ymax": 150, "xmax": 250}
-    }
+      "box_2d": {{"ymin": 100, "xmin": 200, "ymax": 150, "xmax": 250}}
+    }}
   ],
   "total_count": 1
-}
+}}
 </output_format>
 """
 

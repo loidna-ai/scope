@@ -99,14 +99,11 @@ class ToolRegistry:
             # ReAct 모드에서는 run_investigation_pipeline 도구를 제거하여 중복 실행 방지
             # 각 전문가는 서브그래프로 직접 실행되므로 파이프라인 도구가 필요 없음
             try:
-                from src.tools.pipeline_tools import RunPreprocessingPipelineTool
+                # from src.tools.pipeline_tools import RunPreprocessingPipelineTool
                 
                 # 파이프라인 도구 (전처리만, 조사 파이프라인은 제외)
                 # RunInvestigationPipelineTool은 제거: 각 전문가가 서브그래프로 직접 실행되므로 중복 실행 방지
-                pipeline_tools = [
-                    RunPreprocessingPipelineTool(),
-                    # RunInvestigationPipelineTool() 제거됨 - 중복 실행 방지
-                ]
+                pipeline_tools = []
             except ImportError as e:
                 
                 pipeline_tools = []

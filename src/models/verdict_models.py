@@ -24,7 +24,7 @@ class ZoneInfo(BaseModel):
 
 class ExpertReportSummary(BaseModel):
     """전문가 리포트 요약 (최종 판정에 포함)"""
-    expert_name: Literal["CONTACT", "DEFORM", "NECKING"] = Field(
+    expert_name: Literal["CONTACT", "DEFORM", "NECKING", "AGING"] = Field(
         description="전문가 이름"
     )
     conclusion: Literal["유력", "의심", "아님", "해당 없음", "판독 불가"] = Field(
@@ -78,7 +78,7 @@ class FinalVerdictResult(BaseModel):
     
     # 전문가 요약
     expert_summaries: List[ExpertReportSummary] = Field(
-        description="각 전문가의 판정 요약 (3명: Contact, Deform, Necking)"
+        description="각 전문가의 판정 요약 (4명: Contact, Deform, Necking, Aging)"
     )
     
     # 권고 사항
@@ -105,12 +105,12 @@ class FinalVerdictResult(BaseModel):
     @model_validator(mode='after')
     def validate_expert_summaries(self):
         """전문가 요약 검증"""
-        if len(self.expert_summaries) != 3:
-            raise ValueError("expert_summaries must contain exactly 3 experts")
+        if len(self.expert_summaries) != 4:
+            raise ValueError("expert_summaries must contain exactly 4 experts (Contact, Deform, Necking, Aging)")
         
         # 전문가 이름 중복 확인
         expert_names = [s.expert_name for s in self.expert_summaries]
-        if len(set(expert_names)) != 3:
+        if len(set(expert_names)) != 4:
             raise ValueError("expert_summaries must have unique expert names")
         
         return self
@@ -152,3 +152,73 @@ class FinalVerdictResult(BaseModel):
                 lines.append(f"{i}. {rec}")
         
         return "\n".join(lines)
+
+class ContactSupervisorVerdict(BaseModel):
+    final_conclusion: Literal[
+        "접촉불량", "접촉불량 의심", "접촉불량 아님", "판독 불가"
+    ] = Field(description="접촉불량 | 접촉불량 의심 | 접촉불량 아님 | 판독 불가")
+    final_confidence: int = Field(
+        ge=0, le=100, description="Final confidence score (0-100)"
+    )
+    key_evidence_summary: str = Field(
+        description="Summary of key facts driving the decision"
+    )
+    reasoning_process: str = Field(
+        description="Synthesis of worker reports and conflict resolution"
+    )
+
+class DeformSupervisorVerdict(BaseModel):
+    final_conclusion: Literal[
+        "압착·손상", "압착·손상 의심", "압착·손상 아님", "판독 불가"
+    ] = Field(description="압착·손상 | 압착·손상 의심 | 압착·손상 아님 | 판독 불가")
+    final_confidence: int = Field(
+        ge=0, le=100, description="Final confidence score (0-100)"
+    )
+    key_evidence_summary: str = Field(
+        description="Summary of key facts driving the decision"
+    )
+    reasoning_process: str = Field(
+        description="Synthesis of worker reports and conflict resolution"
+    )
+
+class NeckingSupervisorVerdict(BaseModel):
+    final_conclusion: Literal[
+        "반단선", "반단선 의심", "반단선 아님", "판독 불가"
+    ] = Field(description="반단선 | 반단선 의심 | 반단선 아님 | 판독 불가")
+    final_confidence: int = Field(
+        ge=0, le=100, description="Final confidence score (0-100)"
+    )
+    key_evidence_summary: str = Field(
+        description="Summary of key facts driving the decision"
+    )
+    reasoning_process: str = Field(
+        description="Synthesis of worker reports and conflict resolution"
+    )
+
+class AgingSupervisorVerdict(BaseModel):
+    final_conclusion: Literal[
+        "경년열화 심각", "경년열화 의심", "경년열화 아님", "판독 불가"
+    ] = Field(description="경년열화 심각 | 경년열화 의심 | 경년열화 아님 | 판독 불가")
+    final_confidence: int = Field(
+        ge=0, le=100, description="Final confidence score (0-100)"
+    )
+    key_evidence_summary: str = Field(
+        description="Summary of key facts driving the decision"
+    )
+    reasoning_process: str = Field(
+        description="Synthesis of worker reports and conflict resolution"
+    )
+
+class TrackingSupervisorVerdict(BaseModel):
+    final_conclusion: Literal[
+        "트래킹", "트래킹 의심", "트래킹 아님", "판독 불가"
+    ] = Field(description="트래킹 | 트래킹 의심 | 트래킹 아님 | 판독 불가")
+    final_confidence: int = Field(
+        ge=0, le=100, description="Final confidence score (0-100)"
+    )
+    key_evidence_summary: str = Field(
+        description="Summary of key facts driving the decision"
+    )
+    reasoning_process: str = Field(
+        description="Synthesis of worker reports and conflict resolution"
+    )

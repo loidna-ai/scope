@@ -2,15 +2,17 @@
 Fact Checker 노드
 전문가의 증거 일관성을 LLM 기반으로 검증 (Factcheck-GPT + AXCEL 방식)
 """
+import asyncio
 from typing import Dict, Any, List
 from src.states.arbiter_debate_state import ArbiterDebateState, ExpertName
 from src.prompts.arbiter_debate_prompts import build_fact_check_prompt
 from src.tools.experts.expert_utils import call_gemini_text
 from src.utils.logging_config import setup_logger
+from src.utils.retry_utils import async_retry_with_backoff
 
 logger = setup_logger(__name__)
 
-def validate_evidence_consistency_llm(
+async def validate_evidence_consistency_llm(
     message: str,
     opinion: Dict,
     evidence: List[Dict]
@@ -32,12 +34,18 @@ def validate_evidence_consistency_llm(
     # 프롬프트 구성
     prompt = build_fact_check_prompt(message, opinion, evidence)
     
-    # LLM 호출 (낮은 temperature로 일관성 확보)
-    response_text, _ = call_gemini_text(
-        prompt,
-        step_name="fact_checker_llm",
-        verbose=False,
-        temperature=0.3  # 낮은 temperature로 일관된 검증
+    # LLM 호출 (async_retry_with_backoff: 429/503 대기 + acquire_api_slot 내장)
+    async def _call_fact_check():
+        return await asyncio.to_thread(
+            call_gemini_text,
+            prompt,
+            "fact_checker_llm",
+            False,  # verbose
+            0.3,    # temperature
+        )
+    response_text, _ = await async_retry_with_backoff(
+        _call_fact_check,
+        context_name="fact_checker_llm",
     )
     
     # JSON 파싱
@@ -57,7 +65,7 @@ def validate_evidence_consistency_llm(
     
     return is_consistent, verification_result
 
-def fact_checker_node(state: ArbiterDebateState) -> Dict[str, Any]:
+async def fact_checker_node(state: ArbiterDebateState) -> Dict[str, Any]:
     """
     Fact Checker: 전문가의 증거 일관성 검증 (LLM 기반만 사용)
     
@@ -76,7 +84,7 @@ def fact_checker_node(state: ArbiterDebateState) -> Dict[str, Any]:
     speaker = last_message.get("speaker", "")
     
     # Fact Checker, Moderator, Judge 메시지는 검증 불필요
-    if speaker not in ["contact", "deform", "necking"]:
+    if speaker not in ["contact", "deform", "necking", "aging"]:
         logger.debug(f"Fact check skipped for system message from {speaker}")
         fact_check_message = {
             "speaker": "fact_checker",
@@ -91,20 +99,28 @@ def fact_checker_node(state: ArbiterDebateState) -> Dict[str, Any]:
     
     # 전문가의 의견과 증거 일관성 검증
     expert_opinions = state.get("expert_opinions", {})
-    expert_evidence = state.get("expert_evidence", {})
     
     expert_opinion = expert_opinions.get(speaker, {})
-    expert_evidence_list = expert_evidence.get(speaker, [])
+    # expert_opinions에 이미 변환된 evidence_texts가 있으므로 이를 사용
+    # 원본 expert_evidence는 딕셔너리 리스트이지만, expert_opinions["evidence"]는 문자열 리스트
+    evidence_texts = expert_opinion.get("evidence", [])
     message_content = last_message.get("content", "")
     
-    logger.debug(f"Validating {speaker} expert: {len(expert_evidence_list)} evidence items")
+    logger.debug(f"Validating {speaker} expert: {len(evidence_texts)} evidence items")
+    if evidence_texts:
+        logger.debug(f"Evidence sample: {evidence_texts[0][:100]}...")
+    else:
+        logger.warning(f"{speaker} expert has no evidence items")
     
     # LLM 기반 검증 실행
+    # build_fact_check_prompt는 딕셔너리 리스트를 기대하므로, 문자열 리스트를 딕셔너리로 변환
+    evidence_list_for_prompt = [{"evidence": ev} for ev in evidence_texts] if evidence_texts else []
+    
     try:
-        is_consistent, verification_result = validate_evidence_consistency_llm(
+        is_consistent, verification_result = await validate_evidence_consistency_llm(
             message_content,
             expert_opinion,
-            expert_evidence_list
+            evidence_list_for_prompt
         )
         logger.info(f"{speaker} expert fact check completed: {'PASSED' if is_consistent else 'FAILED'}")
     except Exception as e:

@@ -8,7 +8,7 @@ from src.tools.image_tools import (
     ImageCropperTool,
     ImageFilterTool,
 )
-from src.tools.pipeline_tools import RunPreprocessingPipelineTool, RunInvestigationPipelineTool
+# from src.tools.pipeline_tools import RunPreprocessingPipelineTool, RunInvestigationPipelineTool
 
 __all__ = [
     "ToolRegistry",
@@ -16,6 +16,4 @@ __all__ = [
     "ImageEnhancerTool",
     "ImageCropperTool",
     "ImageFilterTool",
-    "RunPreprocessingPipelineTool",
-    "RunInvestigationPipelineTool",
 ]

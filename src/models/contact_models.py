@@ -3,7 +3,7 @@ Contact Expert Evidence Models
 Pydantic models for structured evidence collection
 """
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 # ===== Splice Specialist Models (6-Step Analysis) =====
 
@@ -151,10 +151,3 @@ class PlugEvidenceResult(BaseModel):
     verdict: str = Field(description="접촉 불량 / 외부 화재 / 판단 불가")
     confidence: int = Field(ge=0, le=100, description="신뢰도 점수 (0-100)")
     reasoning: str = Field(description="판정 근거")
-
-class SupervisorVerdict(BaseModel):
-    """Supervisor 종합 판정 결과"""
-    final_conclusion: str = Field(description="접촉불량 유력 (High) / 접촉불량 의심 (Medium) / 단락 또는 외부 화재 (Low)")
-    final_confidence: int = Field(ge=0, le=100, description="Final confidence score (0-100)")
-    key_evidence_summary: str = Field(description="Summary of key facts driving the decision")
-    reasoning_process: str = Field(description="Synthesis of worker reports and conflict resolution")

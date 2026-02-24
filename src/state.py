@@ -28,28 +28,7 @@ def merge_dicts(left: dict, right: dict) -> dict:
     result.update(right)
     return result
 
-class GraphState(TypedDict):
-    """
-    그래프 상태 스키마 (기존 이미지 처리 파이프라인용)
-    
-    각 노드는 이 상태를 읽고, 업데이트할 필드만 반환합니다 (Partial State).
-    """
-    # 입력
-    input_image_path: str  # 입력 이미지 경로
-    
-    # 처리 단계별 이미지
-    original_image: Optional[np.ndarray]  # 원본 이미지
-    cropped_image: Optional[np.ndarray]  # 크롭된 이미지
-    enhanced_image: Optional[np.ndarray]  # Real-ESRGAN 향상 이미지
-    filtered_image: Optional[np.ndarray]  # CLAHE 필터 적용 이미지
-    binary_mask: Optional[np.ndarray]  # 형태학적 분석 마스크
-    
-    # 분석 결과
-    metrics: Optional[dict]  # 형태학적 메트릭스 (circularity, solidity, area)
-    analysis_data: Optional[dict]  # LLM 분석용 JSON 데이터
-    
-    # 에러 수집 (Reducer 패턴 사용)
-    errors: Annotated[list[str], operator.add]  # 에러 메시지 수집
+
 
 def keep_first(left: List[Any], right: List[Any]) -> List[Any]:
     """
@@ -150,7 +129,13 @@ class InvestigationState(TypedDict):
     
     # 공통 Hotspot 탐지 결과 (메인 그래프에서 생성)
     hotspots: Annotated[Optional[List[Dict[str, Any]]], keep_last]  # 마지막에 설정된 값만 유지
-    
+
+    # [#5 Preprocessor] 전처리 완료 Hotspot 목록
+    # preprocessor_node가 Crop+Classification+Enhancement를 1회 수행한 결과.
+    # 각 항목에는 원본 hotspot 필드 외에 roi_image_path, component_type, _preprocessed=True가 추가됨.
+    # 전문가 Worker는 _preprocessed=True이면 Crop/Classification/Enhancement 단계를 건너뜀.
+    preprocessed_hotspots: Annotated[Optional[List[Dict[str, Any]]], keep_last]
+
     # total_count 보정 값 (hotspot_detector_node에서 설정)
     corrected_total_count: Annotated[Optional[int], keep_last]
     
@@ -180,27 +165,4 @@ class InvestigationState(TypedDict):
     # 에러 수집
     errors: Annotated[List[str], operator.add]
     
-    # ReAct 에이전트 메시지 히스토리 (도구 사용 과정 추적)
-    react_agent_messages: Annotated[Optional[List[Dict[str, Any]]], keep_last_list]  # ReAct 에이전트의 전체 메시지 히스토리 (마지막 값만 유지)
-    
-    # ReAct 에이전트를 위한 컨텍스트 정보
-    context: Annotated[Optional[Dict[str, Any]], keep_last_dict]  # 이미지 경로 등 컨텍스트 정보 (마지막 값만 유지)
-    
-    # ReAct 에이전트를 위한 작업 설명 (이미지 경로 포함)
-    task: Annotated[Optional[str], keep_last]  # 수행할 작업 설명 (이미지 경로 포함 가능)
 
-class ReActState(MessagesState):
-    """
-    ReAct 에이전트 상태 (MessagesState 확장)
-    
-    LangGraph 공식 권장 방식:
-    - MessagesState를 상속받아 messages 필드 자동 포함
-    - reducer 기능 자동 적용 (operator.add)
-    - 추가 필드는 선택적으로 정의
-    
-    참고: TypedDict는 런타임 기본값을 제공하지 않으므로,
-    초기 상태 설정 시 명시적으로 값을 제공해야 합니다.
-    """
-    # 추가 컨텍스트 (선택적)
-    task: Optional[str]  # 수행할 작업 설명
-    context: Optional[Dict[str, Any]]  # 컨텍스트 정보

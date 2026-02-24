@@ -1,334 +1,333 @@
 """
-Aging Expert 노드 정의 (Multi-Hotspot Loop Mode)
+Aging Expert 노드 정의 (Map-Reduce Pattern)
 절연열화/트래킹 전문가
 """
+# Standard library imports
 import os
+import json
+import datetime
+from typing import Dict, Any, List, Optional
+
+# Third-party imports
 import cv2
-from typing import Dict, Any, List, Optional, Annotated, TypedDict
-import operator
+from google.genai import types
 
+# Local imports - Config
 from config import TOP_N_HOTSPOTS
-from src.utils.logging_config import setup_logger
-from langgraph.graph import MessagesState
-from langchain_core.messages import SystemMessage, HumanMessage
+import config
 
-from src.utils import crop_roi_from_box
-from src.nodes.enhancement import ImageEnhancer
-from src.tools.experts.expert_utils import (
-    call_gemini_vision, 
-    call_gemini_text, 
-    parse_json_response,
-    _load_image_data
-)
-from src.prompts.common_prompts import (
-    get_component_classifier_prompt,
-)
+# [Mitigation] API 부하 방지를 위한 동시 실행 제한 세마포어
+# 미리보기 모델(gemini-3-flash-preview)의 동시 요청 제한(Concurrency Limit)에 대응
+
+# Define Project Root for centralized output
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+# Local imports - Utils and Tools
+from src.utils import async_retry_with_backoff, validate_state_keys, get_genai_client
+from src.utils.logging_config import setup_logger
+from src.utils.expert_api_utils import call_evidence_api
+from src.prompts.common_prompts import get_component_classifier_prompt
 from src.prompts.aging_expert_prompts import (
     get_aging_wire_prompt,
     get_aging_PCB_prompt,
-    get_final_verdict_prompt
+    get_aging_supervisor_prompt,
+    get_analyst_initial_prompt,
+    get_analyst_reanalysis_prompt,
+    get_critic_prompt
+)
+from src.models.verdict_models import AgingSupervisorVerdict
+from src.models.aging_models import AgingWireEvidenceResult, AgingPCBEvidenceResult
+from src.nodes.verdict_debate_nodes import (
+    create_supervisor_verdict_node,
+    create_verdict_analyst_node,
+    create_verdict_critic_node,
+    create_verdict_finalize_node
 )
 
-# --- State Definition ---
-class AgingExpertState(TypedDict):
-    """Aging 전문가 그래프 상태"""
-    # 기본 메시지 상태
-    messages: List[Any]
-    
-    # 이미지 경로
-    image_path: str
-    
-    # 1. 탐지 단계 상태
-    hotspots: List[Dict[str, Any]]
-    hotspot_queue: Optional[List[Dict[str, Any]]]
-    
-    # 2. 루프 처리 상태
-    current_hotspot: Optional[Dict[str, Any]]
-    detector_result: Optional[Dict[str, Any]]
-    roi_image_path: Optional[str]
-    connection_type: Optional[str]
-    
-    # 3. 분석 결과 (개별)
-    specialist_result: Optional[Dict[str, Any]]
-    
-    # 4. 결과 집계
-    analysis_results: Annotated[List[Dict[str, Any]], operator.add]
-    
-    # 5. 최종 판정
-    verdict_report: Optional[str]
-    verdict_confidence: Optional[float]
-    verdict_result: Optional[Dict[str, Any]]
+from src.states.common_state import WorkerState
+from src.states.aging_state import AgingExpertState
+from src.nodes.expert_worker_utils import crop_and_enhance_roi, classify_component
+from src.utils.expert_image_utils import load_expert_images
 
-
-
+# Initialize logger
 logger = setup_logger(__name__)
 
-# --- Nodes ---
+async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
+    """
+    Unified Worker Node (Map-Reduce Pattern)
+    1. ROI Crop + Enhancement
+    2. Component Classification (Async)
+    3. Specialist Analysis (Wire/PCB)
+    """
+    # 🔥 Input State 검증 (LangGraph Best Practice)
+    validate_state_keys(
+        state,
+        required_keys=["current_hotspot", "image_path"],
+        context="Worker Input"
+    )
 
-# hotspot_detector_node는 이제 src/nodes/common_nodes.py에서 공통으로 사용됩니다.
+    hotspot = state["current_hotspot"]
+    image_path = state["image_path"]
+    hotspot_id = hotspot.get("id", "unknown")
 
-def hotspot_manager_node(state: AgingExpertState) -> Dict[str, Any]:
-    """Middleware: Hotspot Manager"""
-    hotspots = state.get("hotspots", [])
-    queue = state.get("hotspot_queue")
+    logger.info(f"Worker {hotspot_id}: Evidence collection started")
     
-    if queue is None:
-        # 초기화: Score 내림차순 정렬 및 Top N 선별 (config.py에서 설정)
-        logger.info("Hotspot Manager: Prioritizing hotspots")
-        # severity_score 0인 hotspot 제외 (분석 불가 상태)
-        valid_hotspots = [h for h in hotspots if h.get("severity_score", 0) > 0]
-        if len(valid_hotspots) < len(hotspots):
-            excluded_count = len(hotspots) - len(valid_hotspots)
-            excluded_ids = [h.get('id') for h in hotspots if h.get("severity_score", 0) == 0]
-            logger.warning(f"Hotspot Manager: Excluded {excluded_count} hotspots with 0 score: {excluded_ids}")
+    try:
+        # [Gen 2] Preprocessor 세분화 플래그 호환성
+        if hotspot.get("_preprocessed"):
+            roi_image_path = hotspot.get("roi_image_path", image_path)
+            connection_type = hotspot.get("component_type", "Unknown")
+            logger.info(
+                f"Worker {hotspot_id}: Using pre-processed (crop+classify+enhance): {roi_image_path}"
+            )
+            # 부분 실패 보정: 전처리기에서 분류 실패 시 재분류
+            if not hotspot.get("_classify_done") and connection_type == "Unknown":
+                logger.info(f"Worker {hotspot_id}: Re-classifying (preprocessor classification failed)")
+                prompt = get_component_classifier_prompt(roi_image_path)
+                connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
+        else:
+            # Fallback: preprocessor_node를 거치지 않은 경우 직접 처리
+            box_2d = hotspot.get("box_2d")
+            roi_image_path = await crop_and_enhance_roi(hotspot_id, image_path, box_2d)
+            prompt = get_component_classifier_prompt(roi_image_path)
+            connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
+
+        specialist_result = None
+        severity_score = 30
+        report_confidence = 0
+        evidence_quality = "low"
+        is_critical = False
+        observations = "No observation"
+        worker_verdict = "N/A"
         
-        sorted_hotspots = sorted(valid_hotspots, key=lambda x: x.get("severity_score", 0), reverse=True)
-        queue = sorted_hotspots[:TOP_N_HOTSPOTS]
+        # Component Routing loosely based on component connection_type
+        if "Wire" in connection_type or "전선" in connection_type:
+            specialist_result = await _analyze_specialist(
+                hotspot_id=hotspot_id,
+                roi_image_path=roi_image_path,
+                image_path=image_path,
+                prompt_func=get_aging_wire_prompt,
+                evidence_model=AgingWireEvidenceResult,
+                component_type="Aging Wire"
+            )
+        elif "PCB" in connection_type or "기판" in connection_type:
+            specialist_result = await _analyze_specialist(
+                hotspot_id=hotspot_id,
+                roi_image_path=roi_image_path,
+                image_path=image_path,
+                prompt_func=get_aging_PCB_prompt,
+                evidence_model=AgingPCBEvidenceResult,
+                component_type="Aging PCB"
+            )
+        else:
+            observations = f"Aging 분석 대상 아님: {connection_type}"
+            worker_verdict = observations
+            logger.info(f"Worker {hotspot_id}: Skipped (Not Aging Component)")
+            
+        if specialist_result:
+            # Pydantic model_dump() dict 호환 (Wire는 step6_verdict 존재, PCB는 직렬화된 dict에 접근)
+            if "step6_verdict" in specialist_result:
+                s6 = specialist_result["step6_verdict"]
+                verdict_cat = s6.get("conclusion", "Unknown")
+                report_reasoning = s6.get("final_reasoning", "")
+                worker_verdict = f"[{verdict_cat}] {report_reasoning}"
+                report_confidence = s6.get("confidence_score", 0)
+                
+                # 합성 Observations
+                try:
+                    s4 = specialist_result.get("step4_insulation_inspection", {})
+                    z1 = s4.get("zone1_color_texture", {})
+                    z2 = s4.get("zone2_mechanical", {})
+                    z3 = s4.get("zone3_thermal_shrinkage", {})
+                    obs_parts = [
+                        f"Zone 1 (색상/질감): {z1.get('color_degradation', '')[:100]}...",
+                        f"Zone 2 (기계적 물성): {z2.get('hardening_brittleness', '')[:100]}...",
+                        f"Zone 3 (열수축/박리): {z3.get('shrinkage_exposure', '')[:100]}..."
+                    ]
+                    observations = " | ".join(obs_parts)
+                except Exception:
+                    observations = "관찰 결과 합성 실패"
+            else:
+                # PCB나 기존 방식
+                observations = specialist_result.get("visual_observation", "N/A")
+                verdict_cat = specialist_result.get("verdict", "Unknown")
+                report_reasoning = specialist_result.get("reasoning", "")
+                worker_verdict = f"[{verdict_cat}] {report_reasoning}"
+                report_confidence = specialist_result.get("confidence", 0)
+            
+            # severity (경년열화/절연열화 판정 기준)
+            if "경년열화" in verdict_cat and "아님" not in verdict_cat and "의심" not in verdict_cat:
+                severity_score = 80
+                is_critical = True
+                evidence_quality = "high"
+            elif "절연열화" in verdict_cat and "아님" not in verdict_cat and "의심" not in verdict_cat:
+                severity_score = 80
+                is_critical = True
+                evidence_quality = "high"
+            elif "열화 진행" in verdict_cat or "트래킹" in verdict_cat or "심각" in verdict_cat:
+                severity_score = 80
+                is_critical = True
+                evidence_quality = "high"
+            elif "경년열화 의심" in verdict_cat or "절연열화 의심" in verdict_cat or "의심" in verdict_cat:
+                severity_score = 60
+                evidence_quality = "medium"
+            else:
+                severity_score = 30
+                evidence_quality = "low"
+            
+            if config.SAVE_INDIVIDUAL_HOTSPOT_JSON:
+                try:
+                    output_dir = os.path.join(PROJECT_ROOT, "output", "aging_analysis")
+                    os.makedirs(output_dir, exist_ok=True)
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    filename = f"hotspot_{hotspot_id}_{timestamp}.json"
+                    file_path = os.path.join(output_dir, filename)
+                    save_data = specialist_result if isinstance(specialist_result, dict) else specialist_result.model_dump()
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        json.dump(save_data, f, ensure_ascii=False, indent=2)
+                    logger.info(f"Worker {hotspot_id}: Analysis result saved to {file_path}")
+                except Exception as save_err:
+                    logger.error(f"Worker {hotspot_id}: Failed to save result: {save_err}")
+
+            logger.info(f"Worker {hotspot_id}: Evidence: {observations} (Score: {severity_score})")
+
+        logger.info(f"Worker {hotspot_id}: Evidence collection completed")
+
+        worker_report = {
+            "id": hotspot_id,
+            "type": "WorkerReport",
+            "facts": {"visual_description": observations},
+            "opinion": {
+                "verdict": verdict_cat if specialist_result else "Indeterminate",
+                "confidence": report_confidence,
+                "reasoning": report_reasoning if specialist_result else "Extraction failed"
+            },
+            "severity_score": severity_score,
+            "evidence_quality": evidence_quality,
+            "is_critical": is_critical,
+            "_hotspot_info": hotspot,
+            "_connection_type": connection_type,
+            "_roi_image_path": roi_image_path
+        }
         
-        if not queue:
-             logger.info("Hotspot Manager: No hotspots to process")
-             return {"hotspot_queue": [], "current_hotspot": None}
-             
-        current = queue[0]
-        remaining = queue[1:]
-        
-        logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')}")
+        # [Added] Notebook 호환성을 위한 analysis_results 포맷 (Contact/Deform/Necking과 동일)
+        sr_conclusion = verdict_cat if specialist_result else "판독 불가"
+        reasoning_text = report_reasoning if specialist_result else ""
+        if not reasoning_text:
+            reasoning_text = "분석 근거 없음"
+
+        analysis_entry = {
+            "hotspot_id": hotspot_id,
+            "hotspot_info": hotspot,
+            "roi_image_path": roi_image_path,
+            "specialist_result": {
+                "conclusion": sr_conclusion,
+                "verdict": worker_verdict,
+                "confidence": report_confidence,
+                "visual_description": observations,
+                "reasoning": reasoning_text
+            },
+            "connection_type": connection_type
+        }
         
         return {
-            "hotspot_queue": remaining,
-            "current_hotspot": current,
-            "detector_result": {
-                "box_2d": current.get("box_2d"),
-                "confidence": current.get("severity_score")
-            },
+            "preliminary_assessments": [worker_report],
+            "analysis_results": [analysis_entry]
+        }
+        
+    except Exception as e:
+        logger.error(f"Worker Error on Hotspot {hotspot_id}: {str(e)}")
+        # 에러 발생 시 구조화된 에러 리포트 반환
+        error_report = {
+            "id": hotspot_id,
+            "type": "WorkerReport",
+            "facts": {"error": "분석 실패"},
+            "opinion": {"verdict": "판독 보류", "confidence": 0, "reasoning": "분석 불가 (시스템 데이터 부족)"},
+            "_connection_type": "Unknown",
+            "severity_score": 0
+        }
+        return {
+            "preliminary_assessments": [error_report],
             "analysis_results": []
         }
 
-    # Loop Logic
-    if not queue:
-        logger.info("Hotspot Manager: All hotspots processed")
-        return {"current_hotspot": None}
-
-    current = queue[0]
-    remaining = queue[1:]
-    
-    logger.info(f"Hotspot Manager: Processing Hotspot ID {current.get('id')}")
-    
-    return {
-        "hotspot_queue": remaining,
-        "current_hotspot": current,
-        "detector_result": {
-            "box_2d": current.get("box_2d"),
-            "confidence": current.get("severity_score")
-        },
-        "connection_type": None,
-        "specialist_result": None
-    }
-
-def roi_crop_node(state: AgingExpertState) -> Dict[str, Any]:
-    """ROI Crop & Enhancement"""
-    detector_result = state.get("detector_result")
-    image_path = state.get("image_path")
-    
-    if not detector_result or not image_path:
-        return {"roi_image_path": image_path}
-    
-    box_2d = detector_result.get("box_2d")
-    if not box_2d:
-        return {"roi_image_path": image_path}
-    
-    logger.debug(f"ROI Crop: Cropping hotspot area {box_2d}")
+async def _analyze_specialist(
+    hotspot_id: str,
+    roi_image_path: str,
+    image_path: str,
+    prompt_func,
+    evidence_model,
+    component_type: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Specialist 분석 공통 로직 (Wire/PCB)
+    Contact/Deform/Necking과 동일한 call_evidence_api 패턴
+    """
     try:
-        cropped_path = crop_roi_from_box(image_path, box_2d)
-        
-        # Enhancement
-        cropped_img = cv2.imread(cropped_path)
-        if cropped_img is not None:
-             enhancer = ImageEnhancer()
-             enhanced_img = enhancer.upscale(cropped_img)
-             cv2.imwrite(cropped_path, enhanced_img)
-             print(f"✨ [Enhancement] 향상 완료")
+        logger.info(f"Worker {hotspot_id}: Collecting {component_type} evidence...")
+        logger.debug(f"Worker {hotspot_id}: Waiting for Evidence API via semaphore...")
 
+        # Blocking I/O offloading to thread (공통 이미지 로더 사용)
+        original_data, roi_data = await load_expert_images(roi_image_path, image_path)
+        prompt = prompt_func(roi_image_path)
 
-             
-        return {"roi_image_path": cropped_path}
-    except Exception as e:
-        logger.error(f"ROI Crop: Failed: {e}", exc_info=True)
-        return {"roi_image_path": image_path}
+        # 이미지 파트 구성 (Contact/Deform/Necking과 동일)
+        parts = [prompt]
+        for img_data in [original_data, roi_data]:
+            parts.append(types.Part.from_bytes(
+                data=img_data,
+                mime_type="image/jpeg"
+            ))
 
-def component_classifier_node(state: AgingExpertState) -> Dict[str, Any]:
-    """Node 1: Component Classifier"""
-    roi_image_path = state.get("roi_image_path")
-    if not roi_image_path:
-        return {"connection_type": "None"}
-        
-    logger.info("Classifier: Identifying component type (Dual Input)")
-    try:
-        roi_data = _load_image_data(roi_image_path)
-        original_data = _load_image_data(state.get("image_path"))
-        image_payload = [original_data, roi_data]
-    except Exception:
-        return {"connection_type": "None"}
-        
-    prompt = get_component_classifier_prompt(roi_image_path)
-    response_text, _ = call_gemini_vision(
-        prompt, 
-        image_payload, 
-        "Component Classifier", 
-        temperature=0.0,
-        thinking_level="high",
-        media_resolution="MEDIA_RESOLUTION_HIGH"
-    )
-    result = parse_json_response(response_text)
-    
-    deduced_type = result.get("deduced_type", "None")
-    print(f"✅ 판별 결과: {deduced_type} (신뢰도: {result.get('confidence', 0)}%)")
-    logger.info(f"Classifier Result: {deduced_type} (Confidence: {result.get('confidence', 0)}%)")
-    
-    return {"connection_type": deduced_type}
+        client = get_genai_client()
+        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
 
-def aging_wire_node(state: AgingExpertState) -> Dict[str, Any]:
-    """Node 3A: Aging Wire Analysis (Arc/Severed End)"""
-    logger.info("Aging Wire: Starting analysis")
-    roi_path = state.get("roi_image_path")
-    original_image_path = state.get("image_path")
-    
-    prompt = get_aging_wire_prompt(roi_path)
-    
-    try:
-        roi_data = _load_image_data(roi_path)
-        original_data = _load_image_data(original_image_path)
-        image_payload = [original_data, roi_data]
-        
-        response_text, _ = call_gemini_vision(
-            prompt, 
-            image_payload, 
-            "Aging Wire Specialist", 
-            verbose=True,
-            temperature=1.0,
-            thinking_level="high",
-            media_resolution="MEDIA_RESOLUTION_HIGH"
+        # 🔥 Centralized Retry Logic with Common API Function
+        async def _call_evidence_wrapper(**kwargs):
+            return await call_evidence_api(
+                client=kwargs["client"],
+                model_name=kwargs["model_name"],
+                parts=kwargs["parts"],
+                response_schema=evidence_model,
+                thinking_level="high",
+                temperature=1.0,
+                context_name=kwargs.get("context_name", f"Worker #{hotspot_id} {component_type} Evidence")
+            )
+
+        response = await async_retry_with_backoff(
+            _call_evidence_wrapper,
+            client=client,
+            model_name=model_name,
+            parts=parts,
+            context_name=f"Worker #{hotspot_id} {component_type} Evidence",
+            max_retries=5
         )
-        result = parse_json_response(response_text)
-        return {"specialist_result": result}
+
+        # Pydantic 안전 파싱
+        evidence_result = evidence_model.model_validate_json(response.text)
+        return evidence_result.model_dump()
     except Exception as e:
-        logger.error(f"Wire Specialist Error: {e}", exc_info=True)
-        return {"specialist_result": {}}
+        logger.error(f"Worker {hotspot_id}: {component_type} evidence collection final failure: {e}", exc_info=True)
+        return None
 
-def aging_pcb_node(state: AgingExpertState) -> Dict[str, Any]:
-    """Node 3B: Aging PCB Analysis (Tracking/Insulation)"""
-    logger.info("Aging PCB: Starting analysis")
-    roi_path = state.get("roi_image_path")
-    original_image_path = state.get("image_path")
-    
-    prompt = get_aging_PCB_prompt(roi_path)
-    
-    try:
-        roi_data = _load_image_data(roi_path)
-        original_data = _load_image_data(original_image_path)
-        image_payload = [original_data, roi_data]
-        
-        response_text, _ = call_gemini_vision(
-            prompt, 
-            image_payload, 
-            "Aging PCB Specialist", 
-            verbose=True,
-            temperature=1.0,
-            thinking_level="high",
-            media_resolution="MEDIA_RESOLUTION_HIGH"
-        )
-        result = parse_json_response(response_text)
-        return {"specialist_result": result}
-    except Exception as e:
-        logger.error(f"PCB Specialist Error: {e}", exc_info=True)
-        return {"specialist_result": {}}
+# ===== Final Verdict Nodes =====
+supervisor_verdict = create_supervisor_verdict_node(
+    expert_type="aging",
+    get_supervisor_prompt_fn=get_aging_supervisor_prompt,
+    SupervisorVerdict=AgingSupervisorVerdict
+)
 
-def result_aggregator_node(state: AgingExpertState) -> Dict[str, Any]:
-    """Loop End: 결과 집계"""
-    entry = {
-        "hotspot_id": state.get("current_hotspot", {}).get("id"),
-        "hotspot_info": state.get("current_hotspot"),
-        "connection_type": state.get("connection_type"),
-        "specialist_result": state.get("specialist_result"),
-        "roi_image_path": state.get("roi_image_path")
-    }
-    return {"analysis_results": [entry]}
+verdict_analyst_node = create_verdict_analyst_node(
+    expert_type="aging",
+    get_initial_prompt_fn=get_analyst_initial_prompt,
+    get_reanalysis_prompt_fn=get_analyst_reanalysis_prompt
+)
 
-def format_report_summary(analysis_results: list) -> str:
-    summary = ""
-    for res in analysis_results:
-        hotspot = res.get('hotspot_info', {})
-        specialist = res.get('specialist_result', {})
-        conn_type = res.get('connection_type', 'None')
-        
-        # Specialist 결과가 없는 경우 처리
-        if not specialist:
-            summary += f"""
---- [Spot ID: {hotspot.get('id')}] ---
-1. 발견된 특징 (Node 0): ID #{hotspot.get('id', 'Unknown')}
-2. 전문가 정밀 분석 (Node 2): 
-   - 분석 불가 또는 특이사항 없음 ({conn_type})
------------------------------------
-"""
-            continue
-        
-        summary += f"""
---- [Spot ID: {hotspot.get('id')}] ---
-1. 발견된 특징 (Node 0): ID #{hotspot.get('id', 'Unknown')}
-2. 전문가 정밀 분석 (Node 2): ({conn_type})
-   - 시각적 특징: {specialist.get('visual_observation', 'N/A')}
-   - 전문가 판정: {specialist.get('verdict', 'N/A')}
-   - 판정 근거: {specialist.get('reasoning', 'N/A')}
------------------------------------
-"""
-    return summary
+verdict_critic_node = create_verdict_critic_node(
+    expert_type="aging",
+    get_critic_prompt_fn=get_critic_prompt
+)
 
-def verdict_node(state: AgingExpertState) -> Dict[str, Any]:
-    """Step 4: Final Verdict"""
-    logger.info("Aging Verdict: Generating final verdict")
-    results = state.get("analysis_results", [])
-    
-    if not results:
-        return {
-            "verdict_report": "분석된 특이점이 없습니다.",
-            "verdict_confidence": 0,
-            "verdict_result": {}
-        }
-        
-    report_summary = format_report_summary(results)
-    
-    # Max Confidence Evidence Selection
-    max_conf = 0
-    best_res = {}
-    for res in results:
-        s_res = res.get("specialist_result", {})
-        if s_res and s_res.get("confidence", 0) > max_conf:
-            max_conf = s_res.get("confidence", 0)
-            best_res = s_res
-            
-    prompt = get_final_verdict_prompt(report_summary)
-    response_text, _ = call_gemini_text(
-        prompt, 
-        step_name="Aging Final Verdict", 
-        verbose=True,
-        temperature=1.0,
-        thinking_level="high"
-    )
-    
-    llm_result = parse_json_response(response_text)
-    
-    final_report = f"""[Aging 전문가 최종 판정]
-## 결론: {llm_result.get('conclusion')} ({llm_result.get('probability')})
-
-## 핵심 증거
-{chr(10).join(['- '+e for e in llm_result.get('key_evidence', [])])}
-
-## 종합 소견
-{llm_result.get('reasoning')}
-"""
-    
-    return {
-        "verdict_report": final_report,
-        "verdict_confidence": max_conf, # Use highest finding confidence
-        "verdict_result": best_res
-    }
+verdict_finalize_node = create_verdict_finalize_node(
+    expert_type="aging"
+)

@@ -133,43 +133,135 @@ def get_tracking_pcb_prompt(image_path: str = None) -> str:
 """
     return template.format(image_path=image_path) if image_path else template
 
-def get_final_verdict_prompt(report_summary: str) -> str:
+def get_tracking_supervisor_prompt(reports_text: str) -> str:
     return f"""
-<system_instruction>
-당신은 화재 조사의 최종 결론을 내리는 **'수석 화재조사관(Lead Investigator)'**입니다.
-제출된 **[보고서 요약]**을 검토하여, 화재의 원인이 **'트래킹(Tracking)'**인지 판정하십시오.
+<role>
+당신은 화재 증거 분석 팀을 이끄는 **수석 분석관(Chief Forensic Specialist)**입니다.
+여러 명의 현장 분석관(Worker)들이 제출한 개별 증거 분석 보고서를 검토하여 최종 결론을 도출해야 합니다.
+</role>
 
-**[분석 목표]**
-단순히 보고서 내용을 취합하는 것이 아닙니다. 상충되는 증거(Conflict)가 있을 때 **어떤 증거가 더 신뢰할 수 있는지 판단(Evidence Weighing)**하고 논리적인 결론을 도출하십시오.
+<task>
+제출된 Worker들의 보고서(Facts + Opinion)를 종합 검토하여 가장 타당한 최종 판정(Verdict)을 내리십시오.
+단순 다수결이 아니며, **가장 논리적이고 과학적인 근거(Facts)를 제시한 Worker의 의견**을 따르십시오.
+</task>
 
-**[추론 가이드라인 (Chain of Thought)]**
-다음 3단계의 사고 과정을 거쳐 결론을 내리십시오.
+<worker_reports>
+{reports_text}
+</worker_reports>
 
-**Step 1. 증거의 신뢰성 평가 (Credibility Assessment)**
-- **Node 0(탐지기)**는 전체 숲을 보는 '스캐너'이고, **Node 2(전문가)**는 현미경을 보는 '분석가'입니다.
-- 두 의견이 충돌할 경우(예: Node 0은 '단순 그을음'이라 했으나, Node 2는 '수지상 패턴(Dendrites)'을 발견함), **Node 2의 정밀 분석 결과에 더 높은 가중치**를 두십시오.
+<guidelines>
+1. **Facts vs Opinion**: Worker의 '주장(Opinion)'보다 '관찰 사실(Facts)'을 더 신뢰하십시오.
+2. **Conflict Resolution**:
+   - Worker 간 의견이 충돌할 경우, **신뢰도(Confidence)가 높고 구체적인 근거(Supporting Logic)를 댄 쪽**을 채택하십시오.
+   - 단, 모든 Worker의 신뢰도가 낮거나 의견이 팽팽하게 갈리면 "판독 불가"로 처리하고 재분석(Debate)을 요청하는 것이 안전합니다.
+3. **Conservative Approach**: 화재 원인 판정은 매우 보수적이어야 합니다. 명백한 트래킹 증거(예: 흑연화된 탄화 다리, 수지상 패턴)가 없다면 단순 과열이나 화재 피해로 기울어지십시오.
+4. **Non-Target Exclusion**: "Analysis Skipped"로 표시된 보고서는 분석 대상이 아니므로 **판정에서 완전히 배제**하십시오.
+5. 전부 "Analysis Skipped"이면 "트래킹 아님"으로 판정하십시오.
+</guidelines>
 
-**Step 2. 인과관계 분석 (Causality Analysis)**
-- 식별된 증거가 '원인(Cause)'인지 '결과(Result)'인지 따져보십시오.
-    - *단순 탄화/용융:* 화재가 진행되면서 열에 의해 타거나 녹은 **'결과'**일 가능성이 높음.
-    - *수지상 패턴/흑연화/탄화 도전로:* 절연체가 파괴되며 전류가 흐른 흔적으로, 화재의 **'원인'**이 되는 트래킹의 고유한 증거임.
-
-**Step 3. 최종 판정 (Final Verdict)**
-- "트래킹의 증거(수지상 패턴, 흑연화 등)"가 명확하다면 **High**.
-- 증거가 있으나 외부 화재에 의한 오염 가능성도 보인다면 **Medium**.
-- 증거가 없고 단순 탄화만 있다면 **Low/None** (단순 열해 또는 외부 화재).
-
-**[입력된 보고서 요약]**
-{report_summary}
-</system_instruction>
-
-<output_schema>
-JSON 포맷으로 출력하십시오.
+<output_format>
+JSON 포맷으로 다음 필드를 포함하여 출력하십시오:
 {{
-  "conclusion": "트래킹 유력 (High) / 트래킹 의심 (Medium) / 단순 탄화 또는 외부 화재 (Low)",
-  "probability": "High / Medium / Low / None",
-  "key_evidence": ["Node 2가 식별한 흑연화된 탄화 도전로", "절연체 표면의 수지상 패턴"],
-  "reasoning": "초기 탐지(Node 0)에서는 단순 탄화 흔적(Charring)으로 보고되었으나, 정밀 분석(Node 2) 결과 해당 부위에서 '흑연화된 도전로'와 명확한 '수지상 패턴'이 식별됨. 이는 단순 열해가 아닌 절연 파괴에 의한 트래킹 현상을 시사하는 결정적 증거이므로, 전문가 소견을 채택하여 트래킹 유력(High)으로 판정함."
+    "final_conclusion": "트래킹 | 트래킹 의심 | 트래킹 아님 | 판독 불가",
+    "final_confidence": 0-100 (Integer),
+    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약",
+    "reasoning_process": "어떤 Worker의 의견을 채택했는지, 그리고 그 이유는 무엇인지 등 종합 판단 과정 서술"
 }}
-</output_schema>
+</output_format>
+"""
+
+# ===== Analyst-Critic Debate Prompts =====
+
+def get_analyst_initial_prompt(report_summary: str) -> str:
+    return f"""
+<role>당신은 화재 감식 전문가(Analyst)입니다.</role>
+<task>Worker들의 요약 보고서를 분석하여 **첫 번째 상세 가설**을 세우고, 이 판정이 트래킹인지 평가하십시오.</task>
+
+<report_summary>
+{report_summary}
+</report_summary>
+
+<guidelines>
+1. 증거의 일관성을 확인하고 논리적으로 설명하십시오.
+2. 트래킹의 핵심 징후(예: Bridge 형상, 흑연 광택, Dendrite) 위주로 검토하십시오.
+</guidelines>
+
+<output_format>
+JSON 형식으로 Structured Output을 반환하십시오 (AnalystHypothesis 모델 준수).
+{{
+    "hypothesis": "결론에 대한 한 줄 요약",
+    "supporting_logic": "지지하는 메커니즘과 관찰 사실",
+    "refuting_logic": "반대되는 관찰 사실 분석",
+    "verdict": "트래킹 | 트래킹 의심 | 트래킹 아님 | 판독 불가",
+    "confidence": 0-100
+}}
+</output_format>
+"""
+
+def get_analyst_reanalysis_prompt(
+    prev_hypothesis: str,
+    critique: str,
+    focused_summary: str,
+    total_hotspot_count: int,
+    focused_count: int,
+    full_context: str
+) -> str:
+    return f"""
+<role>당신은 화재 감식 전문가(Analyst)입니다.</role>
+<task>비평가(Critic)의 지적사항을 수용하여 **이전 가설을 재검토하고 수정**하십시오.</task>
+
+<critique>
+{critique}
+</critique>
+
+<previous_hypothesis>
+{prev_hypothesis}
+</previous_hypothesis>
+
+<focused_evidence>
+{focused_summary}
+</focused_evidence>
+
+<guidelines>
+1. Critic의 지적을 진지하게 고려하십시오. 비판이 타당하다면 가설을 전면 수정할 수 있어야 합니다.
+2. 비판이 수용하기 어렵다면, 그 이유를 명확한 증거(focused_evidence 참조)로 반박하십시오.
+</guidelines>
+
+<output_format>
+이전과 동일한 JSON(AnalystHypothesis)으로 응답하십시오.
+</output_format>
+"""
+
+def get_critic_prompt(
+    hypothesis: str,
+    report_summary: str,
+    image_context: str = ""
+) -> str:
+    return f"""
+<role>당신은 화재 감식 비평가(Critic)입니다. Analyst의 가설을 논리적으로 공격하고 허점을 찌르는 역할입니다.</role>
+<task>Analyst가 제출한 가설의 논리적 오류나 데이터 왜곡을 찾아내어 비판하십시오.</task>
+
+<analyst_hypothesis>
+{hypothesis}
+</analyst_hypothesis>
+
+<evidence_summary>
+{report_summary}
+</evidence_summary>
+
+<guidelines>
+1. **의심의 눈(Devil's Advocate)**: Analyst의 주장이 '단순 확증 편향'이 아닌가 의심하십시오.
+2. Analyst가 "트래킹"이라 주장하는데, 증거 요약에 "단순 열해(External Heat)"나 "방사형 폭발(Explosion)" 징후가 있다면 강력히 비판하십시오.
+3. 명백한 하자가 있다면 `is_objectionable = true`로 설정하고 날카로운 비평을 작성하십시오.
+4. Analyst의 분석이 모든 증거와 완벽히 부합한다면 `is_objectionable = false`로 동의하십시오. 이 경우 재분석은 종료됩니다.
+</guidelines>
+
+<output_format>
+JSON 포맷 (CritiqueResult 모델 호환)
+{{
+    "is_objectionable": true/false (반론 여부),
+    "critique": "반론이 있다면 구체적인 지적 사항, 없다면 동의하는 이유",
+    "alternative_perspective": "대안적 해석이나 재검토 포인트 (선택사항)"
+}}
+</output_format>
 """

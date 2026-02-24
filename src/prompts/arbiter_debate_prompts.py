@@ -13,7 +13,7 @@ def format_debate_summary(messages: List[Dict]) -> str:
         stage = msg.get("stage", "")
         round_num = msg.get("round_num", 0)
         
-        if speaker in ["contact", "deform", "necking"]:
+        if speaker in ["contact", "deform", "necking", "aging"]:
             summary_parts.append(f"[Round {round_num}, {stage}] {speaker.upper()} 전문가:\n{content}\n")
     
     return "\n".join(summary_parts) if summary_parts else "논쟁 기록이 없습니다."
@@ -23,7 +23,7 @@ def format_opponent_arguments(messages: List[Dict], current_expert: str) -> str:
     opponent_parts = []
     for msg in messages:
         speaker = msg.get("speaker", "")
-        if speaker != current_expert and speaker in ["contact", "deform", "necking"]:
+        if speaker != current_expert and speaker in ["contact", "deform", "necking", "aging"]:
             opponent_parts.append(f"[{speaker.upper()} 전문가]\n{msg.get('content', '')}\n")
     
     return "\n".join(opponent_parts) if opponent_parts else "상대방 의견이 없습니다."
@@ -57,7 +57,7 @@ def build_opening_prompt(expert_opinion: Dict, expert_name: str) -> str:
 - 논리: {reasoning}
 
 [지시사항]
-다른 전문가들(Contact, Deform, Necking) 앞에서 자신의 의견을 명확하고 설득력 있게 제시하세요.
+다른 전문가들(Contact, Deform, Necking, Aging) 앞에서 자신의 의견을 명확하고 설득력 있게 제시하세요.
 1. 자신의 결론을 강력히 주장하세요
 2. 증거와 논리를 바탕으로 자신의 분석이 정확함을 보여주세요
 3. 객관적이고 전문적인 톤을 유지하세요
@@ -153,11 +153,11 @@ def build_judge_prompt(
 
 [판정 지침]
 1. **중요: 하나의 주요 원인만 선택하세요.** 여러 전문가의 의견이 모두 유력하더라도, 가장 지배적인 원인 하나만 판정하세요.
-2. 3명의 전문가(Contact, Deform, Necking)의 의견을 검토하되, 신뢰도 점수와 증거의 강도를 비교하여 **가장 유력한 단일 원인**을 선택하세요.
+2. 4명의 전문가(Contact, Deform, Necking, Aging)의 의견을 검토하되, 신뢰도 점수와 증거의 강도를 비교하여 **가장 유력한 단일 원인**을 선택하세요.
 3. 신뢰도 점수는 0-100 사이의 값으로 설정하세요.
 4. 핵심 증거는 최대 5개까지 나열하세요.
 5. Zone 정보는 분석에 사용된 Zone만 포함하세요 (Zone 1, 3, 4 등).
-6. 각 전문가의 판정 요약을 expert_summaries에 포함하세요 (반드시 3명 모두 포함).
+6. 각 전문가의 판정 요약을 expert_summaries에 포함하세요 (반드시 4명 모두 포함).
 7. 합의가 이루어졌다면 합의 내용을 반영하세요.
 8. 합의가 이루어지지 않았다면 각 전문가의 신뢰도 점수와 증거의 강도를 비교하여 **가장 높은 신뢰도를 가진 단일 판정**을 선택하세요.
 9. 판단 불가한 경우 (증거 부족, 모든 전문가 신뢰도 낮음 등) UNDETERMINED을 선언하세요.
@@ -174,7 +174,7 @@ def build_judge_prompt(
 - reasoning_summary: 판정 근거 요약 (2-3문장)
 - key_evidence: 핵심 증거 목록 (최대 5개)
 - zones: Zone별 상세 정보 (있는 경우만)
-- expert_summaries: 각 전문가의 판정 요약 (반드시 3명: CONTACT, DEFORM, NECKING)
+- expert_summaries: 각 전문가의 판정 요약 (반드시 4명: CONTACT, DEFORM, NECKING, AGING)
 - recommendations: 추가 조사 권고 사항 (있는 경우만)
 
 위 정보를 바탕으로 구조화된 최종 판정을 생성하세요."""
@@ -212,6 +212,9 @@ def build_fact_check_prompt(
 1. **주장-증거 일치성**: 전문가의 결론(conclusion)이 증거 리스트에서 지지되는가?
 2. **논리적 일관성**: 전문가의 판정(verdict)이 메시지 내용과 논리적으로 일치하는가?
 3. **증거 활용도**: 메시지에서 제시된 증거들이 실제 증거 리스트와 일치하는가?
+   - **중요**: 전문가가 메시지에서 언급한 내용 중 일부는 직접 관찰한 증거가 아니라, 관찰 증거로부터 논리적으로 추론한 내용일 수 있습니다.
+   - 예: "저항 수치 변동"은 이미지에서 직접 측정할 수 없지만, "소선 벌어짐"과 "국소적 탄화" 같은 관찰 증거로부터 접촉 저항 증가를 추론한 것일 수 있습니다.
+   - 따라서 메시지의 모든 내용이 증거 리스트에 정확히 일치할 필요는 없으며, 관찰 증거로부터 논리적으로 도출 가능한 추론이라면 허용해야 합니다.
 </task>
 
 <expert_claim>
@@ -236,8 +239,13 @@ def build_fact_check_prompt(
 - 메시지에서 언급된 증거와 판정 사이에 논리적 연결이 있는가?
 
 **STEP 3: 증거 활용도 검증**
-- 메시지에서 언급된 증거들이 실제 증거 리스트에 포함되어 있는가?
+- 메시지에서 언급된 내용을 두 가지로 분류하세요:
+  1) **직접 관찰 증거**: 이미지에서 직접 확인 가능한 시각적 증거 (예: "소선 벌어짐", "국소적 탄화")
+  2) **논리적 추론**: 관찰 증거로부터 논리적으로 도출한 내용 (예: "저항 수치 변동", "인터페이스 결합력 부족")
+- 직접 관찰 증거는 증거 리스트에 포함되어 있어야 합니다.
+- 논리적 추론은 증거 리스트의 관찰 증거로부터 도출 가능한지 확인하세요.
 - 메시지가 증거를 과대해석하거나 왜곡하지 않았는가?
+- **주의**: 측정 데이터(저항 수치, 전압 등)는 이미지에서 직접 얻을 수 없으므로, 이것이 관찰 증거로부터 논리적으로 추론 가능한 내용인지 확인하세요. 추론이 타당하다면 허용해야 합니다.
 </verification_steps>
 
 <output_format>

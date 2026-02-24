@@ -54,7 +54,7 @@ def format_debate_summary(messages: list) -> str:
         round_num = msg.get("round_num", 0)
         validated = msg.get("validated", True)
         
-        if speaker in ["contact", "deform", "necking"]:
+        if speaker in ["contact", "deform", "necking", "aging"]:
             validation_status = "✓" if validated else "✗"
             summary_parts.append(
                 f"[Round {round_num}, {stage}] {speaker.upper()} 전문가 {validation_status}:\n{content[:200]}...\n"
@@ -62,7 +62,7 @@ def format_debate_summary(messages: list) -> str:
     
     return "\n".join(summary_parts) if summary_parts else "논쟁 기록이 없습니다."
 
-async def judge_node_async(state: ArbiterDebateState) -> Dict[str, Any]:
+async def judge_node(state: ArbiterDebateState) -> Dict[str, Any]:
     """
     Judge: 최종 판정
     
@@ -227,23 +227,4 @@ LLM 호출 실패: {str(e)}
     }
 
 
-# 동기 함수로 래핑 (LangGraph 호환성)
-def judge_node(state: ArbiterDebateState) -> Dict[str, Any]:
-    """Judge 노드 (동기 버전, LangGraph 호환)"""
-    logger.debug("Judge node sync entry")
-    
-    import concurrent.futures
-    try:
-        # 이미 실행 중인 이벤트 루프 확인
-        loop = asyncio.get_running_loop()
-        logger.debug("Event loop already running, using ThreadPoolExecutor")
-        # 이벤트 루프가 실행 중이면 ThreadPoolExecutor 사용
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, judge_node_async(state))
-            result = future.result()
-    except RuntimeError:
-        logger.debug("No event loop, using asyncio.run")
-        # 이벤트 루프가 없으면 asyncio.run 사용
-        result = asyncio.run(judge_node_async(state))
-    
-    return result
+

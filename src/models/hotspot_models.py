@@ -41,6 +41,8 @@ class Hotspot(BaseModel):
     """개별 Hotspot 정보"""
     id: int = Field(ge=1, description="Hotspot 고유 ID")
     
+    image_index: int = Field(ge=1, description="해당 Hotspot이 발견된 입력 이미지의 순번 (1부터 시작)")
+    
     box_2d: BoundingBox2D = Field(
         description="2D Bounding Box (정규화 좌표 0-1000)"
     )
@@ -92,4 +94,9 @@ class HotspotDetectionResult(BaseModel):
     detailed_observations: Optional[List[str]] = Field(
         default=None,
         description="객체별 형태학적 정밀 묘사 리스트"
+    )
+
+    reasoning: Optional[str] = Field(
+        default=None,
+        description="탐지 과정에 대한 논리적 추론 (Chain of Thought)"
     )

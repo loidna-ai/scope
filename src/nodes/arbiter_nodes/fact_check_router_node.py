@@ -8,7 +8,7 @@ from src.utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
-def fact_check_router_node(state: ArbiterDebateState) -> Literal["contact_debater", "deform_debater", "necking_debater", "moderator", "judge"]:
+def fact_check_router_node(state: ArbiterDebateState) -> Literal["contact_debater", "deform_debater", "necking_debater", "aging_debater", "moderator", "judge"]:
     """
     Fact Check 결과에 따라 라우팅
     
@@ -35,7 +35,7 @@ def fact_check_router_node(state: ArbiterDebateState) -> Literal["contact_debate
     # 마지막 발언한 전문가 찾기
     speaker: ExpertName = None
     for msg in reversed(messages):
-        if msg.get("speaker") in ["contact", "deform", "necking"]:
+        if msg.get("speaker") in ["contact", "deform", "necking", "aging"]:
             speaker = msg.get("speaker")
             break
     

@@ -319,7 +319,11 @@ def call_gemini_vision(
             
             if is_retriable and retry_attempt < MAX_RETRIES - 1:
                 import random
-                wait_time = 2 ** retry_attempt  # 1초, 2초, 4초
+                # 429/RESOURCE_EXHAUSTED: 10s, 20s, 40s (retry_utils와 동일)
+                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    wait_time = 10 * (2 ** retry_attempt)
+                else:
+                    wait_time = 2 ** retry_attempt  # 1초, 2초, 4초 (기타)
                 jitter = random.uniform(0, wait_time * 0.1)  # 최대 10% 랜덤 추가
                 total_wait = wait_time + jitter
                 print(f"⚠️ [{step_name}] Retry {retry_attempt + 1}/{MAX_RETRIES}: {error_msg}")
@@ -585,7 +589,11 @@ def call_gemini_text(
             
             if is_retriable and retry_attempt < MAX_RETRIES - 1:
                 import random
-                wait_time = 2 ** retry_attempt  # 1초, 2초, 4초
+                # 429/RESOURCE_EXHAUSTED: 10s, 20s, 40s (retry_utils와 동일)
+                if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    wait_time = 10 * (2 ** retry_attempt)
+                else:
+                    wait_time = 2 ** retry_attempt  # 1초, 2초, 4초 (기타)
                 jitter = random.uniform(0, wait_time * 0.1)  # 최대 10% 랜덤 추가
                 total_wait = wait_time + jitter
                 print(f"⚠️ [{step_name}] Retry {retry_attempt + 1}/{MAX_RETRIES}: {error_msg}")

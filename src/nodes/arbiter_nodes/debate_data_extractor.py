@@ -22,45 +22,19 @@ def extract_expert_opinions(state: InvestigationState) -> Dict[ExpertName, Exper
     expert_analysis_results = state.get("expert_analysis_results", {})
     logger.info(f"Extracting expert opinions from {len(expert_analysis_results)} experts")
     
-    # #region agent log
-    import json
-    import time
-    from pathlib import Path
-    log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"debate_data_extractor.py:9","message":"extract_expert_opinions entry","data":{"expert_analysis_results_keys":list(expert_analysis_results.keys())},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
-    
     expert_opinions: Dict[ExpertName, ExpertOpinion] = {}
     expert_confidence_scores = state.get("expert_confidence_scores", {})
     expert_evidence = state.get("expert_evidence", {})
     
-    for expert_name in ["contact", "deform", "necking"]:
+    for expert_name in ["contact", "deform", "necking", "aging"]:
         expert_data = expert_analysis_results.get(expert_name, {})
         logger.debug(f"Processing {expert_name} expert data")
-        
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"debate_data_extractor.py:25","message":"processing expert","data":{"expert_name":expert_name,"has_expert_data":bool(expert_data)},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
         
         if not expert_data:
             logger.warning(f"{expert_name} expert data not found, skipping")
             continue
         
         final_result = expert_data.get("final_verdict_result", {})
-        
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"debate_data_extractor.py:33","message":"checking final_result","data":{"expert_name":expert_name,"has_final_result":bool(final_result)},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
         
         if not final_result:
             logger.warning(f"{expert_name} expert final_result not found, skipping")
@@ -70,21 +44,19 @@ def extract_expert_opinions(state: InvestigationState) -> Dict[ExpertName, Exper
         evidence_list = expert_evidence.get(expert_name, [])
         evidence_texts = []
         for ev in evidence_list:
-            evidence_text = ev.get("evidence", "")
-            details = ev.get("details", "")
-            if evidence_text:
-                if details:
-                    evidence_texts.append(f"{evidence_text}\n상세: {details}")
-                else:
-                    evidence_texts.append(evidence_text)
+            evidence_texts.append(ev.get("evidence", ""))
         
         # reasoning 필드 사용 (없으면 verdict를 fallback으로 사용)
         reasoning_text = final_result.get("reasoning", "")
         if not reasoning_text:
             reasoning_text = final_result.get("verdict", "")  # Fallback
-        
+
+        # verdict_result는 "verdict" 키에 결론을 저장 (verdict_finalize_node)
+        # "conclusion"은 호환성을 위해 verdict를 fallback으로 사용
+        conclusion_text = final_result.get("conclusion", final_result.get("verdict", ""))
+
         expert_opinions[expert_name] = {
-            "conclusion": final_result.get("conclusion", ""),
+            "conclusion": conclusion_text,
             "confidence": expert_confidence_scores.get(expert_name, 0),
             "verdict": final_result.get("verdict", ""),
             "visual_description": final_result.get("visual_description", ""),
@@ -93,22 +65,8 @@ def extract_expert_opinions(state: InvestigationState) -> Dict[ExpertName, Exper
         }
         
         logger.info(f"{expert_name} expert opinion extracted (confidence: {expert_confidence_scores.get(expert_name, 0)}%)")
-        
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"debate_data_extractor.py:47","message":"expert opinion created","data":{"expert_name":expert_name,"has_conclusion":bool(expert_opinions[expert_name].get("conclusion"))},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
     
     logger.info(f"Expert opinions extraction completed: {len(expert_opinions)} opinions extracted")
-    
-    # #region agent log
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"debate_data_extractor.py:52","message":"extract_expert_opinions exit","data":{"expert_opinions_count":len(expert_opinions),"expert_opinions_keys":list(expert_opinions.keys())},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
     
     return expert_opinions
 
@@ -134,7 +92,7 @@ def debate_data_extractor_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "current_stage": "opening",
         "current_round": 1,
         "current_speaker": None,
-        "fact_check_failures": {"contact": 0, "deform": 0, "necking": 0},
+        "fact_check_failures": {"contact": 0, "deform": 0, "necking": 0, "aging": 0},
         "final_verdict": None,
         "consensus_reached": False,
         "errors": []

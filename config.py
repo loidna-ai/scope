@@ -4,7 +4,7 @@
 """
 
 # Real-ESRGAN 설정
-SR_SCALE = 4  # 초해상도 확대 배율
+SR_SCALE = 2  # 초해상도 확대 배율
 MODEL_PATH = "weights/RealESRGAN_x4plus.pth"  # PyTorch 모델 가중치 경로
 MODEL_PATH_ONNX = "weights/Real-ESRGAN-x4plus.onnx"  # ONNX 모델 경로 (AMD GPU 가속용)
 USE_ONNX_PREFERRED = True  # ONNX Runtime 우선 사용 여부 (True: ONNX 우선, False: PyTorch 우선)
@@ -43,12 +43,11 @@ TOP_N_HOTSPOTS = 5  # 각 Expert가 분석할 최대 Hotspot 개수 (기본값: 
                      # 값이 클수록: 더 많은 증거 수집, 높은 비용/시간
                      # 값이 작을수록: 빠른 처리, 낮은 비용, 증거 누락 위험
 
-# API Rate Limit 방지 (Vertex AI traffic smoothing)
-# 공식 문서: "Distributing API calls more evenly... Avoid sharp second-level spikes"
-# 참고: https://cloud.google.com/vertex-ai/generative-ai/docs/standard-paygo
-API_CALL_DELAY = 2.0  # 패치 간 대기(초) - 429 완화를 위해 traffic smoothing 강화
-                        # 값이 클수록: 안정적이나 느림
-                        # 값이 작을수록: 빠르나 429 throttling 위험
+# Hotspot 최소 심각도 임계값 (이 값 미만은 분석 대상에서 제외)
+MIN_SEVERITY_FOR_ANALYSIS = 50  # severity_score 50 미만은 분석 가치가 낮으므로 제외
+
+# [Deprecated] API_CALL_DELAY - Native Async 리팩토링(2026-02) 후 미사용
+# Rate Limiter(acquire_api_slot)가 traffic smoothing을 담당함
 
 # Media Resolution 설정
 MEDIA_RESOLUTION_DEFAULT = "MEDIA_RESOLUTION_HIGH"  # 기본값: HIGH 해상도
@@ -82,12 +81,16 @@ GEMINI_ENABLE_BUDGET_GUARD = True  # Retry Budget 보호 활성화
 GEMINI_DAILY_RETRY_BUDGET = 100  # 하루 최대 재시도 횟수 제한
 
 # === Hotspot Detector Slicing ===
+HOTSPOT_MAX_IMAGE_DIMENSION = 2048 # 최대 이미지 해상도(이보다 크면 다운스케일링)
 HOTSPOT_PATCH_SIZE = 1024       # 패치 크기 (px)
 HOTSPOT_OVERLAP = 200           # 패치 간 오버랩 (px)
 HOTSPOT_NMS_IOU_THRESHOLD = 0.3 # NMS IoU 임계값 (0.0~1.0)
+HOTSPOT_BLUR_THRESHOLD = 50.0   # OpenCV Laplacian Variance (이하 값이면 블러로 간주해 Drop)
+HOTSPOT_EDGE_THRESHOLD = 10     # OpenCV Canny Edge 평균값 (이하 값이면 텍스처/정보가 없다고 간주해 Drop)
+HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 개수 제한. Gemini 3 Flash의 Multi-Image 특성을 활용하여 여러 장을 일괄 전송함.
 
 # === Event Loop ===
-HOTSPOT_THREAD_JOIN_TIMEOUT = 600  # hotspot_detector_node 스레드 타임아웃 (초)
+# [Deprecated] Native Async 리팩토링 후 스레드 기반 실행 제거됨 (2026-02)
 
 # === Vertex AI (선택) ===
 USE_VERTEX_AI = True  # Vertex AI 사용

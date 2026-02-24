@@ -1,13 +1,33 @@
 """
 Non-Maximum Suppression (NMS) Utilities
 """
-from typing import List, Dict, Any
+import logging
+from typing import List, Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
+
+_REQUIRED_BOX_KEYS = ("xmin", "ymin", "xmax", "ymax")
+
+
+def _is_valid_box(box: Optional[Dict[str, int]]) -> bool:
+    """Check if box_2d exists and has all required keys with valid structure."""
+    if not box or not isinstance(box, dict):
+        return False
+    for key in _REQUIRED_BOX_KEYS:
+        if key not in box:
+            return False
+    return box["xmin"] < box["xmax"] and box["ymin"] < box["ymax"]
+
 
 def calculate_iou(box1: Dict[str, int], box2: Dict[str, int]) -> float:
     """
     Calculates Intersection over Union (IoU) between two bounding boxes.
     Boxes are in {ymin, xmin, ymax, xmax} format (0-1000 normalized).
+    Returns 0.0 if either box is invalid or missing.
     """
+    if not _is_valid_box(box1) or not _is_valid_box(box2):
+        return 0.0
+
     # Determine intersection rectangle
     x_left = max(box1["xmin"], box2["xmin"])
     y_top = max(box1["ymin"], box2["ymin"])
@@ -50,11 +70,23 @@ def non_max_suppression(
     """
     if not hotspots:
         return []
-        
+
+    # Filter out hotspots with missing or invalid box_2d
+    valid_hotspots = []
+    for h in hotspots:
+        box = h.get("box_2d")
+        if not _is_valid_box(box):
+            logger.warning(
+                "NMS: Skipping hotspot with missing or invalid box_2d (id=%s)",
+                h.get("id", "?"),
+            )
+            continue
+        valid_hotspots.append(h)
+
     # Sort by severity_score descending
     sorted_hotspots = sorted(
-        hotspots, 
-        key=lambda h: h.get("severity_score", 0), 
+        valid_hotspots,
+        key=lambda h: h.get("severity_score", 0),
         reverse=True
     )
     

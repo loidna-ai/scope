@@ -92,18 +92,6 @@ def debate_moderator_node(state: ArbiterDebateState) -> Dict[str, Any]:
     logger.info(f"Moderator: Round {current_round}, Stage {current_stage}, {len(messages)} messages")
     logger.debug(f"Moderator: Available experts: {list(expert_opinions.keys())}")
     
-    # #region agent log
-    import json
-    import time
-    from pathlib import Path
-    log_path = Path(__file__).parent.parent.parent.parent / ".cursor" / "debug.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"debate_moderator_node.py:67","message":"moderator entry","data":{"current_stage":current_stage,"current_round":current_round,"available_experts":list(expert_opinions.keys()),"messages_count":len(messages)},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
-    
     # 합의 확인 (Round 2 이상에서만)
     if current_round >= 2:
         consensus = check_consensus(messages)
@@ -132,7 +120,7 @@ def debate_moderator_node(state: ArbiterDebateState) -> Dict[str, Any]:
         # 모든 전문가가 의견 제시했는지 확인
         speakers = [
             msg.get("speaker") for msg in messages 
-            if msg.get("speaker") in ["contact", "deform", "necking"]
+            if msg.get("speaker") in ["contact", "deform", "necking", "aging"]
             and msg.get("stage") == "opening"
         ]
         unique_speakers = set(speakers)
@@ -156,7 +144,7 @@ def debate_moderator_node(state: ArbiterDebateState) -> Dict[str, Any]:
         speakers_this_round = [
             msg.get("speaker") for msg in messages 
             if msg.get("round_num") == current_round
-            and msg.get("speaker") in ["contact", "deform", "necking"]
+            and msg.get("speaker") in ["contact", "deform", "necking", "aging"]
         ]
         unique_speakers_round = set(speakers_this_round)
         
@@ -178,7 +166,7 @@ def debate_moderator_node(state: ArbiterDebateState) -> Dict[str, Any]:
         speakers_this_round = [
             msg.get("speaker") for msg in messages 
             if msg.get("round_num") == current_round
-            and msg.get("speaker") in ["contact", "deform", "necking"]
+            and msg.get("speaker") in ["contact", "deform", "necking", "aging"]
         ]
         unique_speakers_round = set(speakers_this_round)
         
@@ -216,12 +204,5 @@ def debate_moderator_node(state: ArbiterDebateState) -> Dict[str, Any]:
         "current_round": next_round,
         "current_speaker": next_speaker
     }
-    
-    # #region agent log
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"debate_moderator_node.py:173","message":"moderator exit","data":{"next_stage":next_stage,"next_round":next_round,"next_speaker":next_speaker},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
     
     return result

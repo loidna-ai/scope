@@ -51,4 +51,12 @@ try:
 except Exception as e:
     print(f"❌ Tracking Expert Error: {e}")
 
+try:
+    from src.graphs.arbiter_expert_graph import build_arbiter_expert_graph
+    print("✅ Arbiter Expert Graph Import Successful")
+    build_arbiter_expert_graph()
+    print("✅ Arbiter Expert Graph Build Successful")
+except Exception as e:
+    print(f"❌ Arbiter Expert Error: {e}")
+
 print("=== Check Complete ===")
