@@ -26,6 +26,15 @@ class HypothesisData(BaseModel):
         ..., 
         description="판정 근거"
     )
+    # [Phase 2.2] Critic 반박/응답 필드 (재분석 시 필수)
+    rebuttal_to_critic: Optional[str] = Field(
+        default=None,
+        description="Critic 지적에 대한 구체적 반박 또는 수용 근거"
+    )
+    answers_to_critical_question: Optional[str] = Field(
+        default=None,
+        description="Critic의 critical_question에 대한 직접적 답변"
+    )
 
     def to_string(self) -> str:
         return f"{self.conclusion} ({self.probability}%)"

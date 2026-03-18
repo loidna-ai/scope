@@ -510,14 +510,37 @@ def get_analyst_reanalysis_prompt(
     focused_summary: str,
     total_hotspot_count: int,
     focused_count: int,
-    full_context: str
+    full_context: str,
+    critique_result=None,
+    debate_transcript: str = ""
 ) -> str:
     """
     Analyst 재분석 프롬프트 (Critic 지적 수용)
     - 특정 Hotspot만 집중 재검토
     - 비평 수용 또는 반박
     - 가설 수정 (Structured Output)
+    - critique_result: 구조화된 Critic 피드백 (Phase 1.2)
+    - debate_transcript: 토론 이력 (Phase 1.3)
     """
+    critic_structured = ""
+    if critique_result is not None:
+        cq = getattr(critique_result, "critical_question", None) or "없음"
+        alt = getattr(critique_result, "alternative_interpretation", None) or "없음"
+        sug = getattr(critique_result, "suggestion_for_analyst", None) or "없음"
+        flaws = ", ".join(getattr(critique_result, "flaws", []) or []) or "없음"
+        critic_structured = f"""
+<critic_structured_feedback>
+- critical_question: {cq}
+- alternative_interpretation: {alt}
+- suggestion_for_analyst: {sug}
+- flaws: {flaws}
+</critic_structured_feedback>
+"""
+    debate_block = f"""
+<debate_history>
+{debate_transcript or "(이전 토론 없음)"}
+</debate_history>
+""" if debate_transcript else ""
     return f"""
 <role>
 당신은 수석 분석관입니다. 비평가가 특정 부위에 대한 의문을 제기했습니다.
@@ -530,7 +553,8 @@ def get_analyst_reanalysis_prompt(
 <critique_received>
 {critique}
 </critique_received>
-
+{critic_structured}
+{debate_block}
 <analysis_scope>
 전체 Hotspot: {total_hotspot_count}개
 비평가가 지적한 Hotspot: {focused_count}개
@@ -565,7 +589,9 @@ Return RAW JSON only. No markdown.
       "conclusion": "접촉불량 유력 (High) / 접촉불량 의심 (Medium) / 단락 또는 외부 화재 (Low) / 판독 불가 (Indeterminate)",
       "probability": 0-100,
       "key_evidence": ["Hotspot #3 제외 나머지 증거는 유효함"],
-      "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함."
+      "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함.",
+      "rebuttal_to_critic": "Critic 지적에 대한 구체적 반박 또는 수용 근거 (필수)",
+      "answers_to_critical_question": "Critic의 critical_question에 대한 직접적 답변 (있을 경우)"
   }}
 }}
 </output_format>
@@ -585,7 +611,7 @@ def get_critic_prompt(
     """
     return f"""
 <role>
-당신은 회의적인 **'화재조사 검토관(Skeptic Reviewer)'**이며, 
+당신은 **Devil's Advocate(악의적 변호인)**이며, 
 **물리적 증거 직접 검증 권한**을 가진 전문가입니다.
 </role>
 
