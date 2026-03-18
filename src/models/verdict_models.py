@@ -24,8 +24,8 @@ class ZoneInfo(BaseModel):
 
 class ExpertReportSummary(BaseModel):
     """전문가 리포트 요약 (최종 판정에 포함)"""
-    expert_name: Literal["CONTACT", "DEFORM", "NECKING", "AGING"] = Field(
-        description="전문가 이름"
+    expert_name: Literal["CONTACT", "DEFORM", "NECKING", "AGING", "N/A"] = Field(
+        description="전문가 이름 (비활성 시 N/A)"
     )
     conclusion: Literal["유력", "의심", "아님", "해당 없음", "판독 불가"] = Field(
         description="판정 결과"
@@ -76,9 +76,11 @@ class FinalVerdictResult(BaseModel):
         description="Zone별 상세 정보 (Zone 1, 3, 4 등)"
     )
     
-    # 전문가 요약
+    # 전문가 요약 (활성 전문가만 포함, 2~4명)
     expert_summaries: List[ExpertReportSummary] = Field(
-        description="각 전문가의 판정 요약 (4명: Contact, Deform, Necking, Aging)"
+        min_length=2,
+        max_length=4,
+        description="각 전문가의 판정 요약 (활성 전문가만: Contact, Necking 등)"
     )
     
     # 권고 사항
@@ -104,15 +106,11 @@ class FinalVerdictResult(BaseModel):
     
     @model_validator(mode='after')
     def validate_expert_summaries(self):
-        """전문가 요약 검증"""
-        if len(self.expert_summaries) != 4:
-            raise ValueError("expert_summaries must contain exactly 4 experts (Contact, Deform, Necking, Aging)")
-        
-        # 전문가 이름 중복 확인
-        expert_names = [s.expert_name for s in self.expert_summaries]
-        if len(set(expert_names)) != 4:
-            raise ValueError("expert_summaries must have unique expert names")
-        
+        """전문가 요약 검증 (활성 전문가만, 2~4명, 중복 없음)"""
+        # N/A 제외한 실제 전문가 이름 중복 확인
+        expert_names = [s.expert_name for s in self.expert_summaries if s.expert_name != "N/A"]
+        if len(expert_names) != len(set(expert_names)):
+            raise ValueError("expert_summaries must have unique expert names (excluding N/A)")
         return self
     
     def get_confidence_level(self) -> str:

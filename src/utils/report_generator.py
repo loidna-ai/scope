@@ -6,10 +6,13 @@ LLM 기반 화재증거물 분석 보고서 생성기
 from pathlib import Path
 from typing import Any, List, Optional
 
+import asyncio
+import os
+
+import config
 from src.prompts.report_generator_prompts import REPORT_SYSTEM_PROMPT
 from src.tools.experts.expert_utils import call_gemini_text
 from src.utils import async_retry_with_backoff
-import asyncio
 
 
 def _detect_expert_label(report: str, fallback_index: int) -> str:
@@ -185,11 +188,13 @@ def generate_report_llm(
                     prompt=full_prompt,
                     step_name="report_generator",
                     temperature=0.3,
+                    model_name=os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME),
                 )
             return await async_retry_with_backoff(
                 lambda: asyncio.to_thread(run_sync_call),
-                max_retries=3,
-                context_name="report_generator"
+                max_retries=5,
+                context_name="report_generator",
+                model_type="pro",
             )
         
         # 동기 함수에서 비동기 함수 호출

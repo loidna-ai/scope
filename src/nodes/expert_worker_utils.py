@@ -174,7 +174,7 @@ async def classify_component(
         
         # 클라이언트 초기화
         client = get_genai_client()
-        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+        model_name = os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME)
         
         # 파트 구성
         parts = [prompt]

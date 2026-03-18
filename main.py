@@ -101,6 +101,11 @@ async def run_analysis_pipeline(
         return None
 
     # 2. 분석 실행
+    # 캐시 정리 (7일 이상 된 enhancement 캐시, 1일 이상 된 visual_reports 고아 파일 삭제)
+    from src.nodes.enhancement_cache import clear_enhancement_cache, clear_visual_reports
+    clear_enhancement_cache(max_age_days=getattr(config, "CACHE_MAX_AGE_DAYS", 7))
+    clear_visual_reports(max_age_days=1)
+
     print("\n[2단계] 멀티 에이전트 병렬 분석 시작")
     print("  - Hotspot Detector가 관심 영역을 탐지합니다.")
     print("  - 3인의 전문가 에이전트가 병렬로 동시에 분석합니다. (Fan-Out)")
@@ -111,7 +116,7 @@ async def run_analysis_pipeline(
     
     try:
         start_time = time.time()
-        result = await analyze_fire_evidence(payload)
+        result = await analyze_fire_evidence(payload, output_dir=str(output_dir))
         duration = time.time() - start_time
         logger.info(f"분석 완료 (소요 시간: {duration:.1f}초)")
         print(f"✓ 분석 완료 (소요 시간: {duration:.1f}초)")
@@ -171,7 +176,7 @@ async def run_analysis_pipeline(
     if not isinstance(output_dir, Path):
         output_dir = Path(output_dir)
     
-    output_file = output_dir / "investigation_result.md"
+    output_file = output_dir / "investigation_result.txt"
     try:
         output_file.parent.mkdir(parents=True, exist_ok=True)
         final_verdict_structured = result.get("final_verdict_structured")
@@ -183,10 +188,16 @@ async def run_analysis_pipeline(
             errors=errors,
             input_image_path=input_image_path,
             output_file=output_file,
-            final_verdict_structured=final_verdict_structured
+            final_verdict_structured=final_verdict_structured,
+            visual_report_path=result.get("visual_report_path")
         )
         logger.info(f"전체 결과 저장 완료: {output_file}")
-        print(f"\n✅ 전체 결과가 저장되었습니다: {output_file}")
+        docx_file = output_dir / "investigation_result.docx"
+        if docx_file.exists():
+            print(f"\n✅ 전체 결과가 저장되었습니다: {output_file}")
+            print(f"   Word 문서: {docx_file}")
+        else:
+            print(f"\n✅ 전체 결과가 저장되었습니다: {output_file}")
         
         # 개별 리포트 저장
         save_expert_reports(expert_reports, output_dir)
@@ -209,6 +220,56 @@ async def run_analysis_pipeline(
     }
 
 
+def export_existing_to_docx():
+    """기존 investigation_result.txt/.md를 Word(.docx)로 변환"""
+    from src.utils.io_utils import save_investigation_result_docx
+
+    output_base = Path(config.OUTPUT_DIR)
+    found = 0
+    for txt_path in output_base.rglob("investigation_result.txt"):
+        docx_path = txt_path.with_suffix(".docx")
+        base_dir = txt_path.parent
+        # 이미지: 같은 폴더(visual_report_*.jpg) 우선, 없으면 visual_reports/
+        raw_visual = None
+        local_jpgs = list(base_dir.glob("visual_report_*.jpg"))
+        if local_jpgs:
+            raw_visual = str(local_jpgs[0])
+        else:
+            visual_dir = output_base / "visual_reports"
+            if visual_dir.exists():
+                jpgs = list(visual_dir.glob("*.jpg"))
+                raw_visual = str(jpgs[0]) if jpgs else None
+        try:
+            content = txt_path.read_text(encoding="utf-8")
+            save_investigation_result_docx(content, docx_path, base_dir, raw_visual)
+            print(f"  ✓ {docx_path.relative_to(output_base)}")
+            found += 1
+        except Exception as e:
+            print(f"  ✗ {txt_path.relative_to(output_base)}: {e}")
+    for md_path in output_base.rglob("investigation_result.md"):
+        docx_path = md_path.with_suffix(".docx")
+        if docx_path.exists():
+            continue
+        base_dir = md_path.parent
+        raw_visual = None
+        local_jpgs = list(base_dir.glob("visual_report_*.jpg"))
+        if local_jpgs:
+            raw_visual = str(local_jpgs[0])
+        else:
+            visual_dir = output_base / "visual_reports"
+            if visual_dir.exists():
+                jpgs = list(visual_dir.glob("*.jpg"))
+                raw_visual = str(jpgs[0]) if jpgs else None
+        try:
+            content = md_path.read_text(encoding="utf-8")
+            save_investigation_result_docx(content, docx_path, base_dir, raw_visual)
+            print(f"  ✓ {docx_path.relative_to(output_base)}")
+            found += 1
+        except Exception as e:
+            print(f"  ✗ {md_path.relative_to(output_base)}: {e}")
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="화재조사 AI 멀티 에이전트 시스템 (Fan-In/Fan-Out Parallel Multi-Agent)"
@@ -216,8 +277,25 @@ def main():
     parser.add_argument("image_path", nargs="?", help="분석할 이미지 파일 경로")
     parser.add_argument("--query", type=str, default="", help="사용자 질문 (현재 미사용)")
     parser.add_argument("--test", action="store_true", help="검증 모드로 실행")
+    parser.add_argument("--export-docx", action="store_true", help="기존 txt/md 결과를 Word(.docx)로 변환")
+    parser.add_argument("--clean-cache", action="store_true", help="enhancement 캐시 및 visual_reports 정리")
     
     args = parser.parse_args()
+
+    # 0a. 캐시 정리 (--clean-cache)
+    if args.clean_cache:
+        from src.nodes.enhancement_cache import clear_enhancement_cache, clear_visual_reports
+        clear_enhancement_cache(max_age_days=0)
+        clear_visual_reports(max_age_days=0)
+        print("✓ 캐시 정리 완료 (.enhancement_cache, visual_reports)")
+        sys.exit(0)
+
+    # 0b. 기존 결과 docx 변환
+    if args.export_docx:
+        print("\n[기존 결과 → Word 변환]")
+        n = export_existing_to_docx()
+        print(f"\n완료: {n}개 파일 변환됨")
+        sys.exit(0)
 
     # 1. 검증 모드
     if args.test:

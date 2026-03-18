@@ -4,13 +4,16 @@
 """
 import asyncio
 import concurrent.futures
+import os
 from typing import Dict, Any
 
+import config
 from src.states.arbiter_debate_state import ArbiterDebateState, ExpertName
 from src.prompts.arbiter_debate_prompts import (
     build_opening_prompt,
     build_rebuttal_prompt,
-    build_final_prompt
+    build_final_prompt,
+    build_retry_instruction
 )
 from src.tools.experts.expert_utils import call_gemini_text
 from src.utils.logging_config import setup_logger
@@ -72,11 +75,20 @@ async def _debater_node(
     else:  # final_argument
         prompt = build_final_prompt(expert_opinion, expert_name, debate_msgs)
 
+    # Fact Check 실패 후 재발언 시 추가 지침
+    fact_check_failures = state.get("fact_check_failures", {})
+    failure_count = fact_check_failures.get(expert_name, 0)
+    if failure_count > 0:
+        prompt = prompt + build_retry_instruction(failure_count)
+        logger.info(f"{expert_name} debater: Retry mode (Fact Check failure count: {failure_count})")
+
     logger.debug(f"{expert_name} debater: Building {stage} prompt")
 
-    # LLM 호출 (async_retry_with_backoff: 429/503 대기 + acquire_api_slot 내장)
+    # LLM 호출 (Pro 모델: 갈등 조율·논리 추론 강화, async_retry_with_backoff: 429/503 대기 + acquire_api_slot 내장)
     try:
-        logger.debug(f"{expert_name} debater: Calling LLM")
+        logger.debug(f"{expert_name} debater: Calling LLM (Pro)")
+        pro_model = os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME)
+
         async def _call_debater():
             return await asyncio.to_thread(
                 call_gemini_text,
@@ -84,10 +96,13 @@ async def _debater_node(
                 f"{expert_name}_debater_{stage}",
                 False,  # verbose
                 0.7,    # temperature
+                "medium",  # thinking_level
+                pro_model,  # model_name: Pro로 모순 해결·갈등 조율
             )
         response_text, _ = await async_retry_with_backoff(
             _call_debater,
             context_name=f"{expert_name}_debater_{stage}",
+            model_type="pro",
         )
         logger.info(
             f"{expert_name} debater: LLM response received ({len(response_text)} chars)"

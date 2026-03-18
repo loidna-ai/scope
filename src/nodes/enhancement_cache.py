@@ -190,3 +190,25 @@ def clear_enhancement_cache(max_age_days: int = 7):
         
         if to_remove:
             logger.debug(f"메모리 캐시 정리: {len(to_remove)}개 항목 제거")
+
+
+def clear_visual_reports(max_age_days: int = 1):
+    """
+    outputs/visual_reports/ 내 오래된 파일을 정리합니다.
+    (시각화 이미지는 이제 outputs/이미지명/에 저장되므로, 이 폴더는 레거시/고아 파일만 남음)
+    """
+    visual_dir = Path(config.OUTPUT_DIR) / "visual_reports"
+    if not visual_dir.exists():
+        return
+    current_time = time.time()
+    max_age_seconds = max_age_days * 24 * 60 * 60
+    cleared = 0
+    for f in visual_dir.glob("*.jpg"):
+        try:
+            if current_time - f.stat().st_mtime > max_age_seconds:
+                f.unlink()
+                cleared += 1
+        except Exception as e:
+            logger.debug(f"visual_reports 파일 삭제 실패: {e}")
+    if cleared > 0:
+        logger.info(f"visual_reports 정리 완료: {cleared}개 파일 삭제")

@@ -22,10 +22,11 @@
 ### 핵심 기능
 
 - **이미지 전처리 파이프라인**: 단락흔 탐지(Hotspot Detector), 초해상도 향상, 컴포넌트 분류(Preprocessor).
-- **멀티 에이전트 병렬 분석**: 활성화된 3명의 전문가(Contact, Deform, Necking)가 병렬로 분석 수행.
+- **멀티 에이전트 병렬 분석**: 활성화된 2명의 전문가(Contact, Necking)가 병렬로 분석 수행. (Deform은 현재 비활성화)
 - **Map-Reduce 패턴**: 각 전문가가 여러 Hotspot을 Send API로 분산 처리(Worker) 후 종합(Supervisor).
 - **Analyst-Critic Debate**: 각 전문가 내부 및 최종 중재 시, AI 분석관과 비평가 간의 논쟁을 통한 판정 신뢰도 향상.
 - **Arbiter Agent**: 전문가들의 분석 결과를 종합하고 논쟁 과정을 거쳐 최종 결론 도출.
+- **Visualizer**: Hotspot 영역을 원본 이미지에 표시한 시각화 이미지 생성.
 
 ### 주요 특징
 
@@ -54,7 +55,9 @@
         │                             │
 ┌───────▼─────────────────────────────▼──────────┐
 │           LangGraph StateGraph                   │
-│  (상태 기반 워크플로우 오케스트레이션)              │
+│  hotspot_detector → preprocessor                 │
+│  → [Contact, Necking] (병렬) → arbiter           │
+│  → visualizer → END                              │
 └──────────────────────────────────────────────────┘
 ```
 
@@ -83,7 +86,7 @@ START
 ```
 preprocessor
   │
-  ├─→ [Fan-out] 전문가 병렬 처리 (Contact, Deform, Necking)
+  ├─→ [Fan-out] 전문가 병렬 처리 (Contact, Necking)
   │     │
   │     ├─→ distribute_work (Send API 기반 Map-Reduce 패턴)
   │     │     └─→ analyze_hotspot_worker (각 Hotspot 병렬 분석)
@@ -100,9 +103,14 @@ preprocessor
         └─→ Arbiter Agent (chief_investigator / debate nodes)
               ├─→ 전문가 의견 종합 및 상충 해결
               └─→ 최종 화재 원인 결론 생성 및 출력
+        │
+        └─→ Visualizer (draw_annotation_node)
+              └─→ Hotspot 영역 시각화 이미지 생성
+        │
+        └─→ END
 ```
 
-_참고: Aging(절연열화), Tracking(트래킹) 관련 2명의 전문가는 현재 버전에서 비활성화되어 있습니다._
+_참고: Deform(기계적 손상), Aging(절연열화), Tracking(트래킹) 관련 3명의 전문가는 현재 버전에서 비활성화되어 있습니다._
 
 ---
 
@@ -117,14 +125,18 @@ _참고: Aging(절연열화), Tracking(트래킹) 관련 2명의 전문가는 �
 
 공통적으로 `Map-Reduce`를 활용하며, `src/nodes/{expert}_nodes.py` 내부에 로직이 구현됩니다.
 
-- **`contact_expert` (접촉불량 전문가)**
+- **`contact_expert` (접촉불량 전문가)** ✓ 활성
   - 위치적 맥락, 색채 스펙트럼, 열적 구배 및 표면 상태 등을 종합 분석하여 접속 불량 여부 판단.
-- **`deform_expert` (기계적 손상 전문가)**
-  - 압착, 가닥 분산, 변형 패턴 등의 기계적 요소와 외력 개입 여부 분석.
-- **`necking_expert` (반단선 전문가)**
+- **`deform_expert` (기계적 손상 전문가)** ✗ 비활성
+  - 압착, 가닥 분산, 변형 패턴 등의 기계적 요소와 외력 개입 여부 분석. (현재 버전에서 비활성화)
+- **`necking_expert` (반단선 전문가)** ✓ 활성
   - 소선의 절단면 형태, 용융 비드의 분포 등을 통해 반단선/단선 징후 추적 및 분석.
 
-### 3. Debate 메커니즘 (Analyst-Critic)
+### 3. 시각화 노드
+
+- **`draw_annotation_node` (`visualization_node.py`)**: Arbiter 분석 완료 후, Hotspot 영역을 원본 이미지에 표시한 시각화 이미지(`visual_report_*.jpg`)를 생성합니다.
+
+### 4. Debate 메커니즘 (Analyst-Critic)
 
 거짓양성률(오판)을 낮추기 위해 도입된 구조로, AI가 단순히 초기 결론을 내는 것이 아니라 자체적으로 비판적 리뷰(Critic) 루프를 전개합니다.
 
@@ -143,16 +155,21 @@ _참고: Aging(절연열화), Tracking(트래킹) 관련 2명의 전문가는 �
 
 ### AI 및 통신
 
-- **google-genai (≥0.3.0)**: Vertex AI 환경을 지원하며 API Rate Limit과 호환 지원되는 Gemini 호출 엔진. 모델 `gemini-3-flash-preview` 적용.
+- **google-genai (≥0.3.0)**: Vertex AI 환경을 지원하며 API Rate Limit과 호환 지원되는 Gemini 호출 엔진. 모델 `gemini-2.5-flash` / `gemini-2.5-pro` 적용 (GA, 안정적 할당량).
+- **Vertex AI**: `config.USE_VERTEX_AI=True` 기본값. Google AI Studio(`GEMINI_API_KEY`) 또는 Vertex AI(ADC) 선택 가능. `genai_client.py`에서 중앙 관리.
 
 ### 이미지 프로세싱
 
 - **OpenCV / scikit-image / NumPy**: BBox 연산 처리, NMS, Morphological 알고리즘 제어.
-- **Real-ESRGAN**: 이미지 초해상도 복원.
+- **Real-ESRGAN**: 이미지 초해상도 복원. ONNX Runtime(`onnxruntime-directml`) 지원으로 AMD GPU 가속 가능.
 
 ### 동시성 최적화
 
 - **`ThreadSafeRateLimiter` (`api_concurrency.py`)**: 다중 Event Loop 간 Thread-safe하게 동작하도록 API 요청 속도 및 동시성을 제어.
+
+### 기타
+
+- **python-docx**: Word(.docx) 형식 보고서 출력 지원.
 
 ---
 
@@ -165,30 +182,56 @@ P_04_Scope/
 ├── requirements.txt                 # 의존성 정의 파일
 │
 ├── data/                            # 테스트 및 원본 입력 이미지 경로
-├── outputs/                         # 분석 결과물 출력 경로 (생성형 보고서, JSON 등)
+├── outputs/                         # 분석 결과물 출력 경로
+│
+├── scripts/                         # 유틸리티 스크립트
+│   ├── verify_expert_graphs.py      # 전문가 그래프 검증
+│   └── test_vertex_ai_gemini.py     # Vertex AI 연결 테스트
 │
 ├── src/                             # 코어 아키텍처
 │   ├── agent.py                     # Main Graph 조립 스크립트 (진입 노드 정의)
 │   ├── state.py                     # 글로벌 LangGraph State 스키마 (InvestigationState)
+│   ├── states/                      # 전문가별 상태 스키마 (ExpertState 분리)
+│   │   ├── contact_state.py
+│   │   ├── deform_state.py
+│   │   ├── necking_state.py
+│   │   ├── arbiter_debate_state.py
+│   │   └── ...
 │   ├── utils/                       # 통합 유틸리티 패키지
 │   │   ├── api_concurrency.py       # API Global Rate Limiter 제어체계
 │   │   ├── retry_utils.py           # 구글 API Timeout, 429 방어 Retry 구현
 │   │   ├── expert_api_utils.py      # Gemini 공통 호출 인터페이스
-│   │   └── image_utils.py           # 이미지 입출력, Crop, Safe Load 유틸리티
+│   │   ├── genai_client.py          # Vertex AI / AI Studio 클라이언트 중앙 관리
+│   │   ├── expert_config.py         # 전문가 공통 설정 (Safety, Debate 임계값 등)
+│   │   ├── image_utils.py           # 이미지 입출력, Crop, Safe Load 유틸리티
+│   │   ├── image_processing.py      # 이미지 처리 (CLAHE, Morphological 등)
+│   │   ├── io_utils.py              # I/O 검증, 결과 저장
+│   │   ├── report_formatter.py      # 리포트 포맷팅
+│   │   ├── report_generator.py      # LLM 기반 전문 보고서 생성
+│   │   ├── nms.py                   # NMS 알고리즘
+│   │   └── ...
+│   ├── tools/                       # 도구 모듈
+│   │   ├── experts/                 # expert_utils, arbiter_utils
+│   │   ├── image_tools.py
+│   │   └── registry.py
 │   ├── nodes/
 │   │   ├── common_nodes.py          # Hotspot Detector
 │   │   ├── preprocessor_node.py     # Crop, Encode, Enhance 전처리
+│   │   ├── visualization_node.py    # Hotspot 시각화 (draw_annotation_node)
+│   │   ├── enhancement.py           # Real-ESRGAN 이미지 향상
+│   │   ├── enhancement_cache.py     # Enhancement 캐시 관리
 │   │   ├── expert_worker_utils.py   # 각 전문가가 사용하는 공통 Vision Call 동작
 │   │   ├── contact_nodes.py         # Contact 전문가 전용 노드
 │   │   ├── deform_nodes.py          # Deform 전문가 전용 노드
 │   │   ├── necking_nodes.py         # Necking 전문가 전용 노드
+│   │   ├── verdict_debate_nodes.py  # Analyst-Critic Debate 노드
 │   │   └── arbiter_nodes/           # Arbiter의 Debate, Judge 처리 관련
 │   ├── graphs/
 │   │   ├── graph_utils.py           # 공통 래퍼, 라우팅 정의 모듈
 │   │   └── {expert}_expert_graph.py # 각 전문가 Map-Reduce State Graph 정의
 │   ├── models/                      # Pydantic 기반 구조화된 출력 스키마
 │   ├── prompts/                     # Prompt 설계 정의
-│   └── edges/                       # (엣지 관제)
+│   └── edges/                       # investigation_edges.py (엣지 정의)
 ```
 
 ---
@@ -206,16 +249,14 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-### 2. 구글 크레덴셜 (`.env`)
+### 2. 구글 크레덴셜
 
-프로젝트 최상단에 `.env` 파일을 생성하고 내용을 세팅합니다.
+**Vertex AI 모드** (기본값, `config.USE_VERTEX_AI=True`):
+- `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` 환경 변수 또는 `config.py`에 설정
+- Application Default Credentials(ADC) 사용 (gcloud auth application-default login)
 
-```ini
-GEMINI_API_KEY=your-api-key-here
-# (선택) Vertex AI 프로젝트 연결 시
-GOOGLE_CLOUD_PROJECT=your-project-id
-GOOGLE_CLOUD_LOCATION=global
-```
+**Google AI Studio 모드** (`config.USE_VERTEX_AI=False`):
+- 프로젝트 최상단에 `.env` 파일 생성 후 `GEMINI_API_KEY=your-api-key-here` 설정
 
 ### 3. 모델 구동
 
@@ -225,7 +266,23 @@ GOOGLE_CLOUD_LOCATION=global
 python main.py data/image.jpg
 ```
 
-_실행이 완료되면 메인 디렉터리에 `outputs/image/` 디렉터리가 생성되며 그 안에 정돈된 결과 (`investigation_result.json`, `.md` 등)가 저장됩니다._
+**추가 CLI 옵션**:
+
+| 옵션 | 설명 |
+|------|------|
+| `--test` | 검증 모드. 기본 테스트 이미지로 파이프라인 점검 |
+| `--export-docx` | 기존 txt/md 결과를 Word(.docx)로 일괄 변환 |
+| `--clean-cache` | enhancement 캐시 및 visual_reports 정리 |
+
+**실행 예시**:
+
+```powershell
+python main.py --test                    # 검증 모드
+python main.py --export-docx              # 기존 결과 docx 변환
+python main.py --clean-cache              # 캐시 정리
+```
+
+_실행이 완료되면 `outputs/{이미지명}/` 디렉터리가 생성되며 그 안에 정돈된 결과가 저장됩니다: `investigation_result.txt`, `investigation_result.docx`, `visual_report_*.jpg`, 개별 전문가 리포트(`*_Expert_Report.txt`) 등._
 
 ---
 

@@ -165,4 +165,10 @@ class InvestigationState(TypedDict):
     # 에러 수집
     errors: Annotated[List[str], operator.add]
     
+    # 시각화 이미지 경로
+    visual_report_path: Annotated[Optional[str], keep_last]
+
+    # 결과 저장 디렉토리 (visualization_node에서 시각화 이미지 저장 위치로 사용)
+    output_dir: Annotated[Optional[str], keep_last]
+    
 

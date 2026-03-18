@@ -138,12 +138,16 @@ def draw_annotation_node(state: InvestigationState) -> Dict[str, Any]:
         return {}
 
     # 3. 결과 저장
-    # Output Dir: ./outputs/visual_reports/
-    output_dir = os.path.join(os.getcwd(), "outputs", "visual_reports")
+    # output_dir가 있으면 해당 폴더에 저장, 없으면 outputs/visual_reports/ (레거시)
+    output_dir_str = state.get("output_dir")
+    if output_dir_str and os.path.isdir(output_dir_str):
+        output_dir = output_dir_str
+    else:
+        output_dir = os.path.join(os.getcwd(), "outputs", "visual_reports")
     os.makedirs(output_dir, exist_ok=True)
     
     import uuid
-    filename = f"report_{uuid.uuid4().hex[:8]}.jpg"
+    filename = f"visual_report_{uuid.uuid4().hex[:8]}.jpg"
     save_path = os.path.join(output_dir, filename)
     
     save_image_safe(img, save_path)

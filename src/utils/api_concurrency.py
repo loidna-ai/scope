@@ -1,11 +1,13 @@
 """
-전역 Gemini API 동시성 제어
-Hotspot Detector + 모든 Expert 노드(Contact, Deform, Necking)가 공유하는
-단일 Rate Limiter 및 Semaphore로 429/503 에러 방지
+전역 Gemini API 동시성 제어 (Flash / Pro 분리)
+
+Flash와 Pro는 Vertex AI에서 별도 할당량을 가지므로, 단일 Rate Limiter 사용은 안티패턴.
+- Flash: 30 RPM / 2 concurrent (Hotspot, Preprocessor, Workers 등)
+- Pro: 15 RPM / 1 concurrent (Supervisor, Judge, Report Generator 등)
 
 Note: asyncio.Semaphore는 event loop에 바인딩되므로, Expert 그래프가 각각
 asyncio.run()으로 별도 루프에서 실행될 때 "bound to different event loop" 에러 발생.
-→ threading.Semaphore 사용 (스레드/루프 무관, asyncio.to_thread로 비블로킹 acquire)
+→ asyncio.Semaphore 사용 (동일 루프 내에서만 공유되므로 LangGraph 단일 루프에서는 안전)
 
 ThreadSafeRateLimiter: 여러 이벤트 루프에서 안전하게 작동하는 thread-safe rate limiter
 - threading.Lock으로 thread-safe 보장
@@ -14,6 +16,7 @@ ThreadSafeRateLimiter: 여러 이벤트 루프에서 안전하게 작동하는 t
 """
 from contextlib import asynccontextmanager
 from collections import deque
+from typing import Literal
 import asyncio
 import threading
 import time
@@ -22,21 +25,51 @@ import config
 
 logger = logging.getLogger(__name__)
 
-# 전역 인스턴스
-# - ThreadSafeRateLimiter: thread-safe, 여러 이벤트 루프에서 안전하게 작동
-# - threading.Semaphore: 스레드/루프 무관 → Expert의 asyncio.run() 별도 루프에서도 안전
-_global_rate_limiter = None
+ModelType = Literal["flash", "pro"]
+
+# Flash / Pro 별도 인스턴스 (모델별 독립 할당량)
+_flash_rate_limiter: "ThreadSafeRateLimiter | None" = None
+_pro_rate_limiter: "ThreadSafeRateLimiter | None" = None
+_flash_semaphore: asyncio.Semaphore | None = None
+_pro_semaphore: asyncio.Semaphore | None = None
 _limiter_lock = threading.Lock()
-_global_semaphore_async = None
 _semaphore_lock = threading.Lock()
 
-def _get_global_semaphore() -> asyncio.Semaphore:
-    global _global_semaphore_async
-    if _global_semaphore_async is None:
-        with _semaphore_lock:
-            if _global_semaphore_async is None:
-                _global_semaphore_async = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
-    return _global_semaphore_async
+
+def _get_rate_limiter(model_type: ModelType) -> "ThreadSafeRateLimiter":
+    global _flash_rate_limiter, _pro_rate_limiter
+    with _limiter_lock:
+        if model_type == "flash":
+            if _flash_rate_limiter is None:
+                _flash_rate_limiter = ThreadSafeRateLimiter(
+                    max_rate=config.GEMINI_TIER1_RPM,
+                    time_period=60.0,
+                    label="Flash",
+                )
+            return _flash_rate_limiter
+        else:
+            if _pro_rate_limiter is None:
+                _pro_rate_limiter = ThreadSafeRateLimiter(
+                    max_rate=getattr(config, "GEMINI_PRO_RPM", 15),
+                    time_period=60.0,
+                    label="Pro",
+                )
+            return _pro_rate_limiter
+
+
+def _get_semaphore(model_type: ModelType) -> asyncio.Semaphore:
+    global _flash_semaphore, _pro_semaphore
+    with _semaphore_lock:
+        if model_type == "flash":
+            if _flash_semaphore is None:
+                _flash_semaphore = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
+            return _flash_semaphore
+        else:
+            if _pro_semaphore is None:
+                _pro_semaphore = asyncio.Semaphore(
+                    getattr(config, "GEMINI_PRO_CONCURRENT", 1)
+                )
+            return _pro_semaphore
 
 
 class ThreadSafeRateLimiter:
@@ -50,16 +83,18 @@ class ThreadSafeRateLimiter:
     unlike AsyncLimiter which is bound to a single event loop.
     """
     
-    def __init__(self, max_rate: int, time_period: float = 60.0):
+    def __init__(self, max_rate: int, time_period: float = 60.0, label: str = ""):
         """
         Initialize thread-safe rate limiter.
         
         Args:
             max_rate: Maximum number of requests allowed in time_period
             time_period: Time window in seconds (default: 60.0)
+            label: 로깅용 라벨 (예: "Flash", "Pro")
         """
         self.max_rate = max_rate
         self.time_period = time_period
+        self._label = label or "API"
         self._lock = threading.Lock()
         self._requests = deque()  # timestamps
         # Minimum interval between requests to prevent burst (60 seconds / max_rate)
@@ -112,9 +147,9 @@ class ThreadSafeRateLimiter:
                 # Can proceed immediately - record timestamp atomically
                 self._requests.append(now)
                 count_after = len(self._requests)
-                logger.debug(f"[RateLimiter] Request recorded. Current count: {count_after}/{self.max_rate}")
+                logger.debug(f"[RateLimiter:{self._label}] Request recorded. Current count: {count_after}/{self.max_rate}")
                 if count_after >= self.max_rate * 0.8:  # 80% 이상 사용 시 경고
-                    logger.warning(f"[RateLimiter] Rate limit approaching: {count_after}/{self.max_rate} requests in last 60s")
+                    logger.warning(f"[RateLimiter:{self._label}] Rate limit approaching: {count_after}/{self.max_rate} requests in last 60s")
                 return True, 0.0
             
             # Need to wait until oldest request expires
@@ -127,7 +162,7 @@ class ThreadSafeRateLimiter:
                 self._requests.popleft()
                 self._requests.append(now)
                 count_after = len(self._requests)
-                logger.debug(f"[RateLimiter] Request recorded. Current count: {count_after}/{self.max_rate}")
+                logger.debug(f"[RateLimiter:{self._label}] Request recorded. Current count: {count_after}/{self.max_rate}")
                 return True, 0.0
     
     @asynccontextmanager
@@ -145,10 +180,10 @@ class ThreadSafeRateLimiter:
             if can_proceed:
                 # Timestamp already recorded atomically in _try_acquire_and_record()
                 if loop_count > 0:
-                    logger.debug(f"[RateLimiter] Acquired after {loop_count} wait cycles")
+                    logger.debug(f"[RateLimiter:{self._label}] Acquired after {loop_count} wait cycles")
                 break
             loop_count += 1
-            logger.warning(f"[RateLimiter] Rate limit reached ({self.max_rate} RPM), waiting {wait_time:.2f}s (attempt {loop_count})")
+            logger.warning(f"[RateLimiter:{self._label}] Rate limit reached ({self.max_rate} RPM), waiting {wait_time:.2f}s (attempt {loop_count})")
             await asyncio.sleep(wait_time)
         
         try:
@@ -158,39 +193,28 @@ class ThreadSafeRateLimiter:
             pass
 
 
-def _get_rate_limiter() -> ThreadSafeRateLimiter:
-    """
-    Get or create global thread-safe rate limiter.
-    
-    Lazy initialization pattern ensures single instance across all event loops.
-    
-    Returns:
-        ThreadSafeRateLimiter instance
-    """
-    global _global_rate_limiter
-    if _global_rate_limiter is None:
-        with _limiter_lock:
-            if _global_rate_limiter is None:
-                _global_rate_limiter = ThreadSafeRateLimiter(
-                    max_rate=config.GEMINI_TIER1_RPM,
-                    time_period=60.0
-                )
-    return _global_rate_limiter
-
-
 @asynccontextmanager
-async def acquire_api_slot():
+async def acquire_api_slot(model_type: ModelType = "flash"):
     """
     API 호출 전 슬롯 획득 (rate limit + concurrency)
     
-    Thread-safe rate limiter와 asyncio semaphore를 사용하여:
-    - Rate limiting: 분당 요청 수 제한 (GEMINI_TIER1_RPM)
-    - Concurrency limiting: 동시 실행 수 제한 (GEMINI_TIER1_CONCURRENT)
+    Flash와 Pro는 Vertex AI에서 별도 할당량을 가지므로 분리된 풀 사용.
+    
+    Args:
+        model_type: "flash" | "pro"
+            - flash: 30 RPM, 2 concurrent (Hotspot, Preprocessor, Workers 등)
+            - pro: 15 RPM, 1 concurrent (Supervisor, Judge, Report Generator 등)
+    
+    Usage:
+        async with acquire_api_slot("flash"):
+            await call_flash_api()
+        async with acquire_api_slot("pro"):
+            await call_pro_api()
     """
-    sem = _get_global_semaphore()
+    sem = _get_semaphore(model_type)
     await sem.acquire()
     try:
-        limiter = _get_rate_limiter()
+        limiter = _get_rate_limiter(model_type)
         async with limiter.acquire():
             yield
     finally:

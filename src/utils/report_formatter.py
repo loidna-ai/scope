@@ -203,6 +203,20 @@ def _confidence_badge(level: str) -> str:
     return badges.get(level, level)
 
 
+def _get_expert_summary_phrase(expert_reports: List[str]) -> str:
+    """expert_reports에서 전문가 이름 추출하여 'N개의 전문 분석 에이전트(A, B, C)의 교차 검증' 문구 생성"""
+    names = []
+    for r in expert_reports or []:
+        if isinstance(r, str):
+            info = parse_expert_report(r)
+            if info and info.get("expert_name") != "Unknown":
+                names.append(info["expert_name"])
+    if not names:
+        return "해당 전문가의 교차 검증"
+    names = list(dict.fromkeys(names))  # 순서 유지 중복 제거
+    return f"{len(names)}개의 전문 분석 에이전트({', '.join(names)})의 교차 검증"
+
+
 def _format_report_header(
     timestamp: str,
     image_name: str,
@@ -221,7 +235,8 @@ def _format_report_header(
 
 def _format_executive_summary(
     final_verdict: str,
-    verdict_info: Dict[str, str]
+    verdict_info: Dict[str, str],
+    expert_reports: Optional[List[str]] = None,
 ) -> tuple[List[str], Optional[str]]:
     output = []
     output.append("## 1. 종합 분석 결론 (Executive Summary)\n")
@@ -235,8 +250,9 @@ def _format_executive_summary(
     verdict_phrase = verdict_match.group(1).strip() if verdict_match else default_verdict
     verdict_phrase = re.sub(r'^\*\*|\*\*$', '', verdict_phrase).strip()
     
+    expert_phrase = _get_expert_summary_phrase(expert_reports)
     output.append("**판정 요약:**\n")
-    output.append(f"본 시스템은 3개의 전문 분석 에이전트(Contact, Deform, Necking)의 교차 검증을 통해, 해당 증거물의 발화 원인을 **'{verdict_phrase}'**로 최종 판정합니다.\n")
+    output.append(f"본 시스템은 {expert_phrase}을 통해, 해당 증거물의 발화 원인을 **'{verdict_phrase}'**로 최종 판정합니다.\n")
     
     reasoning_text = None
     for pattern in REASONING_PATTERNS:
@@ -266,7 +282,10 @@ def _format_executive_summary(
     return output, reasoning_text
 
 
-def _format_executive_summary_structured(final_verdict_structured: Any) -> List[str]:
+def _format_executive_summary_structured(
+    final_verdict_structured: Any,
+    expert_reports: Optional[List[str]] = None,
+) -> List[str]:
     output = []
     output.append("## 1. 종합 분석 결론 (Executive Summary)\n")
     
@@ -279,8 +298,9 @@ def _format_executive_summary_structured(final_verdict_structured: Any) -> List[
         key_evidence = final_verdict_structured.get("key_evidence", [])
         reasoning_summary = final_verdict_structured.get("reasoning_summary", "")
     
+    expert_phrase = _get_expert_summary_phrase(expert_reports)
     output.append("**판정 요약:**\n")
-    output.append(f"본 시스템은 3개의 전문 분석 에이전트(Contact, Deform, Necking)의 교차 검증을 통해, 해당 증거물의 발화 원인을 **'{verdict_phrase}'**로 최종 판정합니다.\n")
+    output.append(f"본 시스템은 {expert_phrase}을 통해, 해당 증거물의 발화 원인을 **'{verdict_phrase}'**로 최종 판정합니다.\n")
     
     output.append("\n**핵심 근거:**\n")
     if key_evidence:
@@ -335,10 +355,15 @@ def _format_expert_reports_section(expert_reports: List[str]) -> List[str]:
     return output
 
 
-def _format_evidence_breakdown(reasoning_text: Optional[str]) -> List[str]:
+def _format_evidence_breakdown(reasoning_text: Optional[str], visual_report_path: Optional[str] = None) -> List[str]:
     output = []
     output.append("## 3. 상세 증거 분석 (Evidence Breakdown)\n")
-    output.append("*(이곳에 Zone 1, 3, 4가 표시된 분석 이미지를 삽입하세요)*\n\n")
+    if visual_report_path:
+        # 상대 경로 사용 (file:/// 는 VS Code 등에서 보안상 렌더링 안 됨)
+        path = visual_report_path.replace('\\', '/') if '\\' in visual_report_path else visual_report_path
+        output.append(f"![분석 결과 시각화]({path})\n\n")
+    else:
+        output.append("*(이곳에 Zone 1, 3, 4가 표시된 분석 이미지를 삽입하세요)*\n\n")
     zone_info = [(1, "압착부 경계", "소선 간 탄화물 고착 심화. 물리적 틈새(Gap) 존재."),
                  (3, "도체 표면", "장기과열 특유의 적갈색/회색 산화 스케일 관찰."),
                  (4, "말단부", "용융흔 없음. 원형 유지.")]
@@ -355,10 +380,14 @@ def _format_evidence_breakdown(reasoning_text: Optional[str]) -> List[str]:
     return output
 
 
-def _format_evidence_breakdown_structured(zones: List[Any]) -> List[str]:
+def _format_evidence_breakdown_structured(zones: List[Any], visual_report_path: Optional[str] = None) -> List[str]:
     output = []
     output.append("## 3. 상세 증거 분석 (Evidence Breakdown)\n")
-    output.append("*(이곳에 Zone 1, 3, 4가 표시된 분석 이미지를 삽입하세요)*\n\n")
+    if visual_report_path:
+        path = visual_report_path.replace('\\', '/') if '\\' in visual_report_path else visual_report_path
+        output.append(f"![분석 결과 시각화]({path})\n\n")
+    else:
+        output.append("*(이곳에 Zone 1, 3, 4가 표시된 분석 이미지를 삽입하세요)*\n\n")
     
     if zones:
         for zone in zones:
@@ -469,7 +498,8 @@ def format_investigation_result(
     arbiter_debate_messages: List[Dict[str, Any]],
     input_image_path: str,
     timestamp: str,
-    final_verdict_structured: Optional[Any] = None
+    final_verdict_structured: Optional[Any] = None,
+    visual_report_path: Optional[str] = None
 ) -> str:
     """분석 결과를 실무용 보고서 형식으로 포맷팅 (결론→근거→상세 순)"""
     output = []
@@ -519,18 +549,18 @@ def format_investigation_result(
     output.extend(_format_report_header(timestamp, image_name, verdict_info))
     
     if use_structured:
-        summary_lines = _format_executive_summary_structured(final_verdict_structured)
+        summary_lines = _format_executive_summary_structured(final_verdict_structured, expert_reports)
         output.extend(summary_lines)
     else:
-        summary_lines, reasoning_text = _format_executive_summary(final_verdict, verdict_info)
+        summary_lines, reasoning_text = _format_executive_summary(final_verdict, verdict_info, expert_reports)
         output.extend(summary_lines)
     
     output.extend(_format_expert_reports_section(expert_reports))
     
     if use_structured and zones:
-        output.extend(_format_evidence_breakdown_structured(zones))
+        output.extend(_format_evidence_breakdown_structured(zones, visual_report_path))
     else:
-        output.extend(_format_evidence_breakdown(reasoning_text))
+        output.extend(_format_evidence_breakdown(reasoning_text, visual_report_path))
     
     if use_structured and recommendations:
         output.extend(_format_recommendations_structured(recommendations))

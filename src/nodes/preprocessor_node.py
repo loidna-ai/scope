@@ -59,9 +59,9 @@ async def _crop_roi(
     if not box_2d:
         return roi_image_path
 
-    logger.debug(f"Preprocessor {hotspot_id}: crop from {box_2d}")
+    logger.debug(f"Preprocessor {hotspot_id}: crop from {box_2d} with padding 0.4")
     try:
-        cropped_path = await asyncio.to_thread(crop_roi_from_box, image_path, box_2d)
+        cropped_path = await asyncio.to_thread(crop_roi_from_box, image_path, box_2d, padding_ratio=0.4)
         logger.info(f"Preprocessor {hotspot_id}: Crop done → {cropped_path}")
         roi_image_path = cropped_path
     except Exception as crop_err:

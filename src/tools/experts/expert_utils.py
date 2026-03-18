@@ -32,6 +32,7 @@ load_dotenv(dotenv_path=env_path)
 
 import config
 from src.utils.genai_client import get_genai_client
+from src.utils.expert_config import get_thinking_config
 
 # Google GenAI 설정 (config 또는 환경 변수)
 MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
@@ -215,15 +216,14 @@ def call_gemini_vision(
             # 최신 SDK 방식: Client를 사용하여 콘텐츠 생성
             # Config 구성
             actual_model_name = model_name if model_name else MODEL_NAME
-            thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
-            
             config_params = {
                 "temperature": temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7)
             }
             
-            # thinking level 지원 모델에만 추가
-            if any(m in actual_model_name for m in thinking_supported_models):
-                config_params["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+            # 모델 시리즈별 Thinking 설정 (Gemini 2.5: thinking_budget, Gemini 3: thinking_level)
+            thinking_cfg = get_thinking_config(actual_model_name, thinking_level)
+            if thinking_cfg:
+                config_params["thinking_config"] = thinking_cfg
             
             # top_p가 지정된 경우 추가
             if top_p is not None:
@@ -498,7 +498,8 @@ def call_gemini_text(
     step_name: str = "",
     verbose: bool = False,
     temperature: float = None,
-    thinking_level: str = "medium"
+    thinking_level: str = "medium",
+    model_name: Optional[str] = None
 ) -> tuple[str, Optional[Dict]]:
     """
     Gemini Text API 호출 및 에러 핸들링 (이미지 없이 텍스트만)
@@ -509,6 +510,7 @@ def call_gemini_text(
         verbose: 상세 로그 출력 여부
         temperature: 온도 파라미터 (기본값: None, 이 경우 0.7 사용)
         thinking_level: 추론 레벨 ("high", "medium", "low", "minimal") 기본값: "medium"
+        model_name: 사용할 모델 (None이면 GEMINI_MODEL_NAME 사용, Pro 보고서용으로 GEMINI_PRO_MODEL_NAME 전달)
         
     Returns:
         tuple: (response_text, thinking_info)
@@ -521,25 +523,23 @@ def call_gemini_text(
     # 🔥 Retry Logic with Exponential Backoff
     MAX_RETRIES = 3
     response = None
-    
+    effective_model = model_name or MODEL_NAME
     for retry_attempt in range(MAX_RETRIES):
         try:
-            # 시스템 인스트럭션을 config에 포함
-            # system_instruction=SYSTEM_INSTRUCTION, # Removed per user request
-            thinking_supported_models = ["gemini-2.0-flash-exp", "gemini-2.5-flash", "gemini-2.5-pro"]
             config_dict = {
                 "temperature": temperature if temperature is not None else (generation_config.temperature if generation_config else 0.7)
             }
             
-            # thinking level 지원 모델에만 추가
-            if any(m in MODEL_NAME for m in thinking_supported_models):
-                config_dict["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+            # 모델 시리즈별 Thinking 설정 (Gemini 2.5: thinking_budget, Gemini 3: thinking_level)
+            thinking_cfg = get_thinking_config(effective_model, thinking_level)
+            if thinking_cfg:
+                config_dict["thinking_config"] = thinking_cfg
             
             config_with_system = types.GenerateContentConfig(**config_dict)
             
             call_start_time = time.time()
             response = client.models.generate_content(
-                model=MODEL_NAME,
+                model=effective_model,
                 contents=[prompt],
                 config=config_with_system
             )

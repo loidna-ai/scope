@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Fire CSI AI Agent - System Flow</title>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+    mermaid.initialize({ startOnLoad: true });
+  </script>
+</head>
+<body>
+  <h1>Fire CSI AI Agent — System Flow Diagram</h1>
+  <pre class="mermaid">
+flowchart TB
+    subgraph INPUT[" "]
+        A[Input Image]
+    end
+
+    subgraph PHASE1["Phase 1: Common Preprocessing"]
+        B[Hotspot Detector<br/>Overlap Grid + NMS]
+        C[Preprocessor<br/>Crop | Classify | Enhance]
+    end
+
+    subgraph PHASE2["Phase 2: Expert Parallel Analysis"]
+        subgraph CONTACT["Contact Expert"]
+            C1[distribute_work]
+            C2[Worker × N]
+            C3[Supervisor]
+            C4[Analyst ↔ Critic]
+            C5[Finalize]
+        end
+        subgraph NECKING["Necking Expert"]
+            N1[distribute_work]
+            N2[Worker × N]
+            N3[Supervisor]
+            N4[Analyst ↔ Critic]
+            N5[Finalize]
+        end
+    end
+
+    subgraph PHASE3["Phase 3: Arbiter"]
+        D[debate_init]
+        E[Debater]
+        F[Fact Checker]
+        G[Moderator]
+        H[Judge]
+    end
+
+    subgraph OUTPUT[" "]
+        I[final_verdict]
+    end
+
+    A --> B --> C
+    C --> C1
+    C --> N1
+    C1 --> C2 --> C3 --> C4 --> C5
+    N1 --> N2 --> N3 --> N4 --> N5
+    C5 --> D
+    N5 --> D
+    D --> E --> F --> G
+    G -->|불일치| E
+    G -->|합의| H
+    H --> I
+  </pre>
+</body>
+</html>

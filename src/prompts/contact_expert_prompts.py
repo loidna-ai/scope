@@ -72,7 +72,7 @@ def get_terminal_prompt(image_path: str = None) -> str:
 <expert_knowledge>
 
 **Criteria for Poor Connection (접촉불량 진단 기준)**
-- **산화 피막 (Oxidation):** 나사산(Thread) 틈새나 접촉면 내부에 검붉거나 회색의 두터운 산화막(Scale)이 층을 이루고 있으며, 습기 노출 시 녹청(Verdigris)이나 아산화동 증식이 확인됨.
+- **산화 피막 (Oxidation):** 나사산(Thread) 틈새나 접촉면 내부에 검붉거나 회색의 두터운 산화막(Scale)이 층을 이루고 있으며, 습기 노출 시 녹청(Verdigris)이 확인됨.
 - **탄화 형태 (Carbonization):** 터미널(단자) 금속부를 중심으로 하우징이 동심원상으로 깊게 파이고, 압착부 틈새나 소선(도체) 사이에 탄화된 절연물 잔해(Carbon deposit)가 깊게 침착되어 있음. (※피복 내부가 더 심하게 탄화된 내측 탄화 패턴 포함)
 - **결속 상태 (Looseness):** 스프링 와셔가 장시간 열화로 탄성을 잃고 완전히 납작해져(Flattened) 복원되지 않으며, 소선(도체) 표면에 견고한 체결을 입증할 물리적 압착흔(Compression Mark)이 식별되지 않음.
 - **용융 형태 (Melting):** 단락(Short) 특유의 거대 용융흔적(Bead)이 없고, 터미널 금속 표면이 거칠게 뜯겨 나간 곰보 자국(Pitting)이 다수 식별되며, 나사나 터미널 자체가 심하게 용융되거나 소실된 형태를 보임.
@@ -80,6 +80,7 @@ def get_terminal_prompt(image_path: str = None) -> str:
 
 **유의사항**
 - 거대 단락 배제: 최선단(끝단부) 맺힌 용융흔적(bead)이 모든 소선을 완벽하게 삼켜서 매끄러운 하나의 큰 덩어리가 되어 있는 경우는 접촉불량을 배제하거나 후순위로 검토함.
+- 미세 용융흔적 배제: 각 소선 끝에 개별적인 작은 용융흔적(bead)이 확인되는 경우는 접촉불량을 배제하거나 후순위로 검토함.
 - 도체나 터미널의 손상이 일정한 방향의 **선형 스크래치(Linear Scratch)** 형태라면 이는 설치 시 발생한 공구 흔적입니다. 전기적 침식(Erosion)은 방향성이 없고 불규칙한 **곰보(Pitting)** 형태여야 합니다
 
 </expert_knowledge>

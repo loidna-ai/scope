@@ -13,7 +13,7 @@ class ComponentClassification(BaseModel):
     """전기 부품 유형 식별 결과."""
 
     deduced_type: Literal["Wire", "Terminal", "Splice", "Plug", "None"] = Field(
-        description="접속부 유형: Wire=전선, Terminal=단자, Splice=접속, Plug=플러그, None=기타"
+        description="접속부 유형: Wire=전선(상/하단 파단면 포함), Terminal=단자, Splice=접속(2개 이상 타 전선의 의도적 결합), Plug=플러그, None=기타"
     )
     visual_description: str = Field(
         description="관찰된 시각적 특징 요약 (2-3문장)"

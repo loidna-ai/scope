@@ -16,6 +16,9 @@ CLAHE_TILE_GRID_SIZE = (8, 8)  # CLAHE 타일 그리드 크기
 # 출력 디렉토리
 OUTPUT_DIR = "outputs"  # 기본 출력 디렉토리
 
+# 캐시 보관 기간 (일). 분석 시작 시 이 기간 초과 캐시 자동 삭제
+CACHE_MAX_AGE_DAYS = 7
+
 # 개별 Hotspot 분석 결과 JSON 저장 (output/contact_analysis, deform_analysis, necking_analysis)
 SAVE_INDIVIDUAL_HOTSPOT_JSON = False  # True: 각 Worker별 JSON 저장 (디버그/감사용), False: 저장 안 함
 
@@ -59,18 +62,25 @@ MEDIA_RESOLUTION_ULTRA_HIGH_ENABLED = False  # ULTRA_HIGH 사용 여부 (향후 
 
 # === Gemini API Rate Limiting ===
 GEMINI_TIER = 1
-GEMINI_MODEL_NAME = "gemini-3-flash-preview"
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
+GEMINI_PRO_MODEL_NAME = "gemini-2.5-pro"
 GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
 
-# Vertex AI gemini-3-flash-preview 기준 (공식 문서)
-# - Standard PayGo: Flash 모델 Tier 1 = 2M TPM (Preview는 tier 미적용, 모델별 문서 참조)
+# Vertex AI gemini-2.5-flash / gemini-2.5-pro 기준 (GA 모델, Standard PayGo Tier 적용)
+# - Standard PayGo: Flash Tier 1 = 2M TPM, Pro Tier 1 = 500K TPM
 # - 플랫폼 한도: 30,000 RPM per model per region (vertex-ai/docs/quotas)
 # - 권장: Global endpoint + traffic smoothing (요청 분산)
 # 참고: https://cloud.google.com/vertex-ai/generative-ai/docs/standard-paygo
-#       https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-flash
-GEMINI_TIER1_RPM = 30   # 분당 요청 제한 (Preview 모델 안정성을 위해 30으로 하향)
+#       https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash
+# Flash 전용 (Hotspot, Preprocessor, Workers, Debater(Flash), FactChecker 등)
+GEMINI_TIER1_RPM = 30   # 분당 요청 제한
 GEMINI_TIER1_RPD = 5000 # 일일 요청 제한 (Vertex AI 상한)
 GEMINI_TIER1_CONCURRENT = 2  # 동시 실행 (Semaphore 2: 429 에러 방지를 위한 최적값)
+
+# Pro 전용 (Supervisor, Analyst, Critic, Judge, Report Generator, Debater(Pro))
+# Pro는 Vertex AI에서 별도 할당량·더 낮은 동시성 → 분리된 Rate Limiter 필수
+GEMINI_PRO_RPM = 10         # Pro 분당 요청 (429 완화를 위해 10으로 하향)
+GEMINI_PRO_CONCURRENT = 1   # Pro 동시 실행 (burst·429 방지)
 
 # Model Fallback 전략
 GEMINI_ENABLE_FALLBACK = True  # 자동 Fallback 활성화
@@ -87,7 +97,12 @@ HOTSPOT_OVERLAP = 200           # 패치 간 오버랩 (px)
 HOTSPOT_NMS_IOU_THRESHOLD = 0.3 # NMS IoU 임계값 (0.0~1.0)
 HOTSPOT_BLUR_THRESHOLD = 50.0   # OpenCV Laplacian Variance (이하 값이면 블러로 간주해 Drop)
 HOTSPOT_EDGE_THRESHOLD = 10     # OpenCV Canny Edge 평균값 (이하 값이면 텍스처/정보가 없다고 간주해 Drop)
-HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 개수 제한. Gemini 3 Flash의 Multi-Image 특성을 활용하여 여러 장을 일괄 전송함.
+HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 개수 제한. Gemini 2.5 Flash의 Multi-Image 특성을 활용하여 여러 장을 일괄 전송함.
+
+# === Image Pre-processing ===
+PRE_RESIZE_ENABLED = True   # True: 파이프라인 진입 시 자동 리사이즈 수행
+PRE_RESIZE_MAX_DIMENSION = 2048  # 최대 이미지 해상도 제한 (HOTSPOT_MAX_IMAGE_DIMENSION과 동일 권장)
+PRE_RESIZE_JPEG_QUALITY = 88
 
 # === Event Loop ===
 # [Deprecated] Native Async 리팩토링 후 스레드 기반 실행 제거됨 (2026-02)
@@ -95,7 +110,7 @@ HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 
 # === Vertex AI (선택) ===
 USE_VERTEX_AI = True  # Vertex AI 사용
 GOOGLE_CLOUD_PROJECT = "loidna-ai-scope"
-GOOGLE_CLOUD_LOCATION = "global"  # gemini-3-flash-preview는 global 전용
+GOOGLE_CLOUD_LOCATION = "global"  # gemini-2.5-flash/pro는 global 지원
 
 # === Main.py Configuration ===
 # 이미지 파일 처리 설정
@@ -104,6 +119,7 @@ IMAGE_EXTENSIONS = ["*.png", "*.jpg", "*.jpeg", "*.PNG", "*.JPG", "*.JPEG", "*.h
 TEST_IMAGE_CANDIDATES = ["Primary_Arc_Bead_1.png", "Primary_Arc_Bead_1.jpg"]  # 테스트 모드에서 사용할 이미지 파일명 우선순위
 
 # 리포트 포맷팅 설정
+EMBED_IMAGE_IN_MARKDOWN = True  # True: 이미지를 Base64로 마크다운에 직접 삽입 (단일 파일, 어디서나 표시), False: 상대 경로 참조
 REASONING_TEXT_TRUNCATE_LENGTH = 300  # 텍스트 자르기 길이 (문자 수)
 CONTENT_LINES_TRUNCATE_THRESHOLD = 8  # 콘텐츠 줄 수 제한 (이 값보다 많으면 중략)
 FULL_AUDIT_TRAIL_OUTPUT = True  # True: 상세 토론 내역 전체 출력, False: 중략(앞3줄+...중략...+뒤2줄)

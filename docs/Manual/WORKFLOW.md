@@ -69,7 +69,7 @@
 
 ## 3. 멀티 에이전트 병렬 분석 (Map-Reduce & Debate)
 
-실제로 활성화된 전문가들 (**Contact, Deform, Necking**)은 공통된 형태의 서브그래프를 가지며, 각각 병렬로 실행됩니다.
+실제로 활성화된 전문가들 (**Contact, Necking**)은 공통된 형태의 서브그래프를 가지며, 각각 병렬로 실행됩니다. (Deform, Aging은 비활성)
 
 ### 서브그래프 워크플로우 (예: `src/graphs/contact_expert_graph.py`)
 
@@ -107,8 +107,8 @@ START
 모든 최고 전문가 에이전트의 개별 보고서와 신뢰도(Confidence) 정보가 집계되면 최종 판정 관문을 지나는 중재자(Arbiter)가 나섭니다.
 
 - **서브그래프**: `src/graphs/arbiter_expert_graph.py`
-- 각각 다른 관점을 가지는 전문가들의 리포트 내용이 서로 상충하는지 자체 검사 합니다 (예: 접촉불량 근거 vs 압착요인 근거). 중재자 내부의 `judge`, `moderator` 등이 합의를 조정합니다.
-- 전문가들로부터 축적된 평균 신뢰도가 사전 정의된 임계값 미만일 시 시스템은 명확함을 강요하기보다는 "판단 불가(UNDETERMINED)" 결과를 선언하도록 설정되어 있습니다 (`config.ARBITER_CONFIDENCE_THRESHOLD`).
+- 각각 다른 관점을 가지는 전문가들(Contact, Necking)의 리포트 내용이 서로 상충하는지 자체 검사합니다. 중재자 내부의 `judge`, `moderator` 등이 합의를 조정합니다.
+- **ARBITER_CONFIDENCE_THRESHOLD**: Judge 진입 전, 전문가 평균 신뢰도가 `config.ARBITER_CONFIDENCE_THRESHOLD`(기본 60%) 미만이면 LLM 호출 없이 "판단 불가(UNDETERMINED)"를 즉시 반환합니다.
 
 ---
 
@@ -141,7 +141,7 @@ class InvestigationState(TypedDict):
 `outputs/{image_name}/` 디렉터리에 다음 데이터들이 최종 산출 되어 저장됩니다:
 
 - `investigation_result.json` (시스템 연산 과정들의 축적된 데이터)
-- `investigation_result.md` (최종 요약 판단을 볼 수 있는 직관적인 리포트)
+- `investigation_result.txt` (최종 요약 판단을 볼 수 있는 직관적인 리포트)
 - `full_pipeline.png` (옵션 파라미터를 이용해 얻는 디버그 시각화)
 
 ---
@@ -151,3 +151,4 @@ class InvestigationState(TypedDict):
 - **2026.01**: Map-Reduce 구조 변경 완료 (Send API 도입) 및 내부 각 전문가별 Analyst-Critic 자가 논쟁 패턴 적용.
 - **2026.02**: `ThreadSafeRateLimiter` 구축을 통한 무제한적인 API Call 에 의한 제한 대응.
 - **2026.02**: 노드 파일 재배치 및 레거시 파일 정리.
+- **2026.03**: Arbiter Agent 개선 - ARBITER_CONFIDENCE_THRESHOLD 적용, FinalVerdictResult 동적화(2~4명), expert_opinions 비었을 때 UNDETERMINED, Fact Check 재발언 프롬프트 보강, debate_init 노드 명확화.

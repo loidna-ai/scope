@@ -1,13 +1,25 @@
 import asyncio
 import random
 import time
-from typing import Optional, Callable, Any, List, Dict
+from typing import Optional, Callable, Any, List, Dict, Literal
 import os
 import config
 import threading
 from datetime import datetime
 
 from src.utils.api_concurrency import acquire_api_slot
+
+ModelType = Literal["flash", "pro"]
+
+
+def _infer_model_type(model_name: str | None) -> ModelType:
+    """model_name에서 Flash/Pro 구분 (Pro 전용 Rate Limiter 라우팅용)"""
+    if not model_name:
+        return "flash"
+    name_lower = str(model_name).lower()
+    if "pro" in name_lower or name_lower == getattr(config, "GEMINI_PRO_MODEL_NAME", "").lower():
+        return "pro"
+    return "flash"
 
 # 재시도 로직 공통: 재시도 가능 오류·추가 대기 (async/sync 동일)
 _RETRIABLE_ERRORS = [
@@ -79,6 +91,7 @@ async def async_retry_with_backoff(
     error_handlers: Optional[dict] = None,
     semaphore: Optional[asyncio.Semaphore] = None,
     context_name: Optional[str] = None,
+    model_type: Optional[ModelType] = None,
     **kwargs
 ) -> Any:
     """
@@ -98,10 +111,14 @@ async def async_retry_with_backoff(
     current_model = original_model
     consecutive_503 = 0
     
-    # Tier 1 Preview 모델 최적화
+    # model_type: Pro 전용 Rate Limiter 라우팅 (명시적 전달 또는 model_name 추론)
+    effective_model_type: ModelType = model_type or _infer_model_type(original_model)
+    
+    # Tier 1 Preview 모델 최적화: Flash만 3회 제한, Pro는 429 회복을 위해 5회 유지
     is_preview_model = 'preview' in str(original_model).lower()
-    if is_preview_model and max_retries > 3:
-        max_retries = 3  # Preview는 3회로 제한 (RPD 절약)
+    if is_preview_model and effective_model_type == "flash" and max_retries > 3:
+        max_retries = 3  # Flash Preview: RPD 절약
+    # Pro: max_retries 그대로 (기본 5) - 429 일시적 회복 대비
     
     for retry_attempt in range(max_retries):
         try:
@@ -116,13 +133,12 @@ async def async_retry_with_backoff(
             if 'model_name' in kwargs:
                 kwargs['model_name'] = current_model
             
-            # === Execute with Global Rate Limit + Semaphore (429/503 방지) ===
-            # Hotspot + Contact/Deform/Necking Expert 모두 동일 제한 공유
+            # === Execute with Model-Specific Rate Limit (Flash/Pro 분리) ===
             # API 무한 대기 (Hang) 방지를 위한 Timeout 적용
             timeout_seconds = kwargs.pop('timeout', 120)
             
             async def _do_api_call():
-                async with acquire_api_slot():
+                async with acquire_api_slot(model_type=effective_model_type):
                     if semaphore:
                         async with semaphore:
                             return await func(*args, **kwargs)
@@ -167,6 +183,17 @@ async def async_retry_with_backoff(
             else:
                 consecutive_503 = 0  # Reset on non-503 errors
             
+            # === 429 Fallback for Pro: Vertex AI Pro 할당량 소진 시 Flash로 전환 ===
+            if ("429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg) and effective_model_type == "pro":
+                if (retry_attempt >= 2 and current_model == original_model 
+                    and config.GEMINI_ENABLE_FALLBACK):
+                    current_model = config.GEMINI_FALLBACK_MODEL
+                    effective_model_type = "flash"
+                    print(
+                        f"🔄 [{func_name}] Switching to Flash for 429 recovery: {current_model} "
+                        f"(after 3 failed Pro attempts)"
+                    )
+            
             # === Check if Retriable ===
             is_retriable = any(code in error_msg for code in retriable_errors)
             
@@ -177,8 +204,12 @@ async def async_retry_with_backoff(
                         wait_time = 40 * (2 ** retry_attempt)  # 40s, 80s, 160s (Preview 최적화 - 503 에러 완화)
                     else:
                         wait_time = 10 * (2 ** retry_attempt)  # 10s, 20s, 40s
-                elif "429" in error_msg:
-                    wait_time = 10 * (2 ** retry_attempt)  # RPM/RPD 초과
+                elif "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                    # Pro: burst·할당량 제한 더 엄격 → 지수 백오프 강화 (30s, 60s, 120s)
+                    if effective_model_type == "pro":
+                        wait_time = 30 * (2 ** retry_attempt)  # 30s, 60s, 120s, 240s
+                    else:
+                        wait_time = 10 * (2 ** retry_attempt)  # 10s, 20s, 40s
                 else:
                     wait_time = 2 ** retry_attempt  # 기타 오류
                 

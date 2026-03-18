@@ -26,7 +26,8 @@ def extract_expert_opinions(state: InvestigationState) -> Dict[ExpertName, Exper
     expert_confidence_scores = state.get("expert_confidence_scores", {})
     expert_evidence = state.get("expert_evidence", {})
     
-    for expert_name in ["contact", "deform", "necking", "aging"]:
+    # for expert_name in ["contact", "deform", "necking", "aging"]:
+    for expert_name in ["contact", "necking"]:
         expert_data = expert_analysis_results.get(expert_name, {})
         logger.debug(f"Processing {expert_name} expert data")
         
@@ -72,18 +73,18 @@ def extract_expert_opinions(state: InvestigationState) -> Dict[ExpertName, Exper
 
 def debate_data_extractor_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    논쟁을 위한 데이터 추출 및 초기 상태 설정
+    논쟁 상태 초기화 (debate_init)
     
-    이 노드는 서브그래프 내부에서 사용되며,
-    래퍼 노드에서 이미 추출된 데이터를 받아 초기화합니다.
+    expert_opinions, expert_reports 등은 wrapper에서 이미 주입됨.
+    논쟁 진행 상태(debate_messages, current_stage, round 등)만 초기화.
     
     Args:
-        state: ArbiterDebateState (일부 필드만 설정된 상태)
+        state: ArbiterDebateState (wrapper에서 expert_* 필드 설정됨)
         
     Returns:
-        초기화된 ArbiterDebateState
+        논쟁 진행 상태 초기값
     """
-    logger.info("Initializing debate state: opening stage, round 1")
+    logger.info("Debate init: opening stage, round 1")
     
     # 이미 래퍼 노드에서 expert_opinions 등이 설정되어 있으므로
     # 논쟁 진행 상태만 초기화
@@ -92,7 +93,7 @@ def debate_data_extractor_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "current_stage": "opening",
         "current_round": 1,
         "current_speaker": None,
-        "fact_check_failures": {"contact": 0, "deform": 0, "necking": 0, "aging": 0},
+        "fact_check_failures": {"contact": 0, "necking": 0}, # "deform": 0, "aging": 0
         "final_verdict": None,
         "consensus_reached": False,
         "errors": []

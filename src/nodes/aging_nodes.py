@@ -17,7 +17,7 @@ from config import TOP_N_HOTSPOTS
 import config
 
 # [Mitigation] API 부하 방지를 위한 동시 실행 제한 세마포어
-# 미리보기 모델(gemini-3-flash-preview)의 동시 요청 제한(Concurrency Limit)에 대응
+# Gemini 2.5 Flash의 동시 요청 제한(Concurrency Limit)에 대응
 
 # Define Project Root for centralized output
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))

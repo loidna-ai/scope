@@ -53,7 +53,7 @@ def create_supervisor_verdict_node(
         
         try:
             client = get_genai_client()
-            model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+            model_name = os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME)
             print(f"🤔 [{expert_type.capitalize()} Supervisor] 종합 판정 중...")
             
             async def _call_supervisor_wrapper(**kwargs):
@@ -173,7 +173,7 @@ def create_verdict_analyst_node(
         
         try:
             client = get_genai_client()
-            model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+            model_name = os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME)
             
             async def _call_analyst_wrapper(**kwargs):
                 return await call_analyst_api(
@@ -286,7 +286,7 @@ def create_verdict_critic_node(
         
         try:
             client = get_genai_client()
-            model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+            model_name = os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME)
             
             if image_data_list:
                 logger.info(f"{expert_type.capitalize()} Critic: Calling Vision API with images...")
