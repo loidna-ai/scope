@@ -33,3 +33,5 @@ Thumbs.db
 debug-*.log
 .cursor/debug.log
 
+# Project specific
+outputs/

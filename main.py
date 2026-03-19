@@ -3,6 +3,7 @@
 Updated Workflow: Fan-In/Fan-Out Multi-Agent Parallel Architecture
 """
 import sys
+import logging
 import argparse
 import warnings
 import time
@@ -12,12 +13,67 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+# [Optimization] Heavy imports moved to main() to ensure early logging setup
+from src.utils.logging_config import setup_logger
+
+
+# 구조화된 데이터 타입 (순환 참조 방지)
+try:
+    from src.models.verdict_models import FinalVerdictResult
+except ImportError:
+    FinalVerdictResult = Any  # Fallback (타입 체크용)
+
+# torchvision 경고 억제
+warnings.filterwarnings(
+    'ignore', category=UserWarning, module='torchvision.transforms.functional_tensor'
+)
+
+class StreamToLogger:
+    """
+    stdout/stderr 포트를 로거로 리다이렉션하면서 동시에 터미널에도 직접 출력하는 클래스
+    """
+    def __init__(self, logger, original_stream, log_level=logging.INFO):
+        self.logger = logger
+        self.original_stream = original_stream
+        self.log_level = log_level
+
+    def write(self, buf):
+        # 1. 터미널(원본 스트림)에 그대로 출력 (기존과 동일한 외관 유지)
+        self.original_stream.write(buf)
+        
+        # 2. 로거를 통해 파일에 기록 (상세 정보 포함 저장)
+        # 빈 줄이나 단순 개행은 제외하고 기록
+        content = buf.strip()
+        if content:
+            self.logger.log(self.log_level, content)
+
+    def flush(self):
+        self.original_stream.flush()
+
+# --- Logging Setup (Entry Point only) ---
+if __name__ == "__main__":
+    debug_dir = Path("debug")
+    debug_dir.mkdir(exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    log_file = debug_dir / f"debug_{timestamp}.log"
+    
+    # Save original streams
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    
+    logger = setup_logger(__name__, log_file=str(log_file))
+    
+    # Redirect stdout/stderr
+    sys.stdout = StreamToLogger(logger, original_stdout, logging.INFO)
+    sys.stderr = StreamToLogger(logger, original_stderr, logging.ERROR)
+else:
+    # Module import: use standard logger
+    logger = setup_logger(__name__)
+
+# --- Analytical Imports ---
 import config
 from src.agent import analyze_fire_evidence
 from src.utils import find_data_directory
-from src.utils.logging_config import setup_logger
-
-# Import IO utilities
 from src.utils.io_utils import (
     validate_image_path,
     validate_result_structure,
@@ -28,19 +84,6 @@ from src.utils.io_utils import (
     save_investigation_result
 )
 
-# 구조화된 데이터 타입 (순환 참조 방지)
-try:
-    from src.models.verdict_models import FinalVerdictResult
-except ImportError:
-    FinalVerdictResult = Any  # Fallback (타입 체크용)
-
-# 로거 초기화
-logger = setup_logger(__name__)
-
-# torchvision 경고 억제
-warnings.filterwarnings(
-    'ignore', category=UserWarning, module='torchvision.transforms.functional_tensor'
-)
 
 # Regex patterns and formatting functions were moved to src.utils.report_formatter
 # I/O handling functions were moved to src.utils.io_utils
@@ -76,31 +119,36 @@ async def run_analysis_pipeline(
         print("\n[1단계] 입력 데이터 처리 중...")
         payload = create_payload_from_image(input_image_path)
         logger.info(f"Payload 생성 완료 ({len(payload)} parts)")
-        print(f"✓ Payload 생성 완료 ({len(payload)} parts)")
+        print(f"OK: Payload 생성 완료 ({len(payload)} parts)")
     except FileNotFoundError as e:
         logger.error(f"파일을 찾을 수 없음: {e}")
-        print(f"❌ 오류: {e}")
+        print(f"Error: 오류: {e}")
         return None
     except PermissionError as e:
         logger.error(f"파일 읽기 권한 없음: {e}")
-        print(f"❌ 오류: {e}")
+        print(f"Error: 오류: {e}")
         return None
     except (UnicodeDecodeError, base64.binascii.Error) as e:
         logger.error(f"데이터 인코딩/디코딩 오류: {e}", exc_info=True)
-        print(f"❌ 오류: 데이터 인코딩/디코딩 오류 발생 - {e}")
+        print(f"Error: 오류: 데이터 인코딩/디코딩 오류 발생 - {e}")
         traceback.print_exc()
         return None
     except OSError as e:
         logger.error(f"파일 시스템 오류: {e}", exc_info=True)
-        print(f"❌ 오류: 파일 시스템 오류 발생 - {e}")
+        print(f"Error: 오류: 파일 시스템 오류 발생 - {e}")
         traceback.print_exc()
         return None
     except ValueError as e:
         logger.error(f"값 오류: {e}")
-        print(f"❌ 오류: {e}")
+        print(f"Error: 오류: {e}")
         return None
 
     # 2. 분석 실행
+    # 캐시 정리 (7일 이상 된 enhancement 캐시, 1일 이상 된 visual_reports 고아 파일 삭제)
+    from src.nodes.enhancement_cache import clear_enhancement_cache, clear_visual_reports
+    clear_enhancement_cache(max_age_days=getattr(config, "CACHE_MAX_AGE_DAYS", 7))
+    clear_visual_reports(max_age_days=1)
+
     print("\n[2단계] 멀티 에이전트 병렬 분석 시작")
     print("  - Hotspot Detector가 관심 영역을 탐지합니다.")
     print("  - 3인의 전문가 에이전트가 병렬로 동시에 분석합니다. (Fan-Out)")
@@ -111,13 +159,13 @@ async def run_analysis_pipeline(
     
     try:
         start_time = time.time()
-        result = await analyze_fire_evidence(payload)
+        result = await analyze_fire_evidence(payload, output_dir=str(output_dir))
         duration = time.time() - start_time
         logger.info(f"분석 완료 (소요 시간: {duration:.1f}초)")
-        print(f"✓ 분석 완료 (소요 시간: {duration:.1f}초)")
+        print(f"OK: 분석 완료 (소요 시간: {duration:.1f}초)")
     except Exception as e:
         logger.exception(f"분석 실행 중 예외 발생: {e}")
-        print(f"❌ 오류: 분석 실행 중 예외 발생 - {e}")
+        print(f"Error: 오류: 분석 실행 중 예외 발생 - {e}")
         traceback.print_exc()
         # 에러 정보를 포함한 딕셔너리 반환
         error_result = {
@@ -133,7 +181,7 @@ async def run_analysis_pipeline(
     is_valid, error_msg = validate_result_structure(result)
     if not is_valid:
         logger.error(f"결과 구조 검증 실패: {error_msg}")
-        print(f"❌ 오류: {error_msg}")
+        print(f"Error: 오류: {error_msg}")
         return None
     
     final_verdict = result.get("final_verdict", "분석 실패")
@@ -154,7 +202,7 @@ async def run_analysis_pipeline(
     
     if errors:
         logger.warning(f"분석 중 {len(errors)}개의 경고 발생")
-        print(f"\n⚠️ 분석 중 {len(errors)}개의 경고가 발생했습니다:")
+        print(f"\nWarning: 분석 중 {len(errors)}개의 경고가 발생했습니다:")
         for err in errors:
             logger.debug(f"경고: {err}")
             print(f"  - {err}")
@@ -171,7 +219,7 @@ async def run_analysis_pipeline(
     if not isinstance(output_dir, Path):
         output_dir = Path(output_dir)
     
-    output_file = output_dir / "investigation_result.md"
+    output_file = output_dir / "investigation_result.txt"
     try:
         output_file.parent.mkdir(parents=True, exist_ok=True)
         final_verdict_structured = result.get("final_verdict_structured")
@@ -183,10 +231,16 @@ async def run_analysis_pipeline(
             errors=errors,
             input_image_path=input_image_path,
             output_file=output_file,
-            final_verdict_structured=final_verdict_structured
+            final_verdict_structured=final_verdict_structured,
+            visual_report_path=result.get("visual_report_path")
         )
         logger.info(f"전체 결과 저장 완료: {output_file}")
-        print(f"\n✅ 전체 결과가 저장되었습니다: {output_file}")
+        docx_file = output_dir / "investigation_result.docx"
+        if docx_file.exists():
+            print(f"\nOK: 전체 결과가 저장되었습니다: {output_file}")
+            print(f"   Word 문서: {docx_file}")
+        else:
+            print(f"\nOK: 전체 결과가 저장되었습니다: {output_file}")
         
         # 개별 리포트 저장
         save_expert_reports(expert_reports, output_dir)
@@ -194,7 +248,7 @@ async def run_analysis_pipeline(
         
     except (OSError, UnicodeEncodeError) as e:
         logger.error(f"결과 파일 저장 실패: {e}", exc_info=True)
-        print(f"❌ 결과 파일 저장 실패: {e}")
+        print(f"Error: 결과 파일 저장 실패: {e}")
         traceback.print_exc()
         return None
     
@@ -209,6 +263,56 @@ async def run_analysis_pipeline(
     }
 
 
+def export_existing_to_docx():
+    """기존 investigation_result.txt/.md를 Word(.docx)로 변환"""
+    from src.utils.io_utils import save_investigation_result_docx
+
+    output_base = Path(config.OUTPUT_DIR)
+    found = 0
+    for txt_path in output_base.rglob("investigation_result.txt"):
+        docx_path = txt_path.with_suffix(".docx")
+        base_dir = txt_path.parent
+        # 이미지: 같은 폴더(visual_report_*.jpg) 우선, 없으면 visual_reports/
+        raw_visual = None
+        local_jpgs = list(base_dir.glob("visual_report_*.jpg"))
+        if local_jpgs:
+            raw_visual = str(local_jpgs[0])
+        else:
+            visual_dir = output_base / "visual_reports"
+            if visual_dir.exists():
+                jpgs = list(visual_dir.glob("*.jpg"))
+                raw_visual = str(jpgs[0]) if jpgs else None
+        try:
+            content = txt_path.read_text(encoding="utf-8")
+            save_investigation_result_docx(content, docx_path, base_dir, raw_visual)
+            print(f"  OK: {docx_path.relative_to(output_base)}")
+            found += 1
+        except Exception as e:
+            print(f"  Error: {txt_path.relative_to(output_base)}: {e}")
+    for md_path in output_base.rglob("investigation_result.md"):
+        docx_path = md_path.with_suffix(".docx")
+        if docx_path.exists():
+            continue
+        base_dir = md_path.parent
+        raw_visual = None
+        local_jpgs = list(base_dir.glob("visual_report_*.jpg"))
+        if local_jpgs:
+            raw_visual = str(local_jpgs[0])
+        else:
+            visual_dir = output_base / "visual_reports"
+            if visual_dir.exists():
+                jpgs = list(visual_dir.glob("*.jpg"))
+                raw_visual = str(jpgs[0]) if jpgs else None
+        try:
+            content = md_path.read_text(encoding="utf-8")
+            save_investigation_result_docx(content, docx_path, base_dir, raw_visual)
+            print(f"  OK: {docx_path.relative_to(output_base)}")
+            found += 1
+        except Exception as e:
+            print(f"  Error: {md_path.relative_to(output_base)}: {e}")
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="화재조사 AI 멀티 에이전트 시스템 (Fan-In/Fan-Out Parallel Multi-Agent)"
@@ -216,8 +320,25 @@ def main():
     parser.add_argument("image_path", nargs="?", help="분석할 이미지 파일 경로")
     parser.add_argument("--query", type=str, default="", help="사용자 질문 (현재 미사용)")
     parser.add_argument("--test", action="store_true", help="검증 모드로 실행")
+    parser.add_argument("--export-docx", action="store_true", help="기존 txt/md 결과를 Word(.docx)로 변환")
+    parser.add_argument("--clean-cache", action="store_true", help="enhancement 캐시 및 visual_reports 정리")
     
     args = parser.parse_args()
+
+    # 0a. 캐시 정리 (--clean-cache)
+    if args.clean_cache:
+        from src.nodes.enhancement_cache import clear_enhancement_cache, clear_visual_reports
+        clear_enhancement_cache(max_age_days=0)
+        clear_visual_reports(max_age_days=0)
+        print("OK: 캐시 정리 완료 (.enhancement_cache, visual_reports)")
+        sys.exit(0)
+
+    # 0b. 기존 결과 docx 변환
+    if args.export_docx:
+        print("\n[기존 결과 → Word 변환]")
+        n = export_existing_to_docx()
+        print(f"\n완료: {n}개 파일 변환됨")
+        sys.exit(0)
 
     # 1. 검증 모드
     if args.test:
@@ -245,7 +366,7 @@ def main():
             
             if test_image_path is None:
                 logger.error("테스트용 이미지를 찾을 수 없음")
-                print("❌ 오류: 테스트용 이미지를 찾을 수 없습니다.")
+                print("Error: 오류: 테스트용 이미지를 찾을 수 없습니다.")
                 sys.exit(1)
                 
             input_image_path = str(test_image_path)
@@ -254,7 +375,7 @@ def main():
             
         except (OSError, ValueError) as e:
             logger.error(f"테스트 모드 오류: {e}")
-            print(f"❌ 오류: {e}")
+            print(f"Error: 오류: {e}")
             sys.exit(1)
 
     # 2. 일반 실행 모드
@@ -270,7 +391,7 @@ def main():
     is_valid, error_msg, resolved = validate_image_path(input_image_path)
     if not is_valid:
         logger.error(f"이미지 파일 검증 실패: {error_msg}")
-        print(f"❌ 오류: {error_msg}")
+        print(f"Error: 오류: {error_msg}")
         sys.exit(1)
     if resolved:
         input_image_path = resolved
