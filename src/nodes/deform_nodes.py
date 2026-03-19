@@ -20,7 +20,7 @@ import config
 from config import TOP_N_HOTSPOTS
 
 # [Mitigation] API 부하 방지를 위한 동시 실행 제한 세마포어
-# 미리보기 모델(gemini-3-flash-preview)의 동시 요청 제한(Concurrency Limit)에 대응
+# Gemini 2.5 Flash의 동시 요청 제한(Concurrency Limit)에 대응
 
 
 # Define Project Root for centralized output
@@ -155,7 +155,6 @@ async def _collect_evidence(
         
         # Extract Evidence (Pydantic 객체에서 추출)
         step4 = evidence_result.step4_geometric_measurement
-        step5 = evidence_result.step5_logic_contrast
         
         # Observations Summary (Zone 2, 3, 4 정보 조합)
         geometric_features = []
@@ -168,44 +167,20 @@ async def _collect_evidence(
 
         observations = " | ".join(geometric_features) if geometric_features else "기하학적 계측 완료"
         
-        # Severity Score (confidence 연동 5단계 룰 기반 - #12)
-        conclusion = evidence_result.step6_verdict.conclusion
-        ai_confidence = evidence_result.step6_verdict.confidence_score
-
-        # --- Deform 세분화 기준 ---
-        # 확정 판정 + confidence에 따라 3단계로 추가 구분
-        # 의심 판정은 2단계, 아님/판독불가는 각각 별도 점수 부여
-        if conclusion == "압착·손상":
-            # 확정 high-risk: confidence ≥ 85 → 매우 위험(95), 70~84 → 위험(80), < 70 → 경계(65)
-            if ai_confidence >= 85:
-                severity_score = 95
-            elif ai_confidence >= 70:
-                severity_score = 80
-            else:
-                severity_score = 65
-            is_critical = True
-            evidence_quality = "high"
-
-        elif conclusion == "압착·손상 의심":
-            # 의심 medium-risk: confidence ≥ 65 → 55, < 65 → 45
-            severity_score = 55 if ai_confidence >= 65 else 45
+        if hasattr(evidence_result, 'step5_extracted_evidence'):
+            # 5단계 구조 (Evidence-First)
+            severity_score = hotspot.get("severity_score", 50)  # 탐지 단계의 심각도 점수 유지 (v0.5.3)
+            is_critical = False
             evidence_quality = "medium"
-
-        elif conclusion == "압착·손상 아님":
-            # 명확한 음성 판정: 낮은 고정 점수
-            severity_score = 25
+            report_confidence = 0
+            worker_verdict = "판독 보류 (Evidence Collected)"
+        else:
+            # 기존 레거시 코드 대응 (오류 방지)
+            severity_score = 0
+            is_critical = False
             evidence_quality = "low"
-
-        else:  # "판독 불가"
-            # 분석 불가 상태: 아님보다 낮게 취급
-            severity_score = 15
-            evidence_quality = "low"
-
-        # 최종 리포트용 신뢰도는 AI가 산출한 값을 우선 사용
-        report_confidence = ai_confidence if ai_confidence > 0 else severity_score
-        
-        # [Added] 상세 판정 결과 추출
-        worker_verdict = f"[{evidence_result.step6_verdict.conclusion}] {evidence_result.step6_verdict.final_reasoning}"
+            report_confidence = 0
+            worker_verdict = "판단 불가"
         
         # [Phase 9] 개별 분석 결과 파일 저장 (Persistence) - config.SAVE_INDIVIDUAL_HOTSPOT_JSON=True일 때만
         if config.SAVE_INDIVIDUAL_HOTSPOT_JSON:
@@ -277,13 +252,13 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             # 부분 실패 보정: 전처리기에서 분류 실패 시 재분류
             if not hotspot.get("_classify_done") and connection_type == "Unknown":
                 logger.info(f"Worker {hotspot_id}: Re-classifying (preprocessor classification failed)")
-                prompt = get_component_classifier_prompt(roi_image_path)
+                prompt = get_component_classifier_prompt(roi_image_path, box_2d=hotspot.get("box_2d"))
                 connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
         else:
             # Fallback (직접 처리)
             box_2d = hotspot.get("box_2d")
             roi_image_path = await crop_and_enhance_roi(hotspot_id, image_path, box_2d)
-            prompt = get_component_classifier_prompt(roi_image_path)
+            prompt = get_component_classifier_prompt(roi_image_path, box_2d=box_2d)
             connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
 
         # ===== Step 3: Evidence Collection (Wire Only - Async) =====
@@ -334,26 +309,22 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
                 "bead_scan": evidence_result.step4_geometric_measurement.zone4_melted_marks_beads.bead_scan
             }
             worker_report["opinion"] = {
-                "verdict": evidence_result.step6_verdict.conclusion,
-                "confidence": evidence_result.step6_verdict.confidence_score,
-                "reasoning": evidence_result.step6_verdict.final_reasoning,
-                "supporting_logic": evidence_result.step5_logic_contrast.logic_supporting,
-                "refuting_logic": evidence_result.step5_logic_contrast.logic_refuting
+                "verdict": "판독 보류 (Evidence Collected)",
+                "confidence": 0,
+                "reasoning": "자세한 증거 목록이 생성되었습니다."
             }
+            # Extracted Evidence 데이터 패스-스루
+            worker_report["facts"]["extracted_evidence"] = [ev.model_dump() for ev in evidence_result.step5_extracted_evidence] if hasattr(evidence_result, 'step5_extracted_evidence') else []
         else:
             # 분석 실패 또는 Wire 아님 등의 경우 빈 값 처리
             worker_report["facts"] = {"error": "No evidence collected"}
             worker_report["opinion"] = {"verdict": "Indeterminate", "confidence": 0, "reasoning": "Extraction failed"}
     
         # [Added] Notebook 호환성을 위한 analysis_results 포맷 (Reordered)
-        sr_conclusion = evidence_result.step6_verdict.conclusion if evidence_result else "판독 불가"
+        sr_conclusion = "판독 보류"
         
         # reasoning 추출
-        reasoning_text = ""
-        if evidence_result and hasattr(evidence_result, 'step6_verdict'):
-            reasoning_text = evidence_result.step6_verdict.final_reasoning if hasattr(evidence_result.step6_verdict, 'final_reasoning') else ""
-        if not reasoning_text:
-            reasoning_text = "분석 근거 없음"
+        reasoning_text = "자세한 증거 목록이 생성되었습니다."
         
         analysis_entry = {
             "hotspot_id": hotspot_id,
