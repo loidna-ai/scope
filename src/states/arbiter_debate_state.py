@@ -50,6 +50,7 @@ class ArbiterDebateState(TypedDict):
     expert_reports: List[str]  # 전문가 리포트 텍스트 리스트
     expert_confidence_scores: Dict[str, int]  # 전문가별 신뢰도 점수
     expert_evidence: Dict[str, List[Dict]]  # 전문가별 증거 리스트
+    spatial_summary: str  # 넓은 범위(Wide Mode) 공간적 분포 요약
     
     # 논쟁 진행 상태
     debate_messages: Annotated[List[DebateMessage], operator.add]  # 논쟁 메시지 히스토리

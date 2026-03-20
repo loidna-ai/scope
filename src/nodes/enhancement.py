@@ -1,4 +1,4 @@
-﻿"""
+"""
 ?μ긽 ?몃뱶
 Real-ESRGAN???ъ슜?섏뿬 ?대?吏瑜?2諛?珥덊빐?곷룄濡??μ긽?쒗궢?덈떎.
 """
@@ -25,45 +25,14 @@ except ImportError:
 try:
     import onnxruntime as ort
     HAS_ONNX_RUNTIME = True
-    # #region agent log
-    import json
-    import time
-    from pathlib import Path
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-    try:
-        available_providers = ort.get_available_providers()
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:18","message":"ONNX Runtime import success","data":{"has_onnx_runtime":True,"available_providers":available_providers},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
 except ImportError as e:
     HAS_ONNX_RUNTIME = False
     ort = None
     logger.debug("ONNX Runtime not available. ONNX-based acceleration will be disabled.")
-    # #region agent log
-    import json
-    import time
-    from pathlib import Path
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:28","message":"ONNX Runtime import failed","data":{"has_onnx_runtime":False,"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
 except Exception as e:
     HAS_ONNX_RUNTIME = False
     ort = None
     logger.debug(f"ONNX Runtime initialization failed: {e}")
-    # #region agent log
-    import json
-    import time
-    from pathlib import Path
-    log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-    try:
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:38","message":"ONNX Runtime init failed","data":{"has_onnx_runtime":False,"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+"\n")
-    except: pass
-    # #endregion
 
 # from src.state import GraphState  # ?꾩옱 ?ъ슜?섏? ?딆쓬 (enhancement_node ?⑥닔 誘몄궗??
 import config
@@ -93,25 +62,8 @@ class ImageEnhancer:
         Returns:
             str: "cuda", "directml", ?먮뒗 "cpu"
         """
-        # #region agent log
-        import json
-        import time
-        from pathlib import Path
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:52","message":"_detect_available_backend entry","data":{"has_onnx_runtime":HAS_ONNX_RUNTIME,"cuda_available":torch.cuda.is_available()},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         # CUDA ?곗꽑?쒖쐞 1
         if torch.cuda.is_available():
-            # #region agent log
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:60","message":"CUDA detected","data":{"backend":"cuda"},"timestamp":int(time.time()*1000)})+"\n")
-            except: pass
-            # #endregion
             return "cuda"
         
         # DirectML ?곗꽑?쒖쐞 2 (AMD GPU)
@@ -119,36 +71,12 @@ class ImageEnhancer:
             try:
                 # DirectML provider ?ъ슜 媛???щ? ?뺤씤
                 available_providers = ort.get_available_providers()
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:68","message":"Checking DirectML providers","data":{"available_providers":available_providers,"has_dml":"DmlExecutionProvider" in available_providers},"timestamp":int(time.time()*1000)})+"\n")
-                except: pass
-                # #endregion
                 if 'DmlExecutionProvider' in available_providers:
-                    # #region agent log
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:73","message":"DirectML detected","data":{"backend":"directml"},"timestamp":int(time.time()*1000)})+"\n")
-                    except: pass
-                    # #endregion
                     return "directml"
             except Exception as e:
                 logger.debug(f"DirectML 媛먯? ?ㅽ뙣: {e}")
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:76","message":"DirectML detection failed","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+"\n")
-                except: pass
-                # #endregion
         
         # CPU fallback
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"enhancement.py:79","message":"CPU fallback","data":{"backend":"cpu"},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
         return "cpu"
     
     def _preprocess_onnx(self, img: np.ndarray, target_h: int = None, target_w: int = None) -> tuple:
@@ -280,17 +208,6 @@ class ImageEnhancer:
         Returns:
             (ONNX Runtime InferenceSession ?몄뒪?댁뒪, ?낅젰 ?ш린 ?뺣낫)
         """
-        # #region agent log
-        import json
-        import time
-        from pathlib import Path
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"enhancement.py:130","message":"_load_model_onnx entry","data":{"model_path":model_path,"has_onnx_runtime":HAS_ONNX_RUNTIME},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         if not HAS_ONNX_RUNTIME:
             raise ImportError("ONNX Runtime not available")
         
@@ -303,14 +220,6 @@ class ImageEnhancer:
             'CPUExecutionProvider'
         ]
         
-        # #region agent log
-        try:
-            available_providers = ort.get_available_providers()
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"enhancement.py:148","message":"Creating InferenceSession","data":{"available_providers":available_providers,"requested_providers":["DmlExecutionProvider","CPUExecutionProvider"]},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         try:
             session = ort.InferenceSession(model_path, providers=providers)
             actual_providers = session.get_providers()
@@ -318,12 +227,6 @@ class ImageEnhancer:
             
             # ?낅젰 ?ш린 ?뺣낫 異붿텧
             input_shape = session.get_inputs()[0].shape
-            # #region agent log
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"enhancement.py:157","message":"InferenceSession created","data":{"actual_providers":actual_providers,"provider_name":provider_name,"input_shape":input_shape},"timestamp":int(time.time()*1000)})+"\n")
-            except: pass
-            # #endregion
             
             logger.info(f"ONNX Runtime 紐⑤뜽 濡쒕뱶 ?꾨즺: {model_path}")
             logger.info(f"?ъ슜 以묒씤 Provider: {provider_name}")
@@ -332,12 +235,6 @@ class ImageEnhancer:
             return session, input_shape
         except Exception as e:
             logger.error(f"ONNX Runtime 紐⑤뜽 濡쒕뱶 ?ㅽ뙣: {e}")
-            # #region agent log
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"enhancement.py:163","message":"InferenceSession creation failed","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+"\n")
-            except: pass
-            # #endregion
             raise
     
     def __init__(self, model_path: str = None):
@@ -347,18 +244,6 @@ class ImageEnhancer:
         Args:
             model_path: 紐⑤뜽 媛以묒튂 寃쎈줈 (湲곕낯媛? config.MODEL_PATH)
         """
-        # #region agent log
-        import json
-        import time
-        from pathlib import Path
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-        init_start = time.time()
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:30","message":"ImageEnhancer.__init__ entry","data":{},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         global _shared_upscaler, _upscaler_type, _onnx_input_shape
         
         # ?깃????⑦꽩: 紐⑤뜽???대? 濡쒕뱶?섏뼱 ?덉쑝硫??ъ궗??
@@ -370,21 +255,9 @@ class ImageEnhancer:
                 
                 # ?붾컮?댁뒪 ?좏깮 濡쒖쭅
                 use_onnx = False
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"enhancement.py:193","message":"Backend selection start","data":{"backend":backend},"timestamp":int(time.time()*1000)})+"\n")
-                except: pass
-                # #endregion
                 if backend == "directml":
                     # DirectML ?ъ슜 媛?? ONNX Runtime ?쒕룄
                     onnx_model_path = config.MODEL_PATH_ONNX if hasattr(config, 'MODEL_PATH_ONNX') else None
-                    # #region agent log
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"enhancement.py:197","message":"DirectML backend - checking ONNX model","data":{"onnx_model_path":onnx_model_path,"path_exists":os.path.exists(onnx_model_path) if onnx_model_path else False},"timestamp":int(time.time()*1000)})+"\n")
-                    except: pass
-                    # #endregion
                     if onnx_model_path:
                         if os.path.exists(onnx_model_path):
                             try:
@@ -398,48 +271,18 @@ class ImageEnhancer:
                                 _onnx_input_shape = input_shape  # ?낅젰 ?ш린 ?뺣낫 ???
                                 use_onnx = True
                                 logger.info("ONNX Runtime (DirectML) 紐⑤뜽 濡쒕뱶 ?깃났")
-                                # #region agent log
-                                try:
-                                    with open(log_path, "a", encoding="utf-8") as f:
-                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"enhancement.py:202","message":"ONNX model loaded successfully","data":{"upscaler_type":"onnx","input_shape":str(input_shape) if input_shape else None},"timestamp":int(time.time()*1000)})+"\n")
-                                except: pass
-                                # #endregion
                             except Exception as e:
                                 logger.warning(f"ONNX Runtime 濡쒕뱶 ?ㅽ뙣, PyTorch濡?fallback: {e}")
                                 use_onnx = False
-                                # #region agent log
-                                try:
-                                    with open(log_path, "a", encoding="utf-8") as f:
-                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"enhancement.py:207","message":"ONNX load failed - fallback to PyTorch","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+"\n")
-                                except: pass
-                                # #endregion
                         else:
                             logger.warning(f"ONNX 紐⑤뜽 ?뚯씪??李얠쓣 ???놁뒿?덈떎: {onnx_model_path}. PyTorch濡?fallback?⑸땲??")
                             use_onnx = False
-                            # #region agent log
-                            try:
-                                with open(log_path, "a", encoding="utf-8") as f:
-                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"enhancement.py:211","message":"ONNX model file not found","data":{"onnx_model_path":onnx_model_path},"timestamp":int(time.time()*1000)})+"\n")
-                            except: pass
-                            # #endregion
                     else:
                         logger.debug("MODEL_PATH_ONNX媛 ?ㅼ젙?섏? ?딆븯?듬땲?? PyTorch瑜??ъ슜?⑸땲??")
                         use_onnx = False
-                        # #region agent log
-                        try:
-                            with open(log_path, "a", encoding="utf-8") as f:
-                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"enhancement.py:216","message":"MODEL_PATH_ONNX not configured","data":{},"timestamp":int(time.time()*1000)})+"\n")
-                        except: pass
-                        # #endregion
                 
                 # ONNX ?ъ슜?섏? ?딅뒗 寃쎌슦 PyTorch 諛⑹떇 ?ъ슜
                 if not use_onnx:
-                    # #region agent log
-                    try:
-                        with open(log_path, "a", encoding="utf-8") as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"enhancement.py:214","message":"Using PyTorch backend","data":{"backend":backend,"has_realesrgan":HAS_REALESRGAN},"timestamp":int(time.time()*1000)})+"\n")
-                    except: pass
-                    # #endregion
                     if model_path is None:
                         model_path = config.MODEL_PATH
                     
@@ -448,53 +291,19 @@ class ImageEnhancer:
                             _shared_upscaler = self._load_model_pytorch(model_path)
                             _upscaler_type = "pytorch"
                             logger.info(f"PyTorch 紐⑤뜽 濡쒕뱶 ?깃났 (諛깆뿏?? {backend})")
-                            # #region agent log
-                            try:
-                                with open(log_path, "a", encoding="utf-8") as f:
-                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"enhancement.py:222","message":"PyTorch model loaded","data":{"upscaler_type":"pytorch","backend":backend},"timestamp":int(time.time()*1000)})+"\n")
-                            except: pass
-                            # #endregion
                         except Exception as e:
                             logger.error(f"PyTorch 紐⑤뜽 濡쒕뱶 ?ㅽ뙣: {e}")
                             _shared_upscaler = None
                             _upscaler_type = None
-                            # #region agent log
-                            try:
-                                with open(log_path, "a", encoding="utf-8") as f:
-                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"enhancement.py:227","message":"PyTorch model load failed","data":{"error":str(e)},"timestamp":int(time.time()*1000)})+"\n")
-                            except: pass
-                            # #endregion
                     else:
                         logger.warning("RealESRGAN ?쇱씠釉뚮윭由щ? ?ъ슜?????놁뒿?덈떎. ?대?吏 ?μ긽 湲곕뒫??鍮꾪솢?깊솕?⑸땲??")
                         _shared_upscaler = None
                         _upscaler_type = None
-                
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:54","message":"shared upscaler created","data":{"model_path":model_path,"upscaler_type":_upscaler_type,"backend":backend},"timestamp":int(time.time()*1000)})+"\n")
-                except: pass
-                # #endregion
         
         # 紐⑤뱺 ?몄뒪?댁뒪媛 ?숈씪??upscaler瑜?怨듭쑀
         self.upscaler = _shared_upscaler
         self.upscaler_type = _upscaler_type
         self.onnx_input_shape = _onnx_input_shape
-        
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"enhancement.py:228","message":"ImageEnhancer initialized","data":{"upscaler_type":self.upscaler_type,"has_upscaler":self.upscaler is not None,"onnx_input_shape":str(self.onnx_input_shape) if self.onnx_input_shape else None},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
-        # #region agent log
-        init_duration = time.time() - init_start
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:62","message":"ImageEnhancer.__init__ exit","data":{"duration_seconds":init_duration,"has_upscaler":self.upscaler is not None,"is_shared":_shared_upscaler is not None},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
     
     def upscale_onnx(self, img: np.ndarray) -> np.ndarray:
         """
@@ -506,19 +315,7 @@ class ImageEnhancer:
         Returns:
             ?μ긽???대?吏 (SR_SCALE諛??뺣?)
         """
-        # #region agent log
-        import json
-        import time
-        from pathlib import Path
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-        upscale_start = time.time()
         h, w = img.shape[:2]
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"enhancement.py:486","message":"upscale_onnx entry","data":{"input_size_h":h,"input_size_w":w,"onnx_input_shape":str(self.onnx_input_shape) if self.onnx_input_shape else None},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         if self.upscaler is None:
             raise ImportError("ONNX Runtime session not initialized")
         
@@ -535,54 +332,19 @@ class ImageEnhancer:
                 target_h = 128
                 target_w = 128
         
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"enhancement.py:510","message":"Preprocessing start","data":{"target_h":target_h,"target_w":target_w},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         # ?꾩쿂由?(?⑤뵫 ?ы븿)
         input_tensor, padding_info = self._preprocess_onnx(img, target_h, target_w)
         
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"enhancement.py:515","message":"Preprocessing done","data":{"input_tensor_shape":list(input_tensor.shape),"padding_info":padding_info},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         # 異붾줎 ?ㅽ뻾 (?숈떆???쒖뼱: DirectML? ?숈떆 ?ㅽ뻾???쒗븳???덉쓬)
         input_name = self.upscaler.get_inputs()[0].name
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"enhancement.py:520","message":"Inference start","data":{"input_name":input_name},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
         
         # DirectML? ?숈떆 ?ㅽ뻾???쒗븳???덉쑝誘濡????ъ슜
         global _onnx_inference_lock
         with _onnx_inference_lock:
             output_tensor = self.upscaler.run(None, {input_name: input_tensor})[0]
         
-        # #region agent log
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"enhancement.py:525","message":"Inference done","data":{"output_tensor_shape":list(output_tensor.shape)},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         # ?꾩쿂由?(?⑤뵫 ?쒓굅 諛??먮낯 ?ш린 蹂듭썝)
         result_img = self._postprocess_onnx(output_tensor, padding_info)
-        
-        # #region agent log
-        try:
-            result_h, result_w = result_img.shape[:2]
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"enhancement.py:532","message":"Postprocessing done","data":{"result_size_h":result_h,"result_size_w":result_w},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
         
         # ONNX 紐⑤뜽? x4 ?ㅼ??쇰줈 ?숈뒿?섏뿀?쇰?濡?
         # SR_SCALE??4??寃쎌슦 紐⑤뜽 異쒕젰??洹몃?濡??ъ슜 (resize 遺덊븘??
@@ -594,15 +356,6 @@ class ImageEnhancer:
         if result_h != expected_h or result_w != expected_w:
             # resize濡??먰븯???ш린濡?議곗젙 (SR_SCALE??4媛 ?꾨땶 寃쎌슦?먮쭔 諛쒖깮)
             result_img = cv2.resize(result_img, (expected_w, expected_h), interpolation=cv2.INTER_LINEAR)
-        
-        # #region agent log
-        upscale_duration = time.time() - upscale_start
-        final_h, final_w = result_img.shape[:2]
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"enhancement.py:545","message":"upscale_onnx exit","data":{"duration_seconds":upscale_duration,"final_size_h":final_h,"final_size_w":final_w},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
         
         return result_img
     
@@ -616,18 +369,6 @@ class ImageEnhancer:
         Returns:
             RealESRGANer ?몄뒪?댁뒪
         """
-        # #region agent log
-        import json
-        import time
-        from pathlib import Path
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-        load_start = time.time()
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:44","message":"_load_model entry","data":{"model_path":model_path},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         # 紐⑤뜽 ?붾젆?좊━ ?앹꽦
         model_dir = os.path.dirname(model_path)
         if model_dir and not os.path.exists(model_dir):
@@ -663,14 +404,6 @@ class ImageEnhancer:
             device=device
         )
         
-        # #region agent log
-        load_duration = time.time() - load_start
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"enhancement.py:88","message":"_load_model exit","data":{"duration_seconds":load_duration,"device":str(device)},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         return result
     
     def upscale(self, img: np.ndarray) -> np.ndarray:
@@ -683,40 +416,15 @@ class ImageEnhancer:
         Returns:
             ?μ긽???대?吏 (SR_SCALE諛??뺣?)
         """
-        # #region agent log
-        import json
-        import time
-        from pathlib import Path
-        log_path = Path(__file__).parent.parent.parent / ".cursor" / "debug.log"
-        upscale_start = time.time()
         h, w = img.shape[:2]
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:90","message":"upscale entry","data":{"input_size_h":h,"input_size_w":w,"pixels":h*w},"timestamp":int(time.time()*1000)})+"\n")
-        except: pass
-        # #endregion
-        
         try:
             if self.upscaler is None:
                 raise ImportError("Upscaler not initialized")
-            
-            # #region agent log
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:688","message":"Checking upscaler type","data":{"upscaler_type":self.upscaler_type,"has_upscaler":self.upscaler is not None},"timestamp":int(time.time()*1000)})+"\n")
-            except: pass
-            # #endregion
             
             # upscaler ??낆뿉 ?곕씪 ?곸젅??硫붿꽌???몄텧
             if self.upscaler_type == "onnx":
                 # ONNX Runtime 諛⑹떇
                 logger.info(f"Upscale 吏꾪뻾 以? ONNX Runtime (DirectML) ({h}x{w} -> {h * config.SR_SCALE}x{w * config.SR_SCALE})")
-                # #region agent log
-                try:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:692","message":"Calling upscale_onnx","data":{},"timestamp":int(time.time()*1000)})+"\n")
-                except: pass
-                # #endregion
                 output = self.upscale_onnx(img)
             elif self.upscaler_type == "pytorch":
                 # PyTorch 諛⑹떇
@@ -725,26 +433,10 @@ class ImageEnhancer:
             else:
                 raise ImportError(f"Unknown upscaler type: {self.upscaler_type}")
             
-            # #region agent log
-            upscale_duration = time.time() - upscale_start
-            output_h, output_w = output.shape[:2]
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:106","message":"upscale exit","data":{"duration_seconds":upscale_duration,"output_size_h":output_h,"output_size_w":output_w,"upscaler_type":self.upscaler_type},"timestamp":int(time.time()*1000)})+"\n")
-            except: pass
-            # #endregion
-            
             logger.info(f"Upscale ?꾨즺: {output.shape[0]}x{output.shape[1]} (諛깆뿏?? {self.upscaler_type})")
             return output
         except Exception as e:
-            # #region agent log
-            upscale_duration = time.time() - upscale_start
             import traceback
-            try:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"enhancement.py:109","message":"upscale fallback","data":{"duration_seconds":upscale_duration,"error":str(e),"error_type":type(e).__name__,"upscaler_type":self.upscaler_type,"traceback":traceback.format_exc()},"timestamp":int(time.time()*1000)})+"\n")
-            except: pass
-            # #endregion
             logger.warning(f"Upscale ?ㅽ뙣, cv2.resize fallback: {e}")
             logger.error(f"?먮윭 ?곸꽭: {traceback.format_exc()}")
             return cv2.resize(img, (w * config.SR_SCALE, h * config.SR_SCALE))

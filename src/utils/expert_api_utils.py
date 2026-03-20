@@ -6,7 +6,7 @@ from typing import Any, List, Optional, Type, Dict
 from google.genai import types
 from pydantic import BaseModel
 
-from src.utils.expert_config import THINKING_SUPPORTED_MODELS, get_safety_settings
+from src.utils.expert_config import get_safety_settings, get_thinking_config
 
 
 def extract_finish_reason(response: Any) -> str:
@@ -114,9 +114,10 @@ async def call_evidence_api(
         "safety_settings": get_safety_settings()
     }
     
-    # thinking level 지원 모델에만 추가
-    if any(m in model_name for m in THINKING_SUPPORTED_MODELS):
-        api_config["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+    # 모델 시리즈별 Thinking 설정 (Gemini 2.5: thinking_budget, Gemini 3: thinking_level)
+    thinking_cfg = get_thinking_config(model_name, thinking_level)
+    if thinking_cfg:
+        api_config["thinking_config"] = thinking_cfg
     
     response = await client.aio.models.generate_content(
         model=model_name,
@@ -196,9 +197,10 @@ async def call_analyst_api(
         "safety_settings": get_safety_settings()
     }
     
-    # thinking level 지원 모델에만 추가
-    if any(m in model_name for m in THINKING_SUPPORTED_MODELS):
-        config_dict["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+    # 모델 시리즈별 Thinking 설정
+    thinking_cfg = get_thinking_config(model_name, thinking_level)
+    if thinking_cfg:
+        config_dict["thinking_config"] = thinking_cfg
     
     response = await client.aio.models.generate_content(
         model=model_name,
@@ -240,9 +242,10 @@ async def call_critic_vision_api(
         "safety_settings": get_safety_settings()
     }
     
-    # thinking level 지원 모델에만 추가
-    if any(m in model_name for m in THINKING_SUPPORTED_MODELS):
-        config_dict["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+    # 모델 시리즈별 Thinking 설정
+    thinking_cfg = get_thinking_config(model_name, thinking_level)
+    if thinking_cfg:
+        config_dict["thinking_config"] = thinking_cfg
     
     response = await client.aio.models.generate_content(
         model=model_name,
@@ -284,9 +287,10 @@ async def call_critic_text_api(
         "safety_settings": get_safety_settings()
     }
     
-    # thinking level 지원 모델에만 추가
-    if any(m in model_name for m in THINKING_SUPPORTED_MODELS):
-        config_dict["thinking_config"] = types.ThinkingConfig(thinking_level=thinking_level)
+    # 모델 시리즈별 Thinking 설정
+    thinking_cfg = get_thinking_config(model_name, thinking_level)
+    if thinking_cfg:
+        config_dict["thinking_config"] = thinking_cfg
     
     response = await client.aio.models.generate_content(
         model=model_name,

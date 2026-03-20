@@ -1,5 +1,6 @@
 import os
 import base64
+import re
 import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -15,6 +16,110 @@ from src.utils.report_formatter import (
 from src.utils.report_generator import generate_report_llm
 
 logger = setup_logger(__name__)
+
+from src.tools.experts.expert_utils import extract_images_from_payload, save_bytes_to_temp_file
+from src.utils.image_processing import resize_image_if_needed
+
+def process_payload_images(payload_data: List[Any]) -> List[str]:
+    """
+    Payload에서 이미지를 추출하여 리사이즈 및 임시 파일 저장을 수행합니다.
+    """
+    image_data_list = extract_images_from_payload(payload_data)
+    temp_image_paths = []
+    
+    if image_data_list:
+        for idx, image_data in enumerate(image_data_list):
+            try:
+                # === 파이프라인 진입 전 리사이즈 ===
+                if getattr(config, 'PRE_RESIZE_ENABLED', True):
+                    image_data = resize_image_if_needed(
+                        image_data, 
+                        getattr(config, 'PRE_RESIZE_MAX_DIMENSION', getattr(config, 'HOTSPOT_MAX_IMAGE_DIMENSION', 2048)),
+                        getattr(config, 'PRE_RESIZE_JPEG_QUALITY', 88)
+                    )
+                # ===============================================
+
+                temp_path = save_bytes_to_temp_file(image_data)
+                temp_image_paths.append(temp_path)
+                logger.info(f"[System] Initial Image {idx+1} Saved to: {temp_path}")
+            except Exception as e:
+                logger.error(f"[System] Failed to process and save initial image {idx+1}: {e}")
+                
+    return temp_image_paths
+
+def cleanup_temporary_resources(
+    temp_image_paths: List[str], 
+    final_image_path: Optional[str] = None, 
+    preprocessed_hotspots: Optional[List[Dict[str, Any]]] = None
+) -> None:
+    """
+    그래프 실행 완료 후 임시 파일을 정리합니다.
+    """
+    import tempfile
+    temp_dir = tempfile.gettempdir()
+    temp_dir_normalized = os.path.normpath(temp_dir).lower()
+    
+    # 1. 초기 임시 이미지 정리
+    for temp_img_path in temp_image_paths:
+        if not temp_img_path:
+            continue
+            
+        should_cleanup = False
+        try:
+            if final_image_path and os.path.exists(temp_img_path) and os.path.exists(final_image_path):
+                if os.path.samefile(temp_img_path, final_image_path):
+                    should_cleanup = False
+                else:
+                    should_cleanup = True
+            elif final_image_path and temp_img_path != final_image_path:
+                should_cleanup = True
+            elif not final_image_path:
+                should_cleanup = True
+        except (OSError, ValueError):
+            if not final_image_path or temp_img_path != final_image_path:
+                should_cleanup = True
+        
+        if should_cleanup:
+            try:
+                temp_path_normalized = os.path.normpath(temp_img_path).lower()
+                if temp_path_normalized.startswith(temp_dir_normalized) and os.path.exists(temp_img_path):
+                    os.remove(temp_img_path)
+                    logger.debug(f"임시 파일 정리 완료: {temp_img_path}")
+            except Exception as e:
+                logger.warning(f"임시 파일 정리 실패: {e}")
+
+    # 2. 전처리된 핫스팟의 임시 ROI 이미지 정리
+    if preprocessed_hotspots:
+        try:
+            for hp in preprocessed_hotspots:
+                roi_paths = set()
+                
+                # Single (Fallback)
+                roi_path = hp.get("roi_image_path")
+                if roi_path:
+                    roi_paths.add(roi_path)
+                
+                # Multiple Views
+                roi_paths_dict = hp.get("roi_image_paths", {})
+                for path in roi_paths_dict.values():
+                    if path:
+                        roi_paths.add(path)
+                
+                for path_to_remove in roi_paths:
+                    if (path_to_remove and 
+                        path_to_remove != final_image_path and 
+                        path_to_remove not in temp_image_paths and 
+                        os.path.exists(path_to_remove)):
+                        
+                        roi_path_normalized = os.path.normpath(path_to_remove).lower()
+                        if roi_path_normalized.startswith(temp_dir_normalized):
+                            try:
+                                os.remove(path_to_remove)
+                                logger.debug(f"전처리 임시 파일 정리 완료: {path_to_remove}")
+                            except Exception as inner_e:
+                                logger.warning(f"전처리 임시 파일 정리 실패 ({path_to_remove}): {inner_e}")
+        except Exception as e:
+            logger.warning(f"전처리 임시 파일 정리 전체 프로세스 실패: {e}")
 
 def validate_image_path(image_path: str) -> tuple[bool, Optional[str], Optional[str]]:
     """이미지 파일 경로 유효성 검사
@@ -308,6 +413,267 @@ def save_arbiter_report(final_verdict: str, output_dir: Path) -> None:
         logger.error(f"Arbiter 리포트 저장 실패: {e}")
         print(f"  - Arbiter_Report.txt 저장 실패: {e}")
 
+def _to_relative_image_path(output_file: Path, visual_report_path: str) -> str:
+    """output_file 기준으로 visual_report_path의 상대 경로 반환 (마크다운 이미지용)"""
+    try:
+        out_dir = Path(output_file).parent.resolve()
+        img_path = Path(visual_report_path).resolve()
+        rel = img_path.relative_to(out_dir)
+        return str(rel).replace('\\', '/')
+    except (ValueError, OSError):
+        # 경로 계산 실패 시 파일명만 사용 (같은 outputs 하위 구조 가정)
+        return f"../visual_reports/{Path(visual_report_path).name}"
+
+
+def _to_embedded_image_data_uri(visual_report_path: str) -> Optional[str]:
+    """이미지 파일을 Base64로 읽어 data URI 반환 (마크다운에 직접 삽입용)"""
+    try:
+        img_path = Path(visual_report_path)
+        if not img_path.exists():
+            return None
+        with open(img_path, 'rb') as f:
+            raw = f.read()
+        b64 = base64.b64encode(raw).decode('ascii')
+        ext = img_path.suffix.lower()
+        mime = 'image/jpeg' if ext in ('.jpg', '.jpeg') else 'image/png' if ext == '.png' else 'image/jpeg'
+        return f"data:{mime};base64,{b64}"
+    except (OSError, ValueError) as e:
+        logger.warning(f"이미지 Base64 인코딩 실패: {e}")
+        return None
+
+
+def _resolve_image_for_docx(
+    img_ref: str,
+    base_dir: Path,
+    raw_visual_report_path: Optional[str] = None,
+) -> Optional[Path]:
+    """이미지 참조를 실제 파일 경로로 해석 (docx 삽입용)"""
+    if not img_ref or not img_ref.strip():
+        return None
+    img_ref = img_ref.strip()
+    # data: URI는 별도 처리
+    if img_ref.startswith("data:"):
+        return None
+    # file:/// 경로
+    if img_ref.lower().startswith("file:///"):
+        p = Path(img_ref[8:].lstrip("/"))
+        if p.exists():
+            return p
+        # Windows: file:///C:/... -> C:\...
+        try:
+            p_win = Path(img_ref.replace("file:///", "").replace("/", "\\"))
+            if p_win.exists():
+                return p_win
+        except Exception:
+            pass
+        return None
+    # 상대 경로 (../visual_reports/xxx.jpg 등)
+    resolved = (base_dir / img_ref.replace("\\", "/")).resolve()
+    if resolved.exists():
+        return resolved
+    # raw_visual_report_path 직접 사용
+    if raw_visual_report_path:
+        rp = Path(raw_visual_report_path)
+        if rp.exists():
+            return rp
+        # cwd 기준
+        cwd_path = Path.cwd() / raw_visual_report_path.replace("\\", "/")
+        if cwd_path.exists():
+            return cwd_path
+    return None
+
+
+def _setup_docx_styles(doc) -> None:
+    """Word 문서 기본 스타일 설정 (가독성 개선)"""
+    from docx.shared import Pt
+
+    font_name = "Malgun Gothic"
+
+    def _set_style_font(font, size_pt: int):
+        font.size = Pt(size_pt)
+        font.name = font_name
+
+    # 본문 (Normal): 11pt
+    _set_style_font(doc.styles["Normal"].font, 11)
+    doc.styles["Normal"].paragraph_format.space_after = Pt(6)
+    doc.styles["Normal"].paragraph_format.line_spacing = 1.15  # 1.15배
+
+    # 제목 1 (H1): 18pt
+    if "Title" in doc.styles:
+        _set_style_font(doc.styles["Title"].font, 18)
+    for h in ["Heading 1", "heading 1"]:
+        if h in doc.styles:
+            _set_style_font(doc.styles[h].font, 18)
+            doc.styles[h].paragraph_format.space_before = Pt(12)
+            doc.styles[h].paragraph_format.space_after = Pt(6)
+            break
+
+    # 제목 2 (H2): 14pt
+    for h in ["Heading 2", "heading 2"]:
+        if h in doc.styles:
+            _set_style_font(doc.styles[h].font, 14)
+            doc.styles[h].paragraph_format.space_before = Pt(10)
+            doc.styles[h].paragraph_format.space_after = Pt(4)
+            break
+
+    # 제목 3 (H3): 12pt
+    for h in ["Heading 3", "heading 3"]:
+        if h in doc.styles:
+            _set_style_font(doc.styles[h].font, 12)
+            doc.styles[h].paragraph_format.space_before = Pt(6)
+            doc.styles[h].paragraph_format.space_after = Pt(2)
+            break
+
+
+def save_investigation_result_docx(
+    formatted_result: str,
+    output_docx_path: Path,
+    base_dir: Path,
+    raw_visual_report_path: Optional[str] = None,
+) -> None:
+    """포맷된 분석 결과를 Word(.docx) 문서로 저장 (이미지 포함)"""
+    from docx import Document
+    from docx.shared import Inches, Pt
+
+    doc = Document()
+    _setup_docx_styles(doc)
+    # 페이지 여백 설정
+    for section in doc.sections:
+        section.top_margin = Inches(0.75)
+        section.bottom_margin = Inches(0.75)
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.75)
+    # 마크다운 스타일 파싱: ##, ###, 본문, 이미지
+    img_pattern = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
+    lines = formatted_result.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        # # 제목 (H1)
+        if stripped.startswith("# ") and not stripped.startswith("## "):
+            text = stripped[2:].strip()
+            if text:
+                doc.add_heading(text, level=0)
+            i += 1
+            continue
+        # ## 섹션 (H2)
+        if stripped.startswith("## ") and not stripped.startswith("### "):
+            text = stripped[3:].strip()
+            if text:
+                doc.add_heading(text, level=1)
+            i += 1
+            continue
+        # ### 서브섹션 (H3)
+        if stripped.startswith("### "):
+            text = stripped[4:].strip()
+            if text:
+                doc.add_heading(text, level=2)
+            i += 1
+            continue
+        # 테이블 행 (| ... |)
+        if stripped.startswith("|") and stripped.endswith("|"):
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith("|") and lines[i].strip().endswith("|"):
+                table_lines.append(lines[i])
+                i += 1
+            if table_lines:
+                _add_markdown_table_to_doc(doc, table_lines)
+            continue
+        # 이미지 단독 행 ![alt](path)
+        # 대용량 base64(수MB) 줄은 regex 생략 → 메모리/성능 이슈 방지
+        path = None
+        if len(line) < 500_000:
+            img_match = img_pattern.search(line)
+            if img_match and (len(line) < 1000 or line.strip() == line):
+                path = img_match.group(2)
+        else:
+            if "![" in line and "](" in line and ")" in line and "base64," in line:
+                start = line.find("](") + 2
+                end = line.rfind(")")
+                if end > start:
+                    path = line[start:end]
+        if path:
+            if path.startswith("data:"):
+                # Base64: regex 대신 문자열 슬라이싱 (수MB 문자열에서 메모리/성능 이슈 방지)
+                try:
+                    import io
+                    idx = path.find("base64,")
+                    if idx >= 0:
+                        b64_data = path[idx + 7:]
+                        raw = base64.b64decode(b64_data)
+                        doc.add_picture(io.BytesIO(raw), width=Inches(5.0))
+                except Exception as e:
+                    logger.warning(f"Base64 이미지 docx 삽입 실패: {e}")
+            else:
+                img_path = _resolve_image_for_docx(path, base_dir, raw_visual_report_path)
+                if img_path:
+                    try:
+                        doc.add_picture(str(img_path), width=Inches(5.0))
+                    except Exception as e:
+                        logger.warning(f"이미지 docx 삽입 실패 {img_path}: {e}")
+            i += 1
+            continue
+        # 구분선 ---
+        if stripped in ("---", "***", "___"):
+            i += 1
+            continue
+        # 일반 단락 (수MB base64 줄은 위에서 처리되므로 여기선 제외)
+        if stripped and len(stripped) < 100_000:
+            # 인라인 이미지가 있는 경우 분리
+            parts = img_pattern.split(line)
+            if len(parts) > 1:
+                for j, part in enumerate(parts):
+                    if j % 3 == 0 and part.strip():
+                        doc.add_paragraph(part.strip())
+                    elif j % 3 == 2:
+                        img_path = _resolve_image_for_docx(part, base_dir, raw_visual_report_path)
+                        if img_path:
+                            try:
+                                doc.add_picture(str(img_path), width=Inches(5.0))
+                            except Exception:
+                                pass
+            else:
+                doc.add_paragraph(stripped)
+        i += 1
+
+    output_docx_path.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(str(output_docx_path))
+
+
+def _add_markdown_table_to_doc(doc, table_lines: List[str]) -> None:
+    """마크다운 테이블을 docx에 추가 (가독성 스타일 적용)"""
+    from docx.shared import Pt
+
+    if len(table_lines) < 2:
+        return
+    rows = []
+    for ln in table_lines:
+        cells = [c.strip() for c in ln.split("|")[1:-1]]
+        if not cells:
+            continue
+        if all(re.match(r'^:?-+:?$', c) for c in cells):
+            continue
+        rows.append(cells)
+    if not rows:
+        return
+    col_count = max(len(r) for r in rows)
+    table = doc.add_table(rows=len(rows), cols=col_count)
+    table.style = "Table Grid"
+    for ri, row_cells in enumerate(rows):
+        for ci, cell_text in enumerate(row_cells):
+            if ci < col_count:
+                cell = table.rows[ri].cells[ci]
+                cell.text = cell_text.replace("<br>", "\n").replace("<br/>", "\n")
+                for para in cell.paragraphs:
+                    para.paragraph_format.space_before = Pt(2)
+                    para.paragraph_format.space_after = Pt(2)
+                    for run in para.runs:
+                        run.font.size = Pt(10)
+                        run.font.name = "Malgun Gothic"
+    doc.add_paragraph()
+
+
 def save_investigation_result(
     final_verdict: str,
     expert_reports: List[str],
@@ -315,7 +681,8 @@ def save_investigation_result(
     errors: List[str],
     input_image_path: str,
     output_file: Path,
-    final_verdict_structured: Optional[Any] = None
+    final_verdict_structured: Optional[Any] = None,
+    visual_report_path: Optional[str] = None
 ) -> None:
     """통합 분석 결과 파일 저장"""
     timestamp_str = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -333,10 +700,29 @@ def save_investigation_result(
             final_verdict_structured=final_verdict_structured,
         )
         if llm_report:
+            if visual_report_path:
+                if getattr(config, 'EMBED_IMAGE_IN_MARKDOWN', False):
+                    img_ref = _to_embedded_image_data_uri(visual_report_path) or _to_relative_image_path(output_file, visual_report_path)
+                else:
+                    img_ref = _to_relative_image_path(output_file, visual_report_path)
+                
+                img_markdown = f"![분석 결과 시각화]({img_ref})"
+                
+                # [Optimization] 사용자 요청에 따라 {{VISUAL_REPORT_IMAGE}} 플레이스홀더가 있으면 해당 위치에 삽입
+                if "{{VISUAL_REPORT_IMAGE}}" in llm_report:
+                    llm_report = llm_report.replace("{{VISUAL_REPORT_IMAGE}}", img_markdown)
+                else:
+                    # 플레이스홀더가 없는 경우 하단에 추가 (Fallback)
+                    llm_report += f"\n\n## 3. 상세 증거 분석 시각화\n{img_markdown}\n"
+                    
             formatted_result = llm_report
-            logger.info("LLM 기반 통합 리포트 생성 완료")
-            print("  [리포트] LLM 기반 통합 리포트 생성 완료")
+            logger.info("LLM 기반 통합 리포트 생성 및 이미지 삽입 완료")
+            print("  [리포트] LLM 기반 통합 리포트 생성 완료 (이미지 삽입됨)")
         else:
+            if visual_report_path:
+                img_ref = _to_embedded_image_data_uri(visual_report_path) if getattr(config, 'EMBED_IMAGE_IN_MARKDOWN', False) else _to_relative_image_path(output_file, visual_report_path)
+            else:
+                img_ref = None
             formatted_result = format_investigation_result(
                 final_verdict=final_verdict,
                 expert_reports=expert_reports or [],
@@ -344,10 +730,15 @@ def save_investigation_result(
                 input_image_path=input_image_path,
                 timestamp=timestamp_str,
                 final_verdict_structured=final_verdict_structured,
+                visual_report_path=img_ref,
             )
             logger.warning("LLM 리포트 생성 실패, 구조화된 데이터 또는 정규식 Fallback 사용")
             print("  [리포트] LLM 실패 → 구조화된 데이터 또는 정규식 Fallback 사용")
     else:
+        if visual_report_path:
+            img_ref = _to_embedded_image_data_uri(visual_report_path) if getattr(config, 'EMBED_IMAGE_IN_MARKDOWN', False) else _to_relative_image_path(output_file, visual_report_path)
+        else:
+            img_ref = None
         formatted_result = format_investigation_result(
             final_verdict=final_verdict,
             expert_reports=expert_reports or [],
@@ -355,13 +746,30 @@ def save_investigation_result(
             input_image_path=input_image_path,
             timestamp=timestamp_str,
             final_verdict_structured=final_verdict_structured,
+            visual_report_path=img_ref,
         )
 
-    # LLM/정규식 출력만 저장
+    # LLM 실패 시 또는 비-LLM 모드일 때만 errors 수동 추가
+    if errors and not llm_report:
+        formatted_result += "\n\n---\n\n## System Errors & Warnings\n\n"
+        for err in errors:
+            formatted_result += f"- {sanitize_user_visible_text(err)}\n"
+
+    # .txt 저장
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(formatted_result)
-        # LLM 실패 시 또는 비-LLM 모드일 때만 errors 수동 추가
-        if errors and not llm_report:
-            f.write("\n\n---\n\n## System Errors & Warnings\n\n")
-            for err in errors:
-                f.write(f"- {sanitize_user_visible_text(err)}\n")
+
+    # .docx 저장 (Word 문서)
+    docx_path = output_file.with_suffix('.docx')
+    try:
+        save_investigation_result_docx(
+            formatted_result=formatted_result,
+            output_docx_path=docx_path,
+            base_dir=output_file.parent,
+            raw_visual_report_path=visual_report_path,
+        )
+        logger.debug(f"Word 문서 저장 완료: {docx_path}")
+        print(f"  - {docx_path.name} 저장 완료")
+    except Exception as e:
+        logger.warning(f"Word 문서 저장 실패: {e}", exc_info=True)
+        print(f"  ⚠ Word 문서 저장 실패: {e}")

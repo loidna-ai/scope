@@ -38,7 +38,7 @@ def get_micro_evidence_prompt(patch_size: int | None = None) -> str:
 - 관찰 우선: Step 1~3를 거쳐 검증된 사실만 Step 4에서 출력합니다.
 - 복수 이미지 처리: 여러 장의 이미지가 제시되었을 경우 각 이미지를 순차적으로 모두 검사하십시오. 어느 이미지에서 손상이 감지되었는지 `image_index` (1부터 시작하는 정수) 필드에 반드시 명시하십시오. (예: "Image 3:"에서 감지된 경우 3)
 - 원인 추론 금지: "단락흔이다", "화재다"라고 쓰지 말고 "구형 물체다", "검게 변했다"라고 쓰십시오.
-- 좌표 포맷: box_2d는 이미지 전체 크기를 1000으로 보았을 때의 정규화 좌표(0~1000 정수)를 사용합니다.(ymax > ymin, xmax > xmin)
+- 좌표 포맷: box_2d는 **현재 입력된 이 패치 이미지(Crop) 내에서의 0-1000 정규화 좌표**를 사용합니다. (ymax > ymin, xmax > xmin)
 - 빈 결과 허용: 주어지는 모든 이미지에서 단 하나의 손상도 확실하지 않다면 `hotspots` 배열을 비워서 반환하십시오.
 </rules>
 
@@ -89,7 +89,7 @@ Step 4: 최종 손상 추출 (Final Extraction)
 """
 
 
-def get_component_classifier_prompt(image_path: str | None = None) -> str:
+def get_component_classifier_prompt(image_path: str | None = None, box_2d: dict | None = None) -> str:
     """
     전기 부품 유형 식별용 프롬프트.
 
@@ -129,7 +129,7 @@ def get_component_classifier_prompt(image_path: str | None = None) -> str:
 
 <input_data>
 <images>
-<image_1_context>전체 이미지 (Context): 화재 현장 전체 구도</image_1_context>
+<image_1_context>전체 이미지 (Context): 화재 현장 전체 구도. 대상 영역 좌표: {box_2d}</image_1_context>
 <image_2_roi>확대 이미지 (ROI): Hotspot 영역을 2배 향상 처리한 상세 이미지 - {image_path}</image_2_roi>
 </images>
 </input_data>
@@ -144,4 +144,49 @@ def get_component_classifier_prompt(image_path: str | None = None) -> str:
 }}
 </output_schema>
 """
-    return template.format(image_path=image_path) if image_path else template
+    return template.format(image_path=image_path, box_2d=box_2d) if image_path else template
+
+
+def get_identity_fusion_prompt() -> str:
+    """
+    [Identity Fusion Strategy] 다중 이미지에서 탐지된 동일 객체들을 식별하여 병합하기 위한 프롬프트.
+    """
+    return """
+<role>
+당신은 현장의 공간적 연관성을 분석하는 전문 **'공간 분석가(Spatial Analyst)'**입니다.
+좁은 시야(Deep View/ROI)와 넓은 시야(Wide View)에서 포착된 여러 징후들이 동일한 물리적 객체인지 판단하십시오.
+</role>
+
+<input_data>
+당신에게는 여러 장의 이미지 경로와, 각 이미지에서 탐지된 'Raw Hotspot' 데이터(JSON)가 제공됩니다.
+객체의 기하학적 형태, 위치적 상관관계, 색상 및 질감을 비교하십시오.
+</input_data>
+
+<task>
+서로 다른 각도나 거리에서 찍힌 Hotspot들이 '동일한 발화 원인 흔적'인지 판단하여, 
+**중복된 지점들을 하나로 묶은 Unified Hotspot 리스트를 생성하십시오.**
+</task>
+
+<rules>
+- **Deep-Wide 매칭**: 전체 구도와 확대 사진 간의 위치 일치 여부를 최우선으로 고려합니다.
+- **Deduplication**: 동일한 객체로 판단되면 하나의 ID로 통합하고, 근거가 된 Raw IDs를 기록합니다.
+- **Reasoning**: 왜 이들이 동일 객체인지 혹은 다른 객체인지에 대한 근거를 포함하십시오.
+</rules>
+
+<output_schema>
+{
+  "reasoning": "근거 설명...",
+  "unified_hotspots": [
+    {
+      "id": 1,
+      "source_images": ["path1", "path2"],
+      "boxes": {"path1": {...}, "path2": {...}},
+      "severity_score": 90,
+      "location_description": "통합된 위치 설명",
+      "visual_evidence": "통합된 시각적 증거",
+      "raw_hotspot_ids": [1, 3]
+    }
+  ]
+}
+</output_schema>
+"""

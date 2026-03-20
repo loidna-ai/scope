@@ -65,13 +65,13 @@ def distribute_work_generic(state: Dict[str, Any], expert_name: str) -> Union[st
             if h.get("severity_score", 0) >= MIN_SEVERITY_FOR_ANALYSIS
         ]
         if not valid_hotspots:
-            print(f"\n🏁 [{expert_name} Distribute Work] 처리할 Hotspot이 없습니다.")
+            print(f"\n[Done] [{expert_name} Distribute Work] 처리할 Hotspot이 없습니다.")
             return verdict_node_name
         selected_hotspots = sorted(
             valid_hotspots, key=lambda x: x.get("severity_score", 0), reverse=True
         )[:TOP_N_HOTSPOTS]
 
-    print(f"\n🚀 [{expert_name} Distribute] {len(selected_hotspots)}개 Worker 병렬 분산")
+    print(f"\n[Distribute] [{expert_name} Distribute] {len(selected_hotspots)}개 Worker 병렬 분산")
     print(f"   선택된 IDs: {[h.get('id') for h in selected_hotspots]}")
 
     return [

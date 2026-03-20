@@ -16,7 +16,6 @@ from src.tools.experts.expert_utils import (
     call_gemini_text
 )
 from src.utils import async_retry_with_backoff, validate_state_keys
-from src.prompts.common_prompts import get_component_classifier_prompt
 from src.prompts.tracking_expert_prompts import (
     get_tracking_terminal_prompt,
     get_tracking_plug_prompt,
@@ -26,13 +25,22 @@ from src.prompts.tracking_expert_prompts import (
     get_analyst_reanalysis_prompt,
     get_critic_prompt
 )
-from src.models.verdict_models import TrackingSupervisorVerdict
+from src.models.tracking_models import (
+    TrackingTerminalEvidenceResult,
+    TrackingPlugEvidenceResult,
+    TrackingPCBEvidenceResult
+)
+from src.utils.expert_api_utils import (
+    call_evidence_api,
+    call_supervisor_api
+)
 from src.nodes.verdict_debate_nodes import (
     create_supervisor_verdict_node,
     create_verdict_analyst_node,
     create_verdict_critic_node,
     create_verdict_finalize_node
 )
+from src.models.verdict_models import TrackingSupervisorVerdict
 
 from src.states.tracking_state import TrackingExpertState
 from src.states.common_state import WorkerState
@@ -66,12 +74,12 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
                 logger.info(f"Worker {hotspot_id}: Using pre-processed classification ({connection_type})")
             else:
                 logger.info(f"Worker {hotspot_id}: Pre-processed crop found, but classification needed")
-                prompt = get_component_classifier_prompt(roi_image_path)
+                prompt = get_component_classifier_prompt(roi_image_path, box_2d=hotspot.get("box_2d"))
                 connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
         else:
             box_2d = hotspot.get("box_2d")
             roi_image_path = await crop_and_enhance_roi(hotspot_id, image_path, box_2d)
-            prompt = get_component_classifier_prompt(roi_image_path)
+            prompt = get_component_classifier_prompt(roi_image_path, box_2d=box_2d)
             connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
 
         specialist_result = None
@@ -85,15 +93,15 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
         # Routing based on component connection_type
         if "Terminal" in connection_type or "단자" in connection_type:
             specialist_result = await _analyze_specialist(
-                hotspot_id, roi_image_path, image_path, get_tracking_terminal_prompt, "Tracking Terminal"
+                hotspot_id, roi_image_path, image_path, get_tracking_terminal_prompt, TrackingTerminalEvidenceResult, "Tracking Terminal"
             )
         elif "Plug" in connection_type or "플러그" in connection_type:
             specialist_result = await _analyze_specialist(
-                hotspot_id, roi_image_path, image_path, get_tracking_plug_prompt, "Tracking Plug"
+                hotspot_id, roi_image_path, image_path, get_tracking_plug_prompt, TrackingPlugEvidenceResult, "Tracking Plug"
             )
         elif "PCB" in connection_type or "기판" in connection_type:
             specialist_result = await _analyze_specialist(
-                hotspot_id, roi_image_path, image_path, get_tracking_pcb_prompt, "Tracking PCB"
+                hotspot_id, roi_image_path, image_path, get_tracking_pcb_prompt, TrackingPCBEvidenceResult, "Tracking PCB"
             )
         else:
             observations = f"Tracking 분석 대상 아님: {connection_type}"
@@ -101,22 +109,15 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             logger.info(f"Worker {hotspot_id}: Skipped (Not Tracking Component)")
             
         if specialist_result:
-            observations = specialist_result.get("visual_observation", specialist_result.get("visual_description", "N/A"))
-            worker_verdict = f"[{specialist_result.get('verdict', 'Unknown')}] {specialist_result.get('reasoning', '')}"
-            report_confidence = specialist_result.get("confidence", 0)
-            verdict_cat = specialist_result.get("verdict", "")
+            observations = specialist_result.visual_description
+            worker_verdict = f"[{specialist_result.verdict}] {specialist_result.reasoning}"
+            report_confidence = specialist_result.confidence
             
-            if verdict_cat == "트래킹" or "트래킹 진행" in verdict_cat or "High" in verdict_cat:
-                severity_score = 80
-                is_critical = True
-                evidence_quality = "high"
-            elif "트래킹 의심" in verdict_cat or "의심" in verdict_cat:
-                severity_score = 60
-                evidence_quality = "medium"
-            else:
-                severity_score = 30
-                evidence_quality = "low"
-                
+            # Evidence-First: Bypass severity logic, set default
+            severity_score = 50
+            is_critical = False
+            evidence_quality = "medium"
+                    
             if config.SAVE_INDIVIDUAL_HOTSPOT_JSON:
                 try:
                     output_dir = os.path.join(PROJECT_ROOT, "output", "tracking_analysis")
@@ -124,18 +125,21 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                     file_path = os.path.join(output_dir, f"hotspot_{hotspot_id}_{timestamp}.json")
                     with open(file_path, "w", encoding="utf-8") as f:
-                        json.dump(specialist_result, f, ensure_ascii=False, indent=2)
+                        json.dump(specialist_result.model_dump(), f, ensure_ascii=False, indent=2)
                 except Exception as save_err:
                     logger.error(f"Worker {hotspot_id}: Failed to save result: {save_err}")
                     
         worker_report = {
             "id": hotspot_id,
             "type": "WorkerReport",
-            "facts": {"visual_description": observations},
+            "facts": {
+                "visual_description": observations,
+                "extracted_evidence": [ev.model_dump() for ev in specialist_result.step5_extracted_evidence] if specialist_result and hasattr(specialist_result, "step5_extracted_evidence") else []
+            },
             "opinion": {
-                "verdict": specialist_result.get("verdict", "Unknown") if specialist_result else "Indeterminate",
-                "confidence": report_confidence,
-                "reasoning": specialist_result.get("reasoning", "") if specialist_result else "Extraction failed"
+                "verdict": "판독 보류 (Evidence Collected)",
+                "confidence": 0,
+                "reasoning": "자세한 증거 목록이 생성되었습니다."
             },
             "severity_score": severity_score,
             "evidence_quality": evidence_quality,
@@ -178,33 +182,43 @@ async def _analyze_specialist(
     roi_image_path: str,
     image_path: str,
     prompt_func,
+    evidence_model,
     component_type: str
-) -> Optional[Dict[str, Any]]:
+) -> Optional[Any]:
     try:
         logger.info(f"Worker {hotspot_id}: Collecting {component_type} evidence...")
         original_data, roi_data = await load_expert_images(roi_image_path, image_path)
         prompt = prompt_func(roi_image_path)
-        image_payload = [original_data, roi_data]
         
-        def run_sync_call():
-            return call_gemini_vision(
-                prompt, 
-                image_payload, 
-                f"Worker #{hotspot_id} {component_type} Specialist", 
-                verbose=True,
-                temperature=1.0,
+        client = get_genai_client()
+        model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
+        
+        parts = [prompt]
+        for img_data in [original_data, roi_data]:
+            parts.append(types.Part.from_bytes(data=img_data, mime_type="image/jpeg"))
+        
+        async def _call_evidence_wrapper(**kwargs):
+            return await call_evidence_api(
+                client=kwargs["client"],
+                model_name=kwargs["model_name"],
+                parts=kwargs["parts"],
+                response_schema=evidence_model,
                 thinking_level="high",
-                media_resolution="MEDIA_RESOLUTION_HIGH"
+                temperature=1.0,
+                context_name=kwargs.get("context_name", f"Worker #{hotspot_id} {component_type} Evidence")
             )
         
-        # Rate Limiter 적용을 위해 async_retry_with_backoff 사용
-        response_text, _ = await async_retry_with_backoff(
-            lambda: asyncio.to_thread(run_sync_call),
-            max_retries=3,
-            context_name=f"Worker #{hotspot_id} {component_type} Specialist"
+        response = await async_retry_with_backoff(
+            _call_evidence_wrapper,
+            client=client,
+            model_name=model_name,
+            parts=parts,
+            context_name=f"Worker #{hotspot_id} {component_type} Evidence",
+            max_retries=5
         )
-        result = parse_json_response(response_text)
-        return result
+        
+        evidence_result = evidence_model.model_validate_json(response.text)
+        return evidence_result
     except Exception as e:
         logger.error(f"Worker {hotspot_id}: {component_type} evidence error: {e}", exc_info=True)
         return None

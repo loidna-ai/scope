@@ -17,7 +17,7 @@ from config import TOP_N_HOTSPOTS
 import config
 
 # [Mitigation] API 부하 방지를 위한 동시 실행 제한 세마포어
-# 미리보기 모델(gemini-3-flash-preview)의 동시 요청 제한(Concurrency Limit)에 대응
+# Gemini 2.5 Flash의 동시 요청 제한(Concurrency Limit)에 대응
 
 # Define Project Root for centralized output
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -83,13 +83,13 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             # 부분 실패 보정: 전처리기에서 분류 실패 시 재분류
             if not hotspot.get("_classify_done") and connection_type == "Unknown":
                 logger.info(f"Worker {hotspot_id}: Re-classifying (preprocessor classification failed)")
-                prompt = get_component_classifier_prompt(roi_image_path)
+                prompt = get_component_classifier_prompt(roi_image_path, box_2d=hotspot.get("box_2d"))
                 connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
         else:
             # Fallback: preprocessor_node를 거치지 않은 경우 직접 처리
             box_2d = hotspot.get("box_2d")
             roi_image_path = await crop_and_enhance_roi(hotspot_id, image_path, box_2d)
-            prompt = get_component_classifier_prompt(roi_image_path)
+            prompt = get_component_classifier_prompt(roi_image_path, box_2d=box_2d)
             connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
 
         specialist_result = None
@@ -125,56 +125,46 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             logger.info(f"Worker {hotspot_id}: Skipped (Not Aging Component)")
             
         if specialist_result:
-            # Pydantic model_dump() dict 호환 (Wire는 step6_verdict 존재, PCB는 직렬화된 dict에 접근)
-            if "step6_verdict" in specialist_result:
-                s6 = specialist_result["step6_verdict"]
-                verdict_cat = s6.get("conclusion", "Unknown")
-                report_reasoning = s6.get("final_reasoning", "")
-                worker_verdict = f"[{verdict_cat}] {report_reasoning}"
-                report_confidence = s6.get("confidence_score", 0)
+            # Wire/PCB 공통으로 추출된 증거 여부 확인
+            has_evidence = "step5_extracted_evidence" in specialist_result or "extracted_evidence" in specialist_result
+            
+            if has_evidence:
+                severity_score = 50  # 임시 점수
+                is_critical = False
+                evidence_quality = "medium"
+                report_confidence = 0
+                worker_verdict = "판독 보류 (Evidence Collected)"
+                verdict_cat = "Indeterminate"
+                report_reasoning = "자세한 증거 목록이 생성되었습니다."
                 
                 # 합성 Observations
-                try:
-                    s4 = specialist_result.get("step4_insulation_inspection", {})
-                    z1 = s4.get("zone1_color_texture", {})
-                    z2 = s4.get("zone2_mechanical", {})
-                    z3 = s4.get("zone3_thermal_shrinkage", {})
-                    obs_parts = [
-                        f"Zone 1 (색상/질감): {z1.get('color_degradation', '')[:100]}...",
-                        f"Zone 2 (기계적 물성): {z2.get('hardening_brittleness', '')[:100]}...",
-                        f"Zone 3 (열수축/박리): {z3.get('shrinkage_exposure', '')[:100]}..."
-                    ]
-                    observations = " | ".join(obs_parts)
-                except Exception:
-                    observations = "관찰 결과 합성 실패"
+                # Wire인 경우
+                if "step4_insulation_inspection" in specialist_result:
+                    try:
+                        s4 = specialist_result.get("step4_insulation_inspection", {})
+                        z1 = s4.get("zone1_color_texture", {})
+                        z2 = s4.get("zone2_mechanical", {})
+                        z3 = s4.get("zone3_thermal_shrinkage", {})
+                        obs_parts = [
+                            f"Zone 1 (색상/질감): {z1.get('color_degradation', '')[:100]}...",
+                            f"Zone 2 (기계적 물성): {z2.get('hardening_brittleness', '')[:100]}...",
+                            f"Zone 3 (열수축/박리): {z3.get('shrinkage_exposure', '')[:100]}..."
+                        ]
+                        observations = " | ".join(obs_parts)
+                    except Exception:
+                        observations = "관찰 결과 합성 실패"
+                else:
+                    observations = specialist_result.get("visual_observation", "N/A")
             else:
-                # PCB나 기존 방식
-                observations = specialist_result.get("visual_observation", "N/A")
-                verdict_cat = specialist_result.get("verdict", "Unknown")
-                report_reasoning = specialist_result.get("reasoning", "")
-                worker_verdict = f"[{verdict_cat}] {report_reasoning}"
-                report_confidence = specialist_result.get("confidence", 0)
-            
-            # severity (경년열화/절연열화 판정 기준)
-            if "경년열화" in verdict_cat and "아님" not in verdict_cat and "의심" not in verdict_cat:
-                severity_score = 80
-                is_critical = True
-                evidence_quality = "high"
-            elif "절연열화" in verdict_cat and "아님" not in verdict_cat and "의심" not in verdict_cat:
-                severity_score = 80
-                is_critical = True
-                evidence_quality = "high"
-            elif "열화 진행" in verdict_cat or "트래킹" in verdict_cat or "심각" in verdict_cat:
-                severity_score = 80
-                is_critical = True
-                evidence_quality = "high"
-            elif "경년열화 의심" in verdict_cat or "절연열화 의심" in verdict_cat or "의심" in verdict_cat:
-                severity_score = 60
-                evidence_quality = "medium"
-            else:
-                severity_score = 30
+                # 분석 실패 또는 레거시
+                severity_score = 0
+                is_critical = False
                 evidence_quality = "low"
-            
+                report_confidence = 0
+                worker_verdict = "판단 불가"
+                verdict_cat = "Unknown"
+                report_reasoning = "증거 분석 실패"
+
             if config.SAVE_INDIVIDUAL_HOTSPOT_JSON:
                 try:
                     output_dir = os.path.join(PROJECT_ROOT, "output", "aging_analysis")
@@ -198,9 +188,9 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             "type": "WorkerReport",
             "facts": {"visual_description": observations},
             "opinion": {
-                "verdict": verdict_cat if specialist_result else "Indeterminate",
-                "confidence": report_confidence,
-                "reasoning": report_reasoning if specialist_result else "Extraction failed"
+                "verdict": "판독 보류 (Evidence Collected)",
+                "confidence": 0,
+                "reasoning": "자세한 증거 목록이 생성되었습니다."
             },
             "severity_score": severity_score,
             "evidence_quality": evidence_quality,
@@ -210,11 +200,18 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             "_roi_image_path": roi_image_path
         }
         
+        # Extracted Evidence 데이터 패스-스루
+        if specialist_result:
+            if "step5_extracted_evidence" in specialist_result:
+                worker_report["facts"]["extracted_evidence"] = specialist_result["step5_extracted_evidence"]
+            elif "extracted_evidence" in specialist_result:
+                worker_report["facts"]["extracted_evidence"] = specialist_result["extracted_evidence"]
+            else:
+                worker_report["facts"]["extracted_evidence"] = []
+        
         # [Added] Notebook 호환성을 위한 analysis_results 포맷 (Contact/Deform/Necking과 동일)
-        sr_conclusion = verdict_cat if specialist_result else "판독 불가"
-        reasoning_text = report_reasoning if specialist_result else ""
-        if not reasoning_text:
-            reasoning_text = "분석 근거 없음"
+        sr_conclusion = "판독 보류"
+        reasoning_text = "자세한 증거 목록이 생성되었습니다."
 
         analysis_entry = {
             "hotspot_id": hotspot_id,

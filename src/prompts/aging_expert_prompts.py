@@ -48,39 +48,11 @@ def get_aging_wire_prompt(image_path: str = None) -> str:
 - **direct_burn_signs**: 장기 노후화가 아닌, 외부 화재 화염에 의한 직접적인 연소, 플라스틱 끓음(Bubbling), 균일한 탄화 자국인지 서술하십시오.
 - **mechanical_cut**: 날카로운 도구에 의한 기계적 절단이나 단발적인 찍힘 흔적이 있는지 확인하십시오.
 
-## STEP 5: 증거 가치 평가 및 논리 대조 (Logic Contrast)
-- **[핵심 지침] <expert_knowledge>의 기준을 참고하여, STEP 4의 관찰 결과를 근거로 논리를 전개하십시오.**
+**STEP 5: 핵심 시각 증거 추출 (Evidence Extraction)**
+- **[핵심 지침] 원인을 직접 판정하거나 지지/반박 논리를 펴지 마십시오.**
+- 앞선 1~4단계 관찰 내용 중 화재 원인 분석에 유의미한 **결정적 객관적 사실(Fact)**들만 추려내어 목록화하십시오.
+- 각 증거에 대해 본 관찰 결과가 얼마나 확실한지(Certainty of Fact, 0~100) 평가하십시오.
 
-<expert_knowledge>
-**경년열화(Aging Degradation) 핵심 기준**
-- 열경화 및 취성: 장기간 열이나 자외선을 받아 피복이 딱딱해지고 유연성을 잃음.
-- 미세 균열(Crazing/Cracking): 경화된 피복이 구부러지는 등 응력을 받아 표면에 거미줄/그물망 같은 균열이 발생함.
-- 열수축에 의한 노출: 피복재가 열화로 쪼그라들면서 말단부의 도체가 많이 드러남.
-- 변색(Discoloration): 화학적 열화 반응으로 인한 뚜렷한 황변, 갈변, 백화 현상.
-
-**유의사항**
-- 화재의 맹렬한 열에 의해 일시적으로 녹거나 타버린 것은 단순 '수열/연소'입니다. 이를 장기 노후화로 오인하지 마십시오.
-- 트래킹(탄화 경로, 흑연 광택) 및 발화 흔적은 절연 파괴의 결과이므로, 피복 자체의 '순수 노후화(경년열화)' 지표와는 구별하십시오.
-</expert_knowledge>
-
-**logic_refuting**: (경년열화 지표 아님) 관찰된 특징 중 이것이 장기 노후화가 아니라 단순 외부 화재나 일시적 충격에 의한 훼손일 가능성을 시사하는 점은?
-**logic_supporting**: (경년열화 지지) 관찰된 특징 중 이것이 확실히 장기간에 걸쳐 진행된 경년열화(경화, 균열, 변색 등)임을 강력하게 뒷받침하는 증거는?
-
-## STEP 6: 최종 판정 (Verdict)
-- **[핵심 지침] STEP 5의 논리 대결 결과를 종합하여 최종 결론을 도출하고, 그 결론에 대한 신뢰도(Confidence)를 평가하십시오.**
-
-**1. 판정 기준**:
-- **당신은 화재 감식 수석 조사관입니다.** 위에서 작성된 logic_refuting과 logic_supporting을 저울질하여 최종 판정을 내리십시오. 기계적인 규칙(Rule)을 따르지 말고, 제시된 증거들의 **'인과관계'와 '증거의 무게(Weight of Evidence)'**를 종합적으로 판단하십시오.
-  1. 경년열화 심각: 지지 논리(logic_supporting)가 압도적으로 우세하며, 반박 논리(logic_refuting)가 논리적으로 완전히 기각된 경우.
-  2. 경년열화 의심: 지지 논리가 강하지만, 반박 논리에서 제기한 의문점을 100% 해소하지 못한 경우.
-  3. 경년열화 아님: 반박 논리(logic_refuting)가 더 우세하거나, 타 원인의 증거가 명확한 경우.
-  4. 판독 불가: 이미지 화질 불량, 초점 흐림, 식별 부위 가려짐 등으로 논리적 판단 자체가 불가능한 경우.
-
-**2. 신뢰도(Confidence) 산정 기준 (논리의 정확도)**:
-- 이 점수는 **"당신의 판정(결론)이 정답일 확률"**입니다.
-- **100점**: 증거가 너무나 명확하여, 다른 전문가가 와도 똑같은 결론을 내릴 것임. (예: "확실히 경년열화 아님"도 증거가 명확하면 100점)
-- **80점**: 대부분의 증거가 결론을 지지하지만, 미세한 노이즈가 있음.
-- **50점 미만**: 증거가 상충되거나 이미지 해상도 문제로 판정이 사실상 추측에 가까움.
 </analysis_process>
 
 <output_format>
@@ -116,15 +88,12 @@ def get_aging_wire_prompt(image_path: str = None) -> str:
             "mechanical_cut": "기계적 절단/손상 유무 서술"
         }}
     }},
-    "step5_logic_contrast": {{
-        "logic_refuting": "장기 노후화가 아님을 시사하는 반박 논리 서술",
-        "logic_supporting": "장기 노후화를 지지하는 증거와 논리 서술"
-    }},
-    "step6_verdict": {{
-        "conclusion": "경년열화 심각 | 경년열화 의심 | 경년열화 아님 | 판독 불가",
-        "confidence_score": 0-100 (Integer, 본인의 결론에 대한 '논리적 확신도'. 예: '경년열화 아님'이라도 근거가 확실하면 100점),
-        "final_reasoning": "STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약"
-    }}
+    "step5_extracted_evidence": [
+        {{
+            "visual_fact": "객관적으로 관찰된 핵심 특징 한 줄 요약 (예: 전선 구부러진 곳에 거미줄 미세 균열 다수 관찰)",
+            "certainty": 0-100 (관찰 내용이 실제로 존재한다는 사실적 확신도)
+        }}
+    ]
 }}
 </output_format>
 """
@@ -170,13 +139,12 @@ def get_aging_PCB_prompt(image_path: str = None) -> str:
 결과 JSON 형식:
 {{
    "visual_observation": "[객관적 묘사] 기판의 전반적인 색상 변화, 코팅의 미세 균열/벗겨짐, 금속 부식 상태 서술",
-   "comparison": {{
-       "aging_signs": "황변/갈변, 마스크 균열, 솔더 부식 등 장기 노후화 징후 관찰 결과",
-       "external_heat_signs": "단순 그을음, 용융, 기판 내열 박리(Measling) 등 단기 화재/수열 징후 관찰 결과"
-   }},
-   "verdict": "경년열화 심각 | 경년열화 의심 | 경년열화 아님 | 판독 불가",
-   "confidence": 0-100,
-   "reasoning": "최종 판정의 근거 (예: 기판의 극심한 갈변과 솔더 마스크의 광범위한 미세 균열이 확인되어 장기간 열에 노출된 경년열화 과정을 거친 것으로 보임)"
+   "extracted_evidence": [
+        {{
+            "visual_fact": "객관적으로 관찰된 핵심 특징 한 줄 요약 (예: 기판의 극심한 갈변과 광범위한 균열 확인)",
+            "certainty": 90
+        }}
+   ]
 }}
 </output_schema>
 """
@@ -211,10 +179,16 @@ def get_aging_supervisor_prompt(reports_text: str) -> str:
 <output_format>
 JSON 포맷으로 다음 필드를 포함하여 출력하십시오:
 {{
-    "final_conclusion": "경년열화 심각 | 경년열화 의심 | 경년열화 아님 | 판독 불가",
+    "final_conclusion": "경년열화 유력 (High) | 경년열화 의심 (Medium) | 단순 수열/연소/트래킹 (Low) | 판독 불가 (Indeterminate)",
     "final_confidence": 0-100 (Integer),
-    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약",
-    "reasoning_process": "어떤 Worker의 의견을 채택했는지, 그리고 그 이유는 무엇인지 등 종합 판단 과정 서술"
+    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약 (예비 소견)",
+    "reasoning_process": "어떤 Worker의 증거를 채택했는지, 그리고 모순된 증거가 있다면 어떻게 해결했는지 서술",
+    "evidence_list": [
+        {{
+            "visual_fact": "취합된 결정적 사실 중 하나",
+            "certainty": 90
+        }}
+    ]
 }}
 </output_format>
 """

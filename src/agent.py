@@ -10,7 +10,6 @@ LangGraph 공식 문서 권장 구조:
 - Subgraph: src/graphs/ 폴더의 {expert}_expert_graph.py에 정의, 래퍼 노드로 연결
 """
 from typing import List, Any
-import os
 from langgraph.graph import StateGraph
 from src.state import InvestigationState
 # from src.nodes.arbiter_node import node_arbiter  # [Disabled] 논쟁 시스템으로 교체
@@ -19,8 +18,8 @@ from src.nodes.visualization_node import draw_annotation_node
 from src.nodes.preprocessor_node import preprocess_hotspots_node  # [#5] 공유 전처리 노드
 from src.edges.investigation_edges import add_investigation_edges
 from src.graphs.contact_expert_graph import contact_expert_wrapper_node
-from src.graphs.aging_expert_graph import aging_expert_wrapper_node
-from src.graphs.deform_expert_graph import deform_expert_wrapper_node
+# from src.graphs.aging_expert_graph import aging_expert_wrapper_node
+# from src.graphs.deform_expert_graph import deform_expert_wrapper_node
 # from src.graphs.tracking_expert_graph import tracking_expert_wrapper_node
 from src.graphs.necking_expert_graph import necking_expert_wrapper_node
 from src.graphs.arbiter_expert_graph import arbiter_expert_wrapper_node
@@ -52,8 +51,8 @@ def build_investigation_graph() -> StateGraph:
 
     # 전문가 래퍼 노드 추가 (Map-Reduce Pattern)
     builder.add_node("contact", contact_expert_wrapper_node)
-    builder.add_node("aging", aging_expert_wrapper_node)
-    builder.add_node("deform", deform_expert_wrapper_node)
+    # builder.add_node("aging", aging_expert_wrapper_node)
+    # builder.add_node("deform", deform_expert_wrapper_node)
     # builder.add_node("tracking", tracking_expert_wrapper_node)
     builder.add_node("necking", necking_expert_wrapper_node)
 
@@ -66,7 +65,7 @@ def build_investigation_graph() -> StateGraph:
 
     return builder.compile()
 
-async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
+async def analyze_fire_evidence(payload_data: List[Any], output_dir: str = None) -> dict:
     """
     화재 증거물 분석 (외부 호출용)
     
@@ -84,23 +83,15 @@ async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
     
     graph = build_investigation_graph()
     
-    # [Memory Optimization]
-    # Payload에서 이미지를 추출하여 임시 파일로 저장하고, State에는 경로만 전달
-    from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
+    from src.utils.io_utils import process_payload_images, cleanup_temporary_resources
+    temp_image_paths = process_payload_images(payload_data)
+    temp_image_path = temp_image_paths[0] if temp_image_paths else None
     
-    image_data = extract_image_from_payload(payload_data)
-    temp_image_path = None
-    
-    if image_data:
-        try:
-            temp_image_path = save_bytes_to_temp_file(image_data)
-            print(f"💾 [System] Initial Image Saved to: {temp_image_path}")
-        except Exception as e:
-            print(f"⚠️ [System] Failed to save initial image: {e}")
     
     initial_state = {
         "payload": [],             # [Optimization] 바이너리 데이터 제거
         "image_path": temp_image_path,
+        "image_paths": temp_image_paths,
         "hotspots": None,
         "preprocessed_hotspots": None,  # [#5] 전처리 결과 초기화
         "expert_reports": [],
@@ -110,6 +101,8 @@ async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
         "final_verdict": None,
         "arbiter_debate_messages": None,
         "errors": [],
+        "visual_report_path": None,
+        "output_dir": output_dir,
     }
     
     invoke_start_time = time.time()
@@ -132,68 +125,19 @@ async def analyze_fire_evidence(payload_data: List[Any]) -> dict:
         "expert_reports": result.get("expert_reports", []),
         "arbiter_debate_messages": arbiter_debate_messages,  # 아비터 토론 메시지 추가 (None 체크 완료)
         "errors": result.get("errors", []),
+        "visual_report_path": result.get("visual_report_path"),
     }
     
-    # image_path는 graph 결과에서 가져오거나, 없으면 초기 temp_image_path 사용
-    # (graph 내부에서 hotspot_detector_node가 업데이트한 image_path가 우선)
+    # 최종 결과 이미지 경로
     final_image_path = result.get("image_path") or temp_image_path
     if final_image_path:
         return_dict["image_path"] = final_image_path
     
-    # 임시 파일 정리: graph 실행 완료 후 정리
-    # 주의: graph 결과의 image_path와 다른 경우에만 정리 (graph 내부에서 사용 중일 수 있음)
-    if temp_image_path:
-        should_cleanup = False
-        try:
-            # 경로 비교: os.path.samefile 사용 (심볼릭 링크, 대소문자 차이 등 고려)
-            if final_image_path and os.path.exists(temp_image_path) and os.path.exists(final_image_path):
-                if os.path.samefile(temp_image_path, final_image_path):
-                    # 같은 파일이면 정리하지 않음
-                    should_cleanup = False
-                else:
-                    # 다른 파일이면 정리 가능
-                    should_cleanup = True
-            elif final_image_path and temp_image_path != final_image_path:
-                # final_image_path가 있지만 samefile 비교 실패 시 문자열 비교
-                should_cleanup = True
-            elif not final_image_path:
-                # final_image_path가 없으면 정리 가능
-                should_cleanup = True
-        except (OSError, ValueError):
-            # samefile 실패 시 (파일이 없거나 경로 문제) 문자열 비교로 폴백
-            if not final_image_path or temp_image_path != final_image_path:
-                should_cleanup = True
-        
-        if should_cleanup:
-            try:
-                import tempfile
-                temp_dir = tempfile.gettempdir()
-                # Windows 경로 정규화 (대소문자 구분 없이 비교)
-                temp_path_normalized = os.path.normpath(temp_image_path).lower()
-                temp_dir_normalized = os.path.normpath(temp_dir).lower()
-                
-                if temp_path_normalized.startswith(temp_dir_normalized) and os.path.exists(temp_image_path):
-                    os.remove(temp_image_path)
-                    logger.debug(f"임시 파일 정리 완료: {temp_image_path}")
-            except Exception as e:
-                logger.warning(f"임시 파일 정리 실패: {e}")
-    
-    # [OOM/Resource Leak Fix] 전처리된 핫스팟의 모든 임시 ROI 이미지 삭제
-    preprocessed_hotspots = result.get("preprocessed_hotspots", [])
-    if preprocessed_hotspots:
-        try:
-            import tempfile
-            temp_dir = tempfile.gettempdir()
-            temp_dir_normalized = os.path.normpath(temp_dir).lower()
-            for hp in preprocessed_hotspots:
-                roi_path = hp.get("roi_image_path")
-                # 메인 이미지나 원본 임시파일과 경로가 다르고 실제로 존재하는 경우
-                if roi_path and roi_path != final_image_path and roi_path != temp_image_path and os.path.exists(roi_path):
-                    roi_path_normalized = os.path.normpath(roi_path).lower()
-                    if roi_path_normalized.startswith(temp_dir_normalized):
-                        os.remove(roi_path)
-                        logger.debug(f"전처리 임시 파일 정리 완료: {roi_path}")
-        except Exception as e:
-            logger.warning(f"전처리 임시 파일 정리 실패: {e}")
+    # 6. 임시 자원 정리 (I/O 로직 이관됨)
+    cleanup_temporary_resources(
+        temp_image_paths=temp_image_paths,
+        final_image_path=final_image_path,
+        preprocessed_hotspots=result.get("preprocessed_hotspots")
+    )
     
     return return_dict

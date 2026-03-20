@@ -36,12 +36,18 @@ async def validate_evidence_consistency_llm(
     
     # LLM 호출 (async_retry_with_backoff: 429/503 대기 + acquire_api_slot 내장)
     async def _call_fact_check():
+        from src.utils.genai_client import get_genai_client
+        import os, config
+        client = get_genai_client()
+        pro_model = os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME)
         return await asyncio.to_thread(
             call_gemini_text,
-            prompt,
-            "fact_checker_llm",
-            False,  # verbose
-            0.3,    # temperature
+            client=client,
+            model_name=pro_model,
+            prompt=prompt,
+            step_name="fact_checker_llm",
+            verbose=False,
+            temperature=0.3,
         )
     response_text, _ = await async_retry_with_backoff(
         _call_fact_check,

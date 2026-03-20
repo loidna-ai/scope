@@ -2,8 +2,8 @@
 Hotspot Detector Models
 Pydantic models for structured output from hotspot detection
 """
-from pydantic import BaseModel, Field, model_validator
-from typing import List, Optional
+from pydantic import BaseModel, Field, model_validator, field_validator
+from typing import List, Optional, Dict
 
 
 class BoundingBox2D(BaseModel):
@@ -99,4 +99,76 @@ class HotspotDetectionResult(BaseModel):
     reasoning: Optional[str] = Field(
         default=None,
         description="탐지 과정에 대한 논리적 추론 (Chain of Thought)"
+    )
+
+
+class UnifiedHotspot(BaseModel):
+    """다중 이미지/다각도(Deep) 및 다중 지점(Wide) 분석을 위한 통합 Hotspot 패키지"""
+    id: int = Field(description="통합 Hotspot 고유 ID")
+    
+    source_images: List[str] = Field(
+        description="이 객체가 발견된 원본 이미지 경로 목록"
+    )
+    
+    boxes: Dict[str, BoundingBox2D] = Field(
+        description="이미지 경로별 2D Bounding Box 매핑 (키: 이미지 경로, 값: BBox)"
+    )
+    
+    severity_score: int = Field(
+        ge=0, le=100,
+        description="통합된 대표 심각도 점수"
+    )
+    
+    location_description: str = Field(
+        description="종합된 위치 및 구역 설명"
+    )
+    
+    visual_evidence: str = Field(
+        description="모든 각도의 시각적 증거를 종합한 설명"
+    )
+    
+    raw_hotspot_ids: List[int] = Field(
+        default_factory=list,
+        description="병합된 원본 Hotspot ID 목록"
+    )
+    
+    # 선택적 / 후속 노드에서 채워질 필드
+    roi_image_paths: Dict[str, str] = Field(
+        default_factory=dict,
+        description="이미지 경로별 Crop된 ROI 임시 파일 경로 매핑"
+    )
+    
+    component_type: Optional[str] = Field(
+        default=None,
+        description="부품 분류 결과 (preprocessor에서 설정)"
+    )
+    
+    is_preprocessed: bool = Field(
+        default=False, 
+        description="전처리 완료 여부 플래그",
+        alias="_preprocessed"
+    )
+
+    model_config = {
+        "populate_by_name": True
+    }
+
+    @model_validator(mode='after')
+    def check_boxes_consistency(self) -> 'UnifiedHotspot':
+        """이미지 소스와 박스 매핑의 일관성 검증"""
+        for img in self.source_images:
+            if img not in self.boxes:
+                raise ValueError(f"Missing bounding box for image: {img}")
+        return self
+
+
+class IdentityFusionResult(BaseModel):
+    """Identity Fusion 과정의 전체 결과"""
+    reasoning: str = Field(
+        description="객체 그룹핑(Identity Fusion)에 대한 논리적 추론"
+    )
+    
+    unified_hotspots: List[UnifiedHotspot] = Field(
+        default_factory=list,
+        description="병합된 통합 Hotspot 리스트"
     )

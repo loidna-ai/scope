@@ -26,15 +26,15 @@ def add_investigation_edges(builder: StateGraph) -> None:
 
     # Fan-out: preprocessor → Map-Reduce 전문가들 (병렬 실행)
     builder.add_edge("preprocessor", "contact")
-    builder.add_edge("preprocessor", "aging")
-    builder.add_edge("preprocessor", "deform")
+    # builder.add_edge("preprocessor", "aging")
+    # builder.add_edge("preprocessor", "deform")
     # builder.add_edge("preprocessor", "tracking")
     builder.add_edge("preprocessor", "necking")
 
     # Fan-in: Map-Reduce 전문가들 → Arbiter (논쟁 시스템 서브그래프)
     builder.add_edge("contact", "arbiter")
-    builder.add_edge("aging", "arbiter")
-    builder.add_edge("deform", "arbiter")
+    # builder.add_edge("aging", "arbiter")
+    # builder.add_edge("deform", "arbiter")
     # builder.add_edge("tracking", "arbiter")
     builder.add_edge("necking", "arbiter")
 

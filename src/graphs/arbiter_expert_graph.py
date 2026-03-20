@@ -9,7 +9,7 @@ from langgraph.graph import StateGraph, START, END
 
 from src.state import InvestigationState
 from src.states.arbiter_debate_state import ArbiterDebateState, ExpertName
-from src.nodes.arbiter_nodes.debate_data_extractor import debate_data_extractor_node, extract_expert_opinions
+from src.nodes.arbiter_nodes.debate_data_extractor import debate_data_extractor_node, extract_expert_opinions, extract_spatial_summary
 from src.nodes.arbiter_nodes.expert_debater_nodes import (
     contact_debater_node,
     deform_debater_node,
@@ -33,46 +33,46 @@ def build_arbiter_expert_graph():
     Arbiter Expert 서브그래프 빌드
     
     워크플로우 (Option C: 조건부 2단계):
-    START → data_extractor → 합의 체크
+    START → debate_init → 합의 체크
          → [합의] → judge (Debate 스킵)
          → [불일치] → debater → fact_checker → ... → judge
     """
     builder = StateGraph(ArbiterDebateState)
     
-    # 노드 추가
-    builder.add_node("data_extractor", debate_data_extractor_node)
+    # 노드 추가 (debate_init: 논쟁 상태 초기화, expert_opinions는 wrapper에서 주입)
+    builder.add_node("debate_init", debate_data_extractor_node)
     builder.add_node("contact_debater", contact_debater_node)
-    builder.add_node("deform_debater", deform_debater_node)
+    # builder.add_node("deform_debater", deform_debater_node)
     builder.add_node("necking_debater", necking_debater_node)
-    builder.add_node("aging_debater", aging_debater_node)
+    # builder.add_node("aging_debater", aging_debater_node)
     builder.add_node("fact_checker", fact_checker_node)
     # fact_check_router는 노드가 아니라 라우팅 함수로만 사용
     builder.add_node("moderator", debate_moderator_node)
     builder.add_node("judge", judge_node)
     
     # 엣지 추가
-    builder.add_edge(START, "data_extractor")
+    builder.add_edge(START, "debate_init")
     
-    # [Option C] 데이터 추출 후 전문가 간 합의 여부에 따라 조건부 라우팅
+    # [Option C] 초기화 후 전문가 간 합의 여부에 따라 조건부 라우팅
     # - 합의 시: judge 직접 호출 (Debate 스킵)
     # - 불일치 시: 기존 Debate 흐름 시작
     builder.add_conditional_edges(
-        "data_extractor",
+        "debate_init",
         route_after_extraction,
         {
             "contact_debater": "contact_debater",
-            "deform_debater": "deform_debater",
+            # "deform_debater": "deform_debater",
             "necking_debater": "necking_debater",
-            "aging_debater": "aging_debater",
+            # "aging_debater": "aging_debater",
             "judge": "judge"
         }
     )
     
     # 모든 Debater → Fact Checker
     builder.add_edge("contact_debater", "fact_checker")
-    builder.add_edge("deform_debater", "fact_checker")
+    # builder.add_edge("deform_debater", "fact_checker")
     builder.add_edge("necking_debater", "fact_checker")
-    builder.add_edge("aging_debater", "fact_checker")
+    # builder.add_edge("aging_debater", "fact_checker")
     
     # Fact Checker → Router (조건부 라우팅)
     builder.add_conditional_edges(
@@ -80,9 +80,9 @@ def build_arbiter_expert_graph():
         fact_check_router_node,  # 라우팅 함수 직접 사용
         {
             "contact_debater": "contact_debater",
-            "deform_debater": "deform_debater",
+            # "deform_debater": "deform_debater",
             "necking_debater": "necking_debater",
-            "aging_debater": "aging_debater",
+            # "aging_debater": "aging_debater",
             "moderator": "moderator",
             "judge": "judge"
         }
@@ -94,9 +94,9 @@ def build_arbiter_expert_graph():
         route_from_moderator,
         {
             "contact_debater": "contact_debater",
-            "deform_debater": "deform_debater",
+            # "deform_debater": "deform_debater",
             "necking_debater": "necking_debater",
-            "aging_debater": "aging_debater",
+            # "aging_debater": "aging_debater",
             "judge": "judge"
         }
     )
@@ -106,7 +106,7 @@ def build_arbiter_expert_graph():
     
     return builder.compile()
 
-def route_after_extraction(state: ArbiterDebateState) -> Literal["contact_debater", "deform_debater", "necking_debater", "aging_debater", "judge"]:
+def route_after_extraction(state: ArbiterDebateState) -> str:
     """
     [Option C] 전문가 간 결론 비교 후 Debate 필요 여부 결정
     
@@ -151,9 +151,9 @@ def route_after_extraction(state: ArbiterDebateState) -> Literal["contact_debate
     )
     return route_to_first_debater(state)
 
-def route_to_first_debater(state: ArbiterDebateState) -> Literal["contact_debater", "deform_debater", "necking_debater", "aging_debater"]:
+def route_to_first_debater(state: ArbiterDebateState) -> str:
     """데이터 추출 후 가장 신뢰도가 높은 전문가를 첫 발언자로 라우팅"""
-    VALID_DEBATERS = {"contact", "deform", "necking", "aging"}
+    VALID_DEBATERS = {"contact", "necking"} # "deform", "aging" 제거
     scores = state.get("expert_confidence_scores", {})
     
     if scores:
@@ -168,7 +168,7 @@ def route_to_first_debater(state: ArbiterDebateState) -> Literal["contact_debate
     logger.info("Arbiter: No confidence scores available, defaulting to contact_debater")
     return "contact_debater"
 
-def route_from_moderator(state: ArbiterDebateState) -> Literal["contact_debater", "deform_debater", "necking_debater", "aging_debater", "judge"]:
+def route_from_moderator(state: ArbiterDebateState) -> str:
     """Moderator에서 다음 노드로 라우팅"""
     stage = state.get("current_stage", "opening")
     next_speaker = state.get("current_speaker")
@@ -208,17 +208,30 @@ async def arbiter_expert_wrapper_node(state: InvestigationState) -> Dict[str, An
                 "arbiter_debate_messages": []  # 빈 리스트로 초기화
             }
         
-        # 각 전문가의 의견 추출
+        # 각 전문가의 의견 및 공간 정보 추출
         expert_opinions = extract_expert_opinions(state)
+        spatial_summary = extract_spatial_summary(state)
         
         logger.info(f"Arbiter wrapper: Extracted {len(expert_opinions)} expert opinions")
         
         if not expert_opinions:
-            logger.error("Arbiter wrapper: No expert opinions extracted")
+            logger.info("Arbiter wrapper: No expert opinions (Contact/Necking 모두 스킵) → UNDETERMINED")
+            verdict = """**최종 판정**: UNDETERMINED (분석 대상 없음)
+**신뢰도**: 0.0% (Low)
+
+**판정 근거:**
+분석할 접속부 또는 반단선 증거가 없습니다. 모든 Hotspot이 해당 전문가의 분석 대상이 아니었습니다."""
             return {
-                "errors": ["Arbiter 전문가: 전문가 의견 데이터가 없습니다."],
-                "final_verdict": None,
-                "arbiter_debate_messages": []  # 빈 리스트로 초기화
+                "errors": [],
+                "final_verdict": verdict,
+                "final_verdict_structured": None,
+                "arbiter_debate_messages": [{
+                    "speaker": "judge",
+                    "content": verdict,
+                    "validated": True,
+                    "stage": "judgment",
+                    "round_num": 1
+                }]
             }
         
         # ArbiterDebateState로 변환
@@ -227,11 +240,12 @@ async def arbiter_expert_wrapper_node(state: InvestigationState) -> Dict[str, An
             "expert_reports": expert_reports,
             "expert_confidence_scores": expert_confidence_scores,
             "expert_evidence": expert_evidence,
+            "spatial_summary": spatial_summary,
             "debate_messages": [],
             "current_stage": "opening",
             "current_round": 1,
             "current_speaker": None,
-            "fact_check_failures": {"contact": 0, "deform": 0, "necking": 0, "aging": 0},
+            "fact_check_failures": {"contact": 0, "necking": 0}, # "deform": 0, "aging": 0
             "final_verdict": None,
             "final_verdict_structured": None,  # 구조화된 데이터 초기화
             "consensus_reached": False,

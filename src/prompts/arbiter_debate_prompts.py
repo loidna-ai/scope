@@ -41,6 +41,17 @@ def format_expert_opinions(expert_opinions: Dict) -> str:
 """)
     return "\n".join(parts)
 
+def build_retry_instruction(failure_count: int) -> str:
+    """Fact Check 실패 후 재발언 시 추가 지침"""
+    return f"""
+[중요: 재발언 (Fact Check 실패 {failure_count}회)]
+이전 발언이 증거 일관성 검증에 실패했습니다. 다음을 반드시 준수하여 다시 발언하세요:
+1. **증거-주장 연결을 구체적으로** 설명하세요. 결론이 어떤 시각적 증거에서 도출되었는지 명시하세요.
+2. **누락된 시각적 근거**를 보완하세요. 이미지에서 직접 관찰한 내용을 증거 리스트와 일치시키세요.
+3. 추측이나 과잉 해석을 피하고, 관찰 증거만을 근거로 주장하세요.
+"""
+
+
 def build_opening_prompt(expert_opinion: Dict, expert_name: str) -> str:
     """Opening 라운드 프롬프트"""
     conclusion = expert_opinion.get("conclusion", "")
@@ -125,7 +136,8 @@ def build_judge_prompt(
     expert_opinions: Dict,
     debate_messages: List[Dict],
     expert_reports: List[str],
-    consensus_reached: bool
+    consensus_reached: bool,
+    spatial_summary: str = ""
 ) -> str:
     """Judge 노드용 프롬프트 (구조화된 출력용)
     
@@ -133,6 +145,9 @@ def build_judge_prompt(
     """
     debate_summary = format_debate_summary(debate_messages)
     opinions_summary = format_expert_opinions(expert_opinions)
+    # 활성 전문가 목록 (expert_opinions에 있는 전문가만)
+    active_experts = [k.upper() for k in expert_opinions.keys()]
+    active_experts_str = ", ".join(active_experts) if active_experts else "CONTACT, NECKING"
     
     return f"""당신은 화재조사 최종 판정 Judge입니다.
 제공된 전문가 분석 결과와 토론 내용을 종합하여 최종 판정을 내리세요.
@@ -148,20 +163,24 @@ def build_judge_prompt(
 **3. 전문가 리포트:**
 {chr(10).join(f'--- {i+1}번 전문가 ---{chr(10)}{report}' for i, report in enumerate(expert_reports)) if expert_reports else '전문가 리포트 없음'}
 
-**4. 합의 상태:**
+**4. 공간적 분포 (Wide Mode):**
+{spatial_summary}
+
+**5. 합의 상태:**
 {'합의 도달' if consensus_reached else '합의 미도달'}
 
 [판정 지침]
 1. **중요: 하나의 주요 원인만 선택하세요.** 여러 전문가의 의견이 모두 유력하더라도, 가장 지배적인 원인 하나만 판정하세요.
-2. 4명의 전문가(Contact, Deform, Necking, Aging)의 의견을 검토하되, 신뢰도 점수와 증거의 강도를 비교하여 **가장 유력한 단일 원인**을 선택하세요.
+2. 활성 전문가({active_experts_str})의 의견을 검토하되, 신뢰도 점수와 증거의 강도를 비교하여 **가장 유력한 단일 원인**을 선택하세요.
 3. 신뢰도 점수는 0-100 사이의 값으로 설정하세요.
 4. 핵심 증거는 최대 5개까지 나열하세요.
 5. Zone 정보는 분석에 사용된 Zone만 포함하세요 (Zone 1, 3, 4 등).
-6. 각 전문가의 판정 요약을 expert_summaries에 포함하세요 (반드시 4명 모두 포함).
+6. expert_summaries에는 **활성 전문가({active_experts_str})만** 포함하세요. 비활성 전문가는 제외합니다.
 7. 합의가 이루어졌다면 합의 내용을 반영하세요.
-8. 합의가 이루어지지 않았다면 각 전문가의 신뢰도 점수와 증거의 강도를 비교하여 **가장 높은 신뢰도를 가진 단일 판정**을 선택하세요.
-9. 판단 불가한 경우 (증거 부족, 모든 전문가 신뢰도 낮음 등) UNDETERMINED을 선언하세요.
-10. **절대 "A 및 B" 형태의 복합 판정을 하지 마세요.** 하나의 원인만 선택하세요 (예: "접촉불량(유력)" 또는 "반단선(유력)" 중 하나만).
+8. **다중 지점(Wide Mode)** 분석 시, 주어진 공간적 분포 정보를 토대로 핫스팟 간 발화 선후 또는 인과관계를 추론하여 reasoning_summary에 서술하세요 (예: "Zone 1이 최초 발화 지점으로 추정되고 Zone 3은 연소 확대 결과로 판단됨").
+9. 합의가 이루어지지 않았다면 각 전문가의 신뢰도 점수와 증거의 강도를 비교하여 **가장 높은 신뢰도를 가진 단일 판정**을 선택하세요.
+10. 판단 불가한 경우 (증거 부족, 모든 전문가 신뢰도 낮음 등) UNDETERMINED을 선언하세요.
+11. **절대 "A 및 B" 형태의 복합 판정을 하지 마세요.** 하나의 원인만 선택하세요 (예: "접촉불량(유력)", "반단선(의심)" 등).
 
 [출력 형식]
 **반드시 제공된 JSON Schema에 맞춰 응답하세요.**
@@ -174,7 +193,7 @@ def build_judge_prompt(
 - reasoning_summary: 판정 근거 요약 (2-3문장)
 - key_evidence: 핵심 증거 목록 (최대 5개)
 - zones: Zone별 상세 정보 (있는 경우만)
-- expert_summaries: 각 전문가의 판정 요약 (반드시 4명: CONTACT, DEFORM, NECKING, AGING)
+- expert_summaries: 활성 전문가({active_experts_str})의 판정 요약만 포함 (2~4명)
 - recommendations: 추가 조사 권고 사항 (있는 경우만)
 
 위 정보를 바탕으로 구조화된 최종 판정을 생성하세요."""

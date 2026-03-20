@@ -16,9 +16,16 @@ def get_terminal_prompt(image_path: str = None) -> str:
 </task>
 
 <input_data>
-- **Image_A (Macro)**: 전선 전체 배치 및 주변 환경 확인용
-- **Image_B (Macro Crop / Micro)**: 손상 부위 정밀 관찰용
+본 분석은 동일한 객체를 여러 각도에서 촬영한 **다각도 교차 분석(Deep Mode)** 이미지를 포함할 수 있습니다.
+제공된 모든 뷰(View)를 종합적으로 분석하여 입체적인 결론을 도출하십시오.
+- **Image Type A (Original Macro)**: 전선 전체 배치 및 주변 환경 확인용
+- **Image Type B (Enhanced ROI)**: 손상 부위 정밀 관찰용
 </input_data>
+
+<negative_proof_principle>
+**사각지대 부정(Negative Proof) 원칙**:
+다중 뷰(여러 각도) 이미지가 제공되었음에도 특정 부위의 손상이 관찰되지 않는다면, 보이지 않는 사각지대에 "숨겨진 손상이 있을 것"이라고 자의적으로 추정하지 마십시오. 객관적으로 확인된 시각적 증거만을 바탕으로 보수적으로 판정하십시오.
+</negative_proof_principle>
 
 <analysis_process>
 다음 6단계를 순차적으로 수행하며 깊이 있게 사고하십시오:
@@ -66,42 +73,11 @@ def get_terminal_prompt(image_path: str = None) -> str:
   * 미식별 시: **"특이 용융 흔적 없음(None Found)."**이라고 명확히 적시. (추측성 서술 금지)
   * 판독 불가: 불확실할 경우 **"식별 불가(Unidentifiable)"**로 표기하고, 비드로 단정할 수 없는 구체적 사유(예: 그림자 부재, 해상도 저하, 반사광 간섭 등)를 기술하십시오.
 
-## STEP 5: 증거 가치 평가 및 논리 대조 (Logic Contrast)
-- **[핵심 지침] <expert_knowledge>의 기준을 참고하여, STEP 1 ~ 4의 관찰 결과를 근거로 논리를 전개하십시오.**
+**STEP 5: 핵심 시각 증거 추출 (Evidence Extraction)**
+- **[핵심 지침] 원인을 직접 판정하거나 지지/반박 논리를 펴지 마십시오.**
+- 앞선 1~4단계 관찰 내용 중 화재 원인 분석에 유의미한 **결정적 객관적 사실(Fact)**들만 추려내어 목록화하십시오.
+- 각 증거에 대해 본 관찰 결과가 얼마나 확실한지(Certainty of Fact, 0~100) 평가하십시오.
 
-<expert_knowledge>
-
-**Criteria for Poor Connection (접촉불량 진단 기준)**
-- **산화 피막 (Oxidation):** 나사산(Thread) 틈새나 접촉면 내부에 검붉거나 회색의 두터운 산화막(Scale)이 층을 이루고 있으며, 습기 노출 시 녹청(Verdigris)이나 아산화동 증식이 확인됨.
-- **탄화 형태 (Carbonization):** 터미널(단자) 금속부를 중심으로 하우징이 동심원상으로 깊게 파이고, 압착부 틈새나 소선(도체) 사이에 탄화된 절연물 잔해(Carbon deposit)가 깊게 침착되어 있음. (※피복 내부가 더 심하게 탄화된 내측 탄화 패턴 포함)
-- **결속 상태 (Looseness):** 스프링 와셔가 장시간 열화로 탄성을 잃고 완전히 납작해져(Flattened) 복원되지 않으며, 소선(도체) 표면에 견고한 체결을 입증할 물리적 압착흔(Compression Mark)이 식별되지 않음.
-- **용융 형태 (Melting):** 단락(Short) 특유의 거대 용융흔적(Bead)이 없고, 터미널 금속 표면이 거칠게 뜯겨 나간 곰보 자국(Pitting)이 다수 식별되며, 나사나 터미널 자체가 심하게 용융되거나 소실된 형태를 보임.
-- **열적 구배 (Thermal Gradient):** 발열원인 터미널 접속부가 가장 심하게 탄화되어 있고, 전선을 따라 멀어질수록 탄화 심도와 변색 정도가 점진적으로 옅어지는 뚜렷한 그라데이션(Gradient) 형태를 보임.
-
-**유의사항**
-- 거대 단락 배제: 최선단(끝단부) 맺힌 용융흔적(bead)이 모든 소선을 완벽하게 삼켜서 매끄러운 하나의 큰 덩어리가 되어 있는 경우는 접촉불량을 배제하거나 후순위로 검토함.
-- 도체나 터미널의 손상이 일정한 방향의 **선형 스크래치(Linear Scratch)** 형태라면 이는 설치 시 발생한 공구 흔적입니다. 전기적 침식(Erosion)은 방향성이 없고 불규칙한 **곰보(Pitting)** 형태여야 합니다
-
-</expert_knowledge>
-
-**logic_refuting**: (접촉불량 반박 논리) 관찰된 특징 중 접촉불량이 아닐 가능성을 시사하는 점은 무엇인가?
-**logic_supporting**: (접촉불량 지지 논리) 관찰된 특징 중 어떤 점들이 접촉불량을 강력하게 뒷받침하는가?
-
-## STEP 6: 최종 판정 (Verdict)
-- **[핵심 지침] STEP 5의 논리 대결 결과를 종합하여 최종 결론을 도출하고, 그 결론에 대한 신뢰도(Confidence)를 평가하십시오.**
-
-**1. 판정 기준**:
-- **당신은 화재 감식 수석 조사관입니다.** 위에서 작성된 logic_refuting과 logic_supporting을 저울질하여 최종 판정을 내리십시오. 기계적인 규칙(Rule)을 따르지 말고, 제시된 증거들의 **'인과관계'와 '증거의 무게(Weight of Evidence)'**를 종합적으로 판단하십시오.
-  1. 접촉불량: 지지 논리(logic_supporting)가 압도적으로 우세하며, 반박 논리(logic_refuting)가 논리적으로 완전히 기각된 경우.
-  2. 접촉불량 의심: 지지 논리가 강하지만, 반박 논리에서 제기한 의문점(예: 심한 2차 용융으로 인한 증거 훼손, 미세한 인장 흔적 혼재 등)을 100% 해소하지 못한 경우.
-  3. 접촉불량 아님: 반박 논리(logic_refuting)가 더 우세하거나, 타 원인의 증거가 명확한 경우.
-  4. 판독 불가: 이미지 화질 불량, 초점 흐림, 또는 주요 식별 부위(Zone 2, 3)가 가려져 있어 논리적 판단 자체가 불가능한 경우.
-
-**2. 신뢰도(Confidence) 산정 기준 (논리의 정확도)**:
-- 이 점수는 **"당신의 판정(결론)이 정답일 확률"**입니다.
-- **100점**: 증거가 너무나 명확하여, 다른 전문가가 와도 똑같은 결론을 내릴 것임. (예: "확실히 접촉불량 아님"도 증거가 명확하면 100점)
-- **80점**: 대부분의 증거가 결론을 지지하지만, 미세한 노이즈가 있음.
-- **50점 미만**: 증거가 상충되거나 이미지 해상도 문제로 판정이 사실상 추측에 가까움.
 </analysis_process>
 
 <output_format>
@@ -135,15 +111,12 @@ def get_terminal_prompt(image_path: str = None) -> str:
             "bead_scan": "이미지 전체에서 확인되는 모든 용융 흔적의 위치, 형태, 개수를 관찰 후, 사실 있는 그대로 서술"
         }}
     }},
-    "step5_logic_contrast": {{
-        "logic_refuting": "관찰된 특징 중 '접촉불량'이 아님을 시사하는 반박 논리 서술",
-        "logic_supporting": "관찰된 특징 중 '접촉불량'을 지지하는 강력한 증거와 논리 서술"
-    }},
-    "step6_verdict": {{
-        "conclusion": "접촉불량 | 접촉불량 의심 | 접촉불량 아님 | 판독 불가",
-        "confidence_score": 0-100 (Integer, 본인의 결론에 대한 '논리적 확신도'. 예: '접촉불량 아님'이라도 근거가 확실하면 100점),
-        "final_reasoning": "STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약"
-    }}
+    "step5_extracted_evidence": [
+        {{
+            "visual_fact": "객관적으로 관찰된 핵심 특징 한 줄 요약 (예: 좁은 틈새를 따라 짙은 층상 산화막 형성)",
+            "certainty": 0-100 (관찰 내용이 실제로 존재한다는 사실적 확신도)
+        }}
+    ]
 }}
 </output_format>
 
@@ -162,9 +135,16 @@ def get_splice_prompt(image_path: str = None) -> str:
 </task>
 
 <input_data>
-- **Image_A (Macro)**: 전선 전체 배치 및 주변 환경 확인용
-- **Image_B (Macro Crop / Micro)**: 손상 부위 정밀 관찰용
+본 분석은 동일한 객체를 여러 각도에서 촬영한 **다각도 교차 분석(Deep Mode)** 이미지를 포함할 수 있습니다.
+제공된 모든 뷰(View)를 종합적으로 분석하여 입체적인 결론을 도출하십시오.
+- **Image Type A (Original Macro)**: 전선 전체 배치 및 주변 환경 확인용
+- **Image Type B (Enhanced ROI)**: 손상 부위 정밀 관찰용
 </input_data>
+
+<negative_proof_principle>
+**사각지대 부정(Negative Proof) 원칙**:
+다중 뷰(여러 각도) 이미지가 제공되었음에도 특정 부위의 손상이 관찰되지 않는다면, 보이지 않는 사각지대에 "숨겨진 손상이 있을 것"이라고 자의적으로 추정하지 마십시오. 객관적으로 확인된 시각적 증거만을 바탕으로 보수적으로 판정하십시오.
+</negative_proof_principle>
 
 <analysis_process>
 다음 6단계를 순차적으로 수행하며 깊이 있게 사고하십시오:
@@ -212,41 +192,11 @@ def get_splice_prompt(image_path: str = None) -> str:
   * 미식별 시: **"특이 용융 흔적 없음(None Found)."**이라고 명확히 적시. (추측성 서술 금지)
   * 판독 불가: 불확실할 경우 **"식별 불가(Unidentifiable)"**로 표기하고, 비드로 단정할 수 없는 구체적 사유(예: 그림자 부재, 해상도 저하, 반사광 간섭 등)를 기술하십시오.
 
-## STEP 5: 증거 가치 평가 및 논리 대조 (Logic Contrast)
-- **[핵심 지침] <expert_knowledge>의 기준을 참고하여, STEP 1 ~ 4의 관찰 결과를 근거로 논리를 전개하십시오.**
+**STEP 5: 핵심 시각 증거 추출 (Evidence Extraction)**
+- **[핵심 지침] 원인을 직접 판정하거나 지지/반박 논리를 펴지 마십시오.**
+- 앞선 1~4단계 관찰 내용 중 화재 원인 분석에 유의미한 **결정적 객관적 사실(Fact)**들만 추려내어 목록화하십시오.
+- 각 증거에 대해 본 관찰 결과가 얼마나 확실한지(Certainty of Fact, 0~100) 평가하십시오.
 
-<expert_knowledge>
-
-**Criteria for Poor Connection (접촉불량 진단 기준)**
-- **산화 피막 (Oxidation):** 도체 표면에 금속 광택이 소실되고, 검붉거나 회색의 두터운 산화막(Scale)이 층을 이루거나 녹청(Verdigris)이 확인됨.
-- **탄화 형태 (Carbonization):** 접속부 꼬임 틈새나 소선 사이에 탄화된 절연물 잔해(Carbon deposit)가 깊게 침착되어 있고, 내부가 외부보다 심하게 탄화됨 (Inside-out Pattern).
-- **결속 상태 (Looseness):** 꼬임 접속부의 텐션이 풀려 헐거워지거나(Spring-back), 소선들이 서로 밀착되지 않고 부풀어 올라 틈이 발생함(Puffed out).
-- **용융 형태 (Melting):** 단락(Short) 특유의 거대 용융흔적(Bead)이 없고, 소선 끝이 연필심처럼 뾰족해지거나(Pencil-point) 거칠게 끊어진 단면(Severed end)을 보임.
-- **열적 구배 (Thermal Gradient):** 발열원인 접속부가 가장 심하게 탄화되어 있고, 접속부에서 멀어질수록 탄화 심도와 변색 정도가 점진적으로 옅어지는 그라데이션 형태를 보임.
-
-**유의사항**
-- 거대 단락 배제: 최선단(끝단부) 맺힌 용융흔적(bead)이 모든 소선을 완벽하게 삼켜서 매끄러운 하나의 큰 덩어리가 되어 있는 경우는 접촉불량이 아님.
-
-</expert_knowledge>
-
-**logic_refuting**: (접촉불량 반박 논리) 관찰된 특징 중 접촉불량이 아닐 가능성을 시사하는 점은 무엇인가?
-**logic_supporting**: (접촉불량 지지 논리) 관찰된 특징 중 어떤 점들이 접촉불량을 강력하게 뒷받침하는가?
-
-## STEP 6: 최종 판정 (Verdict)
-- **[핵심 지침] STEP 5의 논리 대결 결과를 종합하여 최종 결론을 도출하고, 그 결론에 대한 신뢰도(Confidence)를 평가하십시오.**
-
-**1. 판정 기준**:
-- **당신은 화재 감식 수석 조사관입니다.** 위에서 작성된 logic_refuting과 logic_supporting을 저울질하여 최종 판정을 내리십시오. 기계적인 규칙(Rule)을 따르지 말고, 제시된 증거들의 **'인과관계'와 '증거의 무게(Weight of Evidence)'**를 종합적으로 판단하십시오.
-  1. 접촉불량: 지지 논리(logic_supporting)가 압도적으로 우세하며, 반박 논리(logic_refuting)가 논리적으로 완전히 기각된 경우.
-  2. 접촉불량 의심: 지지 논리가 강하지만, 반박 논리에서 제기한 의문점(예: 심한 2차 용융으로 인한 증거 훼손, 미세한 인장 흔적 혼재 등)을 100% 해소하지 못한 경우.
-  3. 접촉불량 아님: 반박 논리(logic_refuting)가 더 우세하거나, 타 원인의 증거가 명확한 경우.
-  4. 판독 불가: 이미지 화질 불량, 초점 흐림, 또는 주요 식별 부위(Zone 2, 3)가 가려져 있어 논리적 판단 자체가 불가능한 경우.
-
-**2. 신뢰도(Confidence) 산정 기준 (논리의 정확도)**:
-- 이 점수는 **"당신의 판정(결론)이 정답일 확률"**입니다.
-- **100점**: 증거가 너무나 명확하여, 다른 전문가가 와도 똑같은 결론을 내릴 것임. (예: "확실히 접촉불량 아님"도 증거가 명확하면 100점)
-- **80점**: 대부분의 증거가 결론을 지지하지만, 미세한 노이즈가 있음.
-- **50점 미만**: 증거가 상충되거나 이미지 해상도 문제로 판정이 사실상 추측에 가까움.
 </analysis_process>
 
 <output_format>
@@ -280,15 +230,12 @@ def get_splice_prompt(image_path: str = None) -> str:
             "bead_scan": "이미지 전체에서 확인되는 모든 용융 흔적의 위치, 형태, 개수를 관찰 후, 사실 있는 그대로 서술"
         }}
     }},
-    "step5_logic_contrast": {{
-        "logic_refuting": "관찰된 특징 중 '접촉불량'이 아님을 시사하는 반박 논리 서술",
-        "logic_supporting": "관찰된 특징 중 '접촉불량'을 지지하는 강력한 증거와 논리 서술"
-    }},
-    "step6_verdict": {{
-        "conclusion": "접촉불량 | 접촉불량 의심 | 접촉불량 아님 | 판독 불가",
-        "confidence_score": 0-100 (Integer, 본인의 결론에 대한 '논리적 확신도'. 예: '접촉불량 아님'이라도 근거가 확실하면 100점),
-        "final_reasoning": "STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약"
-    }}
+    "step5_extracted_evidence": [
+        {{
+            "visual_fact": "객관적으로 관찰된 핵심 특징 한 줄 요약 (예: 좁은 틈새를 따라 짙은 층상 산화막 형성)",
+            "certainty": 0-100 (관찰 내용이 실제로 존재한다는 사실적 확신도)
+        }}
+    ]
 }}
 </output_format>
 """
@@ -312,10 +259,13 @@ def get_plug_prompt(image_path: str = None) -> str:
 
 ### 1단계: 형태학적 정밀 관찰 (Morphological Detailed Description)
 
-**지시:** 입력된 두 장의 이미지를 스캔하여 아래 기준에 따라 시각적 사실(Fact)만을 기술하십시오. (추론 및 전문 용어 사용 금지)
+**지시:** 입력된 다중 뷰(View) 이미지들을 크로스 체크하여 시각적 사실(Fact)만을 기술하십시오. (추론 및 전문 용어 사용 금지)
 
-- **Image 1 (전체 Context)**: 화재 현장 전체 구도에서 Hotspot의 위치와 주변 상황을 파악
-- **Image 2 (확대 ROI)**: 2배 향상 처리된 확대 이미지에서 미세한 형태학적 특징을 관찰
+- **Image Type A (Original Context)**: 화재 현장 전체 구도에서 Hotspot의 위치와 주변 상황 파악
+- **Image Type B (Enhanced ROI)**: 향상 처리된 확대 이미지에서 미세한 형태학적 특징 관찰
+
+**[사각지대 부정(Negative Proof) 원칙]**
+다각도 이미지가 제공되었음에도 특정 손상이 교차 확인되지 않는다면, 보이지 않는 곳에 "손상이 있을 것"이라 자의적으로 추론하지 말고, 있는 그대로 보수적으로 판단하십시오.
 
 #### (1) 하우징 및 페이스플레이트 용융 패턴
 - **용융의 국부성**: 손상이 특정 핀 삽입구(Slot) 주변에 집중되어 있는가? 아니면 전체 면적에 균일하게 분포하는가?
@@ -403,8 +353,7 @@ def get_plug_prompt(image_path: str = None) -> str:
 
 <input_data>
 <images>
-<image_1_context>전체 이미지 (Context): 화재 현장 전체 구도</image_1_context>
-<image_2_roi>확대 이미지 (ROI): Hotspot 영역을 2배 향상 처리한 상세 이미지 - {image_path}</image_2_roi>
+여러 각도(View)에서 촬영된 Context 이미지와 ROI 이미지 쌍이 제공됩니다. 다중 뷰를 입체적으로 분석하십시오.
 </images>
 </input_data>
 
@@ -449,10 +398,16 @@ def get_contact_supervisor_prompt(reports_text: str) -> str:
 <output_format>
 JSON 포맷으로 다음 필드를 포함하여 출력하십시오:
 {{
-    "final_conclusion": "접촉불량 유력 (High) | 접촉불량 의심 (Medium) | 단락 또는 외부 화재 (Low)",
+    "final_conclusion": "접촉불량 유력 (High) | 접촉불량 의심 (Medium) | 단락 또는 외부 화재 (Low) | 판독 불가 (Indeterminate)",
     "final_confidence": 0-100 (Integer),
-    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약",
-    "reasoning_process": "어떤 Worker의 의견을 채택했는지, 그리고 그 이유는 무엇인지 등 종합 판단 과정 서술"
+    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약 (예비 소견)",
+    "reasoning_process": "어떤 Worker의 증거를 채택했는지, 그리고 모순된 증거가 있다면 어떻게 해결했는지 서술",
+    "evidence_list": [
+        {{
+            "visual_fact": "취합된 결정적 사실 중 하나 (예: 접속부에 짙은 산화막 형성 확인)",
+            "certainty": 90
+        }}
+    ]
 }}
 </output_format>
 """

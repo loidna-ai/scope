@@ -59,9 +59,9 @@ async def _crop_roi(
     if not box_2d:
         return roi_image_path
 
-    logger.debug(f"Preprocessor {hotspot_id}: crop from {box_2d}")
+    logger.debug(f"Preprocessor {hotspot_id}: crop from {box_2d} with padding 0.4")
     try:
-        cropped_path = await asyncio.to_thread(crop_roi_from_box, image_path, box_2d)
+        cropped_path = await asyncio.to_thread(crop_roi_from_box, image_path, box_2d, padding_ratio=0.4)
         logger.info(f"Preprocessor {hotspot_id}: Crop done → {cropped_path}")
         roi_image_path = cropped_path
     except Exception as crop_err:
@@ -74,6 +74,7 @@ async def _classify(
     hotspot_id: str,
     roi_image_path: str,
     image_path: str,
+    box_2d: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     컴포넌트 분류 (공유 전처리용).
@@ -87,7 +88,7 @@ async def _classify(
 
         client = get_genai_client()
         model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
-        prompt = get_component_classifier_prompt(roi_image_path)
+        prompt = get_component_classifier_prompt(roi_image_path, box_2d=box_2d)
 
         parts = [prompt]
         for img_data in [original_image_data, roi_image_data]:
@@ -224,20 +225,43 @@ async def preprocess_hotspots_node(state: InvestigationState) -> Dict[str, Any]:
     # ── 각 Hotspot 전처리 (Crop → Classification → Enhancement) ──────
     async def _process_one(hotspot: Dict[str, Any]) -> Dict[str, Any]:
         hid = hotspot.get("id", "unknown")
-        box_2d = hotspot.get("box_2d")
+        boxes = hotspot.get("boxes", {})
+        source_images = hotspot.get("source_images", [])
+        
+        # 하위 호환성 폴백
+        if not source_images:
+            if "image_path" in state and "box_2d" in hotspot:
+                source_images = [state["image_path"]]
+                boxes = {state["image_path"]: hotspot["box_2d"]}
+            else:
+                source_images = [image_path]
+                boxes = {image_path: hotspot.get("box_2d")}
+                
+        roi_image_paths = {}
+        for img_path in source_images:
+            box = boxes.get(img_path)
+            if box:
+                roi_p = await _crop_roi(hid, img_path, box)
+                enh_p = await _enhance_roi(hid, roi_p)
+                roi_image_paths[img_path] = enh_p
+                
+        # Classification (대표 이미지 1개로 추론, 성능 최적화)
+        primary_img = source_images[0] if source_images else image_path
+        primary_roi = roi_image_paths.get(primary_img, primary_img)
+        primary_box = boxes.get(primary_img)
+        
+        component_type = await _classify(hid, primary_roi, primary_img, box_2d=primary_box)
 
-        roi_image_path = await _crop_roi(hid, image_path, box_2d)
-        component_type = await _classify(hid, roi_image_path, image_path)
-        enhanced_path = await _enhance_roi(hid, roi_image_path)
-
-        enriched = dict(hotspot)           # 원본 hotspot 복사
-        enriched["roi_image_path"] = enhanced_path
+        enriched = dict(hotspot)
+        enriched["roi_image_paths"] = roi_image_paths
+        enriched["roi_image_path"] = primary_roi  # 호환성 유지용 (가장 대표 값)
         enriched["component_type"] = component_type
-        enriched["_preprocessed"] = True  # Worker 측 건너뜀 신호
-        # 단계별 성공 플래그 (부분 실패 시 Worker가 재시도 판단에 사용)
-        enriched["_crop_done"] = (roi_image_path != image_path)
+        enriched["_preprocessed"] = True
+        
+        # 단계별 성공 플래그
+        enriched["_crop_done"] = any(p != img for img, p in roi_image_paths.items())
         enriched["_classify_done"] = (component_type != "Unknown")
-        enriched["_enhance_done"] = (enhanced_path != image_path)
+        enriched["_enhance_done"] = enriched["_crop_done"]
         return enriched
 
     # 병렬 전처리 (asyncio.gather)
@@ -245,5 +269,5 @@ async def preprocess_hotspots_node(state: InvestigationState) -> Dict[str, Any]:
         *[_process_one(h) for h in selected]
     )
 
-    logger.info(f"Preprocessor: Done — {len(preprocessed)} hotspot(s) ready")
+    logger.info(f"Preprocessor: Done - {len(preprocessed)} hotspot(s) ready")
     return {"preprocessed_hotspots": list(preprocessed)}

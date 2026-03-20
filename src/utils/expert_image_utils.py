@@ -4,7 +4,7 @@
 """
 import asyncio
 from typing import Tuple, Optional
-from src.tools.experts.expert_utils import _load_image_data
+from src.tools.experts.expert_utils import load_image_data
 
 
 class ExpertImageLoader:
@@ -53,7 +53,7 @@ class ExpertImageLoader:
             return self._cache[path]
 
         # Blocking I/O를 thread로 offload
-        data = await asyncio.to_thread(_load_image_data, path)
+        data = await asyncio.to_thread(load_image_data, path)
 
         if cache_enabled:
             self._evict_if_needed()

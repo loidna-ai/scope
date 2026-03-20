@@ -4,6 +4,7 @@ Pydantic models for structured evidence collection
 """
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
+from src.models.evidence_models import EvidenceItem
 
 # ===== Splice Specialist Models (6-Step Analysis) =====
 
@@ -38,14 +39,7 @@ class TerminalGeometricMeasurement(BaseModel):
     zone3_terminal_area: Zone3TerminalArea
     zone4_melted_marks_beads: Zone4MeltedMarksBeads
 
-class LogicContrast(BaseModel):
-    logic_refuting: str = Field(description="관찰된 특징 중 '접촉불량'이 아님을 시사하는 반박 논리 서술")
-    logic_supporting: str = Field(description="관찰된 특징 중 '접촉불량'을 지지하는 강력한 증거와 논리 서술")
 
-class FinalVerdict(BaseModel):
-    conclusion: str = Field(description="접촉불량 | 접촉불량 의심 | 접촉불량 아님 | 판독 불가")
-    confidence_score: int = Field(ge=0, le=100, description="신뢰도 점수 (0-100)")
-    final_reasoning: str = Field(description="STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약")
 
 class SpliceEvidenceResult(BaseModel):
     """Splice Specialist 분석 결과 (6-Step Analysis)"""
@@ -53,8 +47,7 @@ class SpliceEvidenceResult(BaseModel):
     step2_location_mapping: dict = Field(default_factory=dict, description="확대 부위 위치 특정 결과")
     step3_crop_identification: dict = Field(default_factory=dict, description="확대 부위 식별 결과")
     step4_geometric_measurement: GeometricMeasurement
-    step5_logic_contrast: LogicContrast
-    step6_verdict: FinalVerdict
+    step5_extracted_evidence: List[EvidenceItem] = Field(description="정밀 측정된 시각적 증거 객체 목록")
     
     # Legacy compatibility properties
     @property
@@ -74,27 +67,15 @@ class SpliceEvidenceResult(BaseModel):
     
     @property
     def verdict(self) -> str:
-        """하위 호환성을 위한 verdict 추출"""
-        conclusion = self.step6_verdict.conclusion
-        # 매핑: 프롬프트의 conclusion을 기존 verdict 형식으로 변환
-        if conclusion == "접촉불량":
-            return "접촉 불량"
-        elif conclusion == "접촉불량 의심":
-            return "판단 불가"  # 의심은 판단 불가로 분류
-        elif conclusion == "접촉불량 아님":
-            return "외부 화재"
-        else:  # 판독 불가
-            return "판단 불가"
+        return "판독 보류 (Evidence Collected)"
     
     @property
     def confidence(self) -> int:
-        """하위 호환성을 위한 confidence 추출"""
-        return self.step6_verdict.confidence_score
+        return 0
     
     @property
     def reasoning(self) -> str:
-        """하위 호환성을 위한 reasoning 추출"""
-        return self.step6_verdict.final_reasoning
+        return "자세한 증거 목록이 생성되었습니다."
 
 # ===== Terminal Specialist Models (6-Step Analysis) =====
 
@@ -104,8 +85,7 @@ class TerminalEvidenceResult(BaseModel):
     step2_location_mapping: dict = Field(default_factory=dict, description="확대 부위 위치 특정 결과")
     step3_crop_identification: dict = Field(default_factory=dict, description="확대 부위 식별 결과")
     step4_geometric_measurement: TerminalGeometricMeasurement
-    step5_logic_contrast: LogicContrast
-    step6_verdict: FinalVerdict
+    step5_extracted_evidence: List[EvidenceItem] = Field(description="정밀 측정된 시각적 증거 객체 목록")
     
     # Legacy compatibility properties
     @property
@@ -124,26 +104,15 @@ class TerminalEvidenceResult(BaseModel):
     
     @property
     def verdict(self) -> str:
-        """하위 호환성을 위한 verdict 추출"""
-        conclusion = self.step6_verdict.conclusion
-        if conclusion == "접촉불량":
-            return "접촉 불량"
-        elif conclusion == "접촉불량 의심":
-            return "판단 불가"
-        elif conclusion == "접촉불량 아님":
-            return "외부 화재"
-        else:  # 판독 불가
-            return "판단 불가"
+        return "판독 보류 (Evidence Collected)"
     
     @property
     def confidence(self) -> int:
-        """하위 호환성을 위한 confidence 추출"""
-        return self.step6_verdict.confidence_score
+        return 0
     
     @property
     def reasoning(self) -> str:
-        """하위 호환성을 위한 reasoning 추출"""
-        return self.step6_verdict.final_reasoning
+        return "자세한 증거 목록이 생성되었습니다."
 
 class PlugEvidenceResult(BaseModel):
     """Plug Specialist 분석 결과"""

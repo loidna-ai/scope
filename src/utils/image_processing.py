@@ -15,6 +15,21 @@ logger = setup_logger(__name__)
 
 import cv2
 
+def resize_image_if_needed(img_bytes: bytes, max_dim: int, quality: int) -> bytes:
+    """이미지가 max_dim 초과 시 리사이즈 후 bytes 반환. 작을 경우 통과."""
+    from PIL import Image
+    import io
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    w, h = img.size
+    if max(w, h) <= max_dim:
+        return img_bytes
+    scale = max_dim / max(w, h)
+    new_w, new_h = int(w * scale), int(h * scale)
+    img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img_resized.save(buf, "JPEG", quality=quality, optimize=True)
+    return buf.getvalue()
+
 def slice_image(
     image_path: str, 
     patch_size: int = 1024, 
@@ -111,7 +126,9 @@ def slice_image(
                     rejected_data = {
                         "image_bytes": patch_bytes,
                         "offset": (x, y),
+                        "original_offset": (int(x / scale_factor), int(y / scale_factor)),
                         "size": (pw, ph),
+                        "original_size": (int(pw / scale_factor), int(ph / scale_factor)),
                         "index": (r_idx, c_idx),
                         "scale_factor": scale_factor,
                         "debug_metrics": {"variance": round(laplacian_var, 1), "edge": round(edge_density, 1)}
@@ -133,10 +150,12 @@ def slice_image(
                 yielded_count += 1
                 yield {
                     "image_bytes": patch_bytes,
-                    "offset": (x, y),       # Note: This offset is within the resized image dimensions
+                    "offset": (x, y),       # Offset in the RESIZED image
+                    "original_offset": (int(x / scale_factor), int(y / scale_factor)), # Absolute pixel offset in ORIGINAL image
                     "size": (pw, ph),
+                    "original_size": (int(pw / scale_factor), int(ph / scale_factor)), # Patch size in ORIGINAL pixels
                     "index": (r_idx, c_idx),
-                    "scale_factor": scale_factor, # Pass scale factor so coordinates can be mapped back to absolute Original image size
+                    "scale_factor": scale_factor,
                     "debug_metrics": {"variance": round(laplacian_var, 1), "edge": round(edge_density, 1)}
                 }
         
@@ -157,54 +176,41 @@ def slice_image(
 
 def map_box_to_global(
     box_2d: Dict[str, int], 
-    patch_offset: Tuple[int, int], 
-    patch_size: Tuple[int, int],
-    original_size: Tuple[int, int],
-    scale_factor: float = 1.0
+    original_offset: Tuple[int, int], 
+    original_patch_size: Tuple[int, int],
+    original_full_size: Tuple[int, int]
 ) -> Dict[str, int]:
     """
-    Maps bounding box from Patch Normalized Coordinates (0-1000) to Global Normalized Coordinates (0-1000).
-    Now accounts for scale_factor if the image was dynamically resized.
+    Maps bounding box from Patch Local Normalized Coordinates (0-1000) to Global Normalized Coordinates (0-1000).
+    Uses absolute original pixels to avoid compounding scale errors.
     
     Args:
         box_2d: Dict with ymin, xmin, ymax, xmax (0-1000 relative to patch)
-        patch_offset: (x, y) of the top-left corner of the patch in the RESIZED image.
-        patch_size: (width, height) of the patch in pixels
-        original_size: (width, height) of the ORIGINAL global image in pixels
-        scale_factor: The factor by which the original image was resized.
+        original_offset: (x, y) absolute pixels in ORIGINAL image
+        original_patch_size: (width, height) absolute pixels of the patch in ORIGINAL image
+        original_full_size: (width, height) absolute pixels of the ORIGINAL full image
         
     Returns:
         Dict with ymin, xmin, ymax, xmax (0-1000 relative to original global image)
     """
-    # 1. De-normalize from Patch (0-1000 -> Pixels in Patch)
-    py_min = box_2d.get("ymin", 0) / 1000.0 * patch_size[1]
-    px_min = box_2d.get("xmin", 0) / 1000.0 * patch_size[0]
-    py_max = box_2d.get("ymax", 0) / 1000.0 * patch_size[1]
-    px_max = box_2d.get("xmax", 0) / 1000.0 * patch_size[0]
+    # 1. Transform from Patch Normalized (0-1000) -> Global Pixels
+    # gy = (norm_y / 1000 * patch_h) + offset_y
+    gy_min = (box_2d.get("ymin", 0) / 1000.0 * original_patch_size[1]) + original_offset[1]
+    gx_min = (box_2d.get("xmin", 0) / 1000.0 * original_patch_size[0]) + original_offset[0]
+    gy_max = (box_2d.get("ymax", 0) / 1000.0 * original_patch_size[1]) + original_offset[1]
+    gx_max = (box_2d.get("xmax", 0) / 1000.0 * original_patch_size[0]) + original_offset[0]
     
-    # 2. Add Offset (Pixels in Patch -> Pixels in Resized Image)
-    gx_min_resized = px_min + patch_offset[0]
-    gy_min_resized = py_min + patch_offset[1]
-    gx_max_resized = px_max + patch_offset[0]
-    gy_max_resized = py_max + patch_offset[1]
-    
-    # 3. Apply Inverse Scale Factor (Pixels in Resized Image -> Pixels in Original Image)
-    gx_min = gx_min_resized / scale_factor
-    gy_min = gy_min_resized / scale_factor
-    gx_max = gx_max_resized / scale_factor
-    gy_max = gy_max_resized / scale_factor
-    
-    # 4. Clip to bounds
-    W, H = original_size
-    gx_min = max(0, min(gx_min, W))
+    # 2. Clip to original full image bounds
+    W, H = original_full_size
     gy_min = max(0, min(gy_min, H))
-    gx_max = max(0, min(gx_max, W))
+    gx_min = max(0, min(gx_min, W))
     gy_max = max(0, min(gy_max, H))
+    gx_max = max(0, min(gx_max, W))
     
-    # 5. Re-normalize to Global (Pixels in Global -> 0-1000 Global)
+    # 3. Final normalization (Global Pixels -> 0-1000 Global)
     if W == 0 or H == 0:
         return {"ymin": 0, "xmin": 0, "ymax": 0, "xmax": 0}
-        
+    
     return {
         "ymin": int(gy_min / H * 1000),
         "xmin": int(gx_min / W * 1000),
@@ -223,3 +229,97 @@ def get_image_size(image_path: str) -> Tuple[int, int]:
     # Fallback to PIL if safe load fails (though rarely reached)
     with Image.open(image_path) as img:
         return img.size
+
+def slice_multiple_images(
+    image_paths: List[str],
+    patch_size: int,
+    overlap: int,
+    max_dimension: int,
+    blur_threshold: float,
+    edge_threshold: int
+) -> List[Dict[str, Any]]:
+    """모든 이미지에 대해 패치를 생성하고 소스 경로를 태깅합니다."""
+    all_patches = []
+    for img_path in image_paths:
+        logger.info(f"Image Slicing: Processing {img_path}...")
+        patch_generator = slice_image(
+            img_path, 
+            patch_size=patch_size, 
+            overlap=overlap,
+            max_dimension=max_dimension,
+            blur_threshold=blur_threshold,
+            edge_threshold=edge_threshold
+        )
+        for patch in patch_generator:
+            patch['source_image_path'] = img_path
+            all_patches.append(patch)
+    return all_patches
+
+def map_hotspots_to_global(
+    batch_results: List[Any],
+    image_sizes: Dict[str, Tuple[int, int]]
+) -> List[Dict[str, Any]]:
+    """탐지된 패치 기반 Hotspot 좌표를 전역 이미지 좌표로 매핑합니다."""
+    raw_hotspots = []
+    
+    for patches_chunk, patch_hotspots in batch_results:
+        if not patch_hotspots:
+            continue
+            
+        for h in patch_hotspots:
+            # Pydantic 모델인 경우 dict로 변환 (HotspotDetectionResult의 개별 항목)
+            if hasattr(h, "model_dump"):
+                h_dict = h.model_dump(mode='json')
+            else:
+                h_dict = h.copy()
+            
+            img_idx = h_dict.get('image_index', 1) - 1
+            if img_idx < 0: img_idx = 0
+            elif img_idx >= len(patches_chunk): img_idx = len(patches_chunk) - 1
+                
+            target_patch = patches_chunk[img_idx]
+            src_path = target_patch['source_image_path']
+            original_size = image_sizes[src_path]
+            
+            # Use fixed absolute offsets in original image pixels
+            original_offset = target_patch['original_offset']
+            original_patch_size = target_patch['original_size']
+            
+            global_box = map_box_to_global(
+                h_dict['box_2d'], 
+                original_offset, 
+                original_patch_size, 
+                original_size
+            )
+            
+            h_dict['box_2d'] = global_box
+            h_dict['source_image_path'] = src_path
+            
+            raw_hotspots.append(h_dict)
+            
+    return raw_hotspots
+
+def perform_batch_nms(
+    raw_hotspots: List[Dict[str, Any]],
+    iou_threshold: float
+) -> List[Dict[str, Any]]:
+    """이미지별로 그룹화하여 NMS 중복 제거를 수행합니다."""
+    from collections import defaultdict
+    from src.utils.nms import perform_nms
+    
+    final_raw_hotspots = []
+    global_hotspot_id = 1
+    
+    grouped_raw = defaultdict(list)
+    for h in raw_hotspots:
+        grouped_raw[h['source_image_path']].append(h)
+        
+    for src_path, path_hotspots in grouped_raw.items():
+        nms_hotspots = perform_nms(path_hotspots, iou_threshold=iou_threshold)
+        for h in nms_hotspots:
+            h['id'] = global_hotspot_id
+            h.pop('_origin_patch', None)
+            final_raw_hotspots.append(h)
+            global_hotspot_id += 1
+            
+    return final_raw_hotspots

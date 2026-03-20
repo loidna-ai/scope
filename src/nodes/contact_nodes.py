@@ -20,7 +20,7 @@ import config
 from config import TOP_N_HOTSPOTS
 
 # [Mitigation] API 부하 방지를 위한 동시 실행 제한 세마포어
-# 미리보기 모델(gemini-3-flash-preview)의 동시 요청 제한(Concurrency Limit)에 대응
+# Gemini 2.5 Flash의 동시 요청 제한(Concurrency Limit)에 대응
 
 
 # Define Project Root for centralized output
@@ -117,20 +117,22 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
         # 메인 그래프의 preprocessor_node가 Crop+Classification+Enhancement 완료
         if hotspot.get("_preprocessed"):
             roi_image_path = hotspot.get("roi_image_path", image_path)
+            roi_paths_dict = hotspot.get("roi_image_paths", {image_path: roi_image_path})
             connection_type = hotspot.get("component_type", "Unknown")
             logger.info(
-                f"Worker {hotspot_id}: Using pre-processed (crop+classify+enhance): {roi_image_path}"
+                f"Worker {hotspot_id}: Using pre-processed (crop+classify+enhance) for {len(roi_paths_dict)} view(s)"
             )
             # 부분 실패 보정: 전처리기에서 분류 실패 시 재분류
             if not hotspot.get("_classify_done") and connection_type == "Unknown":
                 logger.info(f"Worker {hotspot_id}: Re-classifying (preprocessor classification failed)")
-                prompt = get_component_classifier_prompt(roi_image_path)
+                prompt = get_component_classifier_prompt(roi_image_path, box_2d=hotspot.get("box_2d"))
                 connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
         else:
             # Fallback: preprocessor_node를 거치지 않은 경우 직접 처리
             box_2d = hotspot.get("box_2d")
             roi_image_path = await crop_and_enhance_roi(hotspot_id, image_path, box_2d)
-            prompt = get_component_classifier_prompt(roi_image_path)
+            roi_paths_dict = {image_path: roi_image_path}
+            prompt = get_component_classifier_prompt(roi_image_path, box_2d=box_2d)
             connection_type = await classify_component(hotspot_id, roi_image_path, image_path, prompt)
 
         # ===== Step 3: Specialist Analysis (Component Type별 분기 - Async) =====
@@ -149,8 +151,7 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             # Terminal Specialist 분석
             evidence_result = await _analyze_specialist(
                 hotspot_id=hotspot_id,
-                roi_image_path=roi_image_path,
-                image_path=image_path,
+                roi_paths_dict=roi_paths_dict,
                 prompt_func=get_terminal_prompt,
                 evidence_model=TerminalEvidenceResult,
                 component_type="Terminal"
@@ -160,8 +161,7 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             # Splice Specialist 분석
             evidence_result = await _analyze_specialist(
                 hotspot_id=hotspot_id,
-                roi_image_path=roi_image_path,
-                image_path=image_path,
+                roi_paths_dict=roi_paths_dict,
                 prompt_func=get_splice_prompt,
                 evidence_model=SpliceEvidenceResult,
                 component_type="Splice"
@@ -171,8 +171,7 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             # Plug Specialist 분석
             evidence_result = await _analyze_specialist(
                 hotspot_id=hotspot_id,
-                roi_image_path=roi_image_path,
-                image_path=image_path,
+                roi_paths_dict=roi_paths_dict,
                 prompt_func=get_plug_prompt,
                 evidence_model=PlugEvidenceResult,
                 component_type="Plug"
@@ -192,24 +191,12 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             report_confidence = evidence_result.confidence
             
             # Severity Score 계산
-            # Splice의 경우 step6_verdict.conclusion 직접 확인 (더 정확)
-            if hasattr(evidence_result, 'step6_verdict'):
-                # 6단계 구조 (Splice)
-                conclusion = evidence_result.step6_verdict.conclusion
-                if conclusion == "접촉불량":
-                    severity_score = 80
-                    is_critical = True
-                    evidence_quality = "high"
-                elif conclusion == "접촉불량 의심":
-                    severity_score = 60
-                    is_critical = False
-                    evidence_quality = "medium"
-                elif conclusion == "접촉불량 아님":
-                    severity_score = 30
-                    evidence_quality = "low"
-                else:  # 판독 불가
-                    severity_score = 30
-                    evidence_quality = "low"
+            # Splice의 경우 step5_extracted_evidence 직접 확인
+            if hasattr(evidence_result, 'step5_extracted_evidence'):
+                # 5단계 구조 (Evidence-First)
+                severity_score = hotspot.get("severity_score", 50)  # 탐지 단계의 심각도 점수 유지 (v0.5.3)
+                is_critical = False
+                evidence_quality = "medium"
             else:
                 # Legacy 구조 (Terminal, Plug)
                 if evidence_result.verdict == "접촉 불량":
@@ -286,9 +273,8 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
                     "contact_discoloration": (z3_splice.splice_discoloration if z3_splice else (z3_term.terminal_discoloration if z3_term else 'N/A')),
                     # Zone 4: 용융 흔적
                     "bead_scan": z4.bead_scan,
-                    # Logic Contrast
-                    "supporting_logic": evidence_result.step5_logic_contrast.logic_supporting,
-                    "refuting_logic": evidence_result.step5_logic_contrast.logic_refuting,
+                    # Extracted Evidence
+                    "extracted_evidence": [ev.model_dump() for ev in evidence_result.step5_extracted_evidence] if hasattr(evidence_result, 'step5_extracted_evidence') else []
                 }
             else:
                 # Legacy (Plug): visual_description만
@@ -306,11 +292,8 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
             worker_report["opinion"] = {"verdict": "Indeterminate", "confidence": 0, "reasoning": "Extraction failed"}
     
         # [Added] Notebook 호환성을 위한 analysis_results 포맷 (Reordered)
-        # Splice의 경우 step6_verdict.conclusion 사용, Legacy는 verdict 사용
-        if evidence_result and hasattr(evidence_result, 'step6_verdict'):
-            sr_conclusion = evidence_result.step6_verdict.conclusion
-        else:
-            sr_conclusion = evidence_result.verdict if evidence_result else "판독 불가"
+        # 새로운 구조에서는 verdict 로직을 나중에 아비터가 하므로, 임시 텍스트 반환
+        sr_conclusion = "판독 보류 (증거 수집 완료)"
         
         # reasoning 추출
         reasoning_text = ""
@@ -360,8 +343,7 @@ async def analyze_hotspot_worker(state: WorkerState) -> Dict[str, List[Dict]]:
 
 async def _analyze_specialist(
     hotspot_id: str,
-    roi_image_path: str,
-    image_path: str,
+    roi_paths_dict: Dict[str, str],
     prompt_func,
     evidence_model,
     component_type: str
@@ -381,24 +363,24 @@ async def _analyze_specialist(
         EvidenceResult Pydantic 객체 또는 None
     """
     try:
-        logger.info(f"Worker {hotspot_id}: Collecting {component_type} evidence...")
+        logger.info(f"Worker {hotspot_id}: Collecting {component_type} evidence across {len(roi_paths_dict)} view(s)...")
         logger.debug(f"Worker {hotspot_id}: Waiting for Evidence API via semaphore...")
         
-        # Blocking I/O offloading to thread (공통 이미지 로더 사용)
-        original_data, roi_data = await load_expert_images(roi_image_path, image_path)
-        
-        prompt = prompt_func(roi_image_path)
+        # 대표 이미지를 이용해 프롬프트 생성 ({{image_path}} 포매팅 용도)
+        primary_roi = list(roi_paths_dict.values())[0] if roi_paths_dict else None
+        prompt = prompt_func(primary_roi)
         
         client = get_genai_client()
         model_name = os.environ.get("GEMINI_MODEL_NAME", config.GEMINI_MODEL_NAME)
         
-        # 이미지 파트 구성
         parts = [prompt]
-        for img_data in [original_data, roi_data]:
-            parts.append(types.Part.from_bytes(
-                data=img_data,
-                mime_type="image/jpeg"
-            ))
+        # Multi-view(Deep Mode) 지원: 모든 원본/ROI 쌍을 프롬프트에 추가
+        for idx, (img_path, roi_path) in enumerate(roi_paths_dict.items()):
+            original_data, roi_data = await load_expert_images(roi_path, img_path)
+            parts.append(f"\n[View {idx+1} - Original Context (Image Type A)]")
+            parts.append(types.Part.from_bytes(data=original_data, mime_type="image/jpeg"))
+            parts.append(f"\n[View {idx+1} - Enhanced ROI (Image Type B)]")
+            parts.append(types.Part.from_bytes(data=roi_data, mime_type="image/jpeg"))
         
         # 🔥 Centralized Retry Logic with Common API Function
         async def _call_evidence_wrapper(**kwargs):

@@ -4,7 +4,8 @@ Pydantic models for structured evidence collection (Wire, PCB)
 Contact/Deform/Necking과 동일한 패턴
 """
 from pydantic import BaseModel, Field
-from typing import Literal
+from typing import List, Optional, Literal
+from src.models.evidence_models import EvidenceItem
 
 __all__ = [
     "AgingWireEvidenceResult",
@@ -55,25 +56,13 @@ class AgingInsulationInspection(BaseModel):
     zone4_exclusion: Zone4Exclusion = Field(default_factory=Zone4Exclusion)
 
 
-class AgingLogicContrast(BaseModel):
-    logic_refuting: str = Field(default="", description="장기 노후화가 아님을 시사하는 반박 논리")
-    logic_supporting: str = Field(default="", description="장기 노후화를 지지하는 증거와 논리")
-
-
-class AgingWireFinalVerdict(BaseModel):
-    conclusion: str = Field(description="경년열화 심각 | 경년열화 의심 | 경년열화 아님 | 판독 불가")
-    confidence_score: int = Field(ge=0, le=100, description="신뢰도 0-100")
-    final_reasoning: str = Field(default="", description="최종 결론을 내린 결정적 이유 요약")
-
-
 class AgingWireEvidenceResult(BaseModel):
     """Aging Wire(전선) 전문가 증거 수집 결과"""
     step1_context_analysis: AgingContextAnalysis = Field(default_factory=AgingContextAnalysis)
     step2_location_mapping: AgingLocationMapping = Field(default_factory=AgingLocationMapping)
     step3_crop_identification: AgingCropIdentification = Field(default_factory=AgingCropIdentification)
     step4_insulation_inspection: AgingInsulationInspection = Field(default_factory=AgingInsulationInspection)
-    step5_logic_contrast: AgingLogicContrast = Field(default_factory=AgingLogicContrast)
-    step6_verdict: AgingWireFinalVerdict
+    step5_extracted_evidence: List[EvidenceItem] = Field(description="정밀 측정된 시각적 증거 객체 목록")
 
     # Legacy compatibility properties
     @property
@@ -92,33 +81,33 @@ class AgingWireEvidenceResult(BaseModel):
 
     @property
     def verdict(self) -> str:
-        """하위 호환성을 위한 verdict 추출"""
-        return self.step6_verdict.conclusion
+        return "판독 보류 (Evidence Collected)"
 
     @property
     def confidence(self) -> int:
-        """하위 호환성을 위한 confidence 추출"""
-        return self.step6_verdict.confidence_score
+        return 0
 
     @property
     def reasoning(self) -> str:
-        """하위 호환성을 위한 reasoning 추출"""
-        return self.step6_verdict.final_reasoning
+        return "자세한 증거 목록이 생성되었습니다."
 
 
 # ===== Aging PCB Models =====
 
-class AgingPCBComparison(BaseModel):
-    aging_signs: str = Field(default="", description="장기 노후화 징후 관찰 결과")
-    external_heat_signs: str = Field(default="", description="단기 화재/수열 징후 관찰 결과")
-
-
 class AgingPCBEvidenceResult(BaseModel):
     """Aging PCB(기판) 전문가 증거 수집 결과"""
     visual_observation: str = Field(default="", description="기판의 전반적인 색상 변화, 코팅 상태 등")
-    comparison: AgingPCBComparison = Field(default_factory=AgingPCBComparison)
-    verdict: Literal[
-        "경년열화 심각", "경년열화 의심", "경년열화 아님", "판독 불가"
-    ] = Field(description="경년열화 심각 | 경년열화 의심 | 경년열화 아님 | 판독 불가")
-    confidence: int = Field(ge=0, le=100, description="신뢰도 0-100")
-    reasoning: str = Field(default="", description="최종 판정의 근거")
+    extracted_evidence: List[EvidenceItem] = Field(description="정밀 측정된 시각적 증거 객체 목록")
+
+    # Legacy compatibility properties
+    @property
+    def verdict(self) -> str:
+        return "판독 보류 (Evidence Collected)"
+    
+    @property
+    def confidence(self) -> int:
+        return 0
+    
+    @property
+    def reasoning(self) -> str:
+        return "자세한 증거 목록이 생성되었습니다."

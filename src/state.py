@@ -7,6 +7,7 @@ from typing import Annotated, Optional, List, Any, Callable, Dict
 from typing_extensions import TypedDict
 import numpy as np
 from langgraph.graph import MessagesState
+from src.models.hotspot_models import UnifiedHotspot
 
 def merge_dicts(left: dict, right: dict) -> dict:
     """
@@ -126,15 +127,16 @@ class InvestigationState(TypedDict):
     
     # [Memory Optimization] 이미지 경로 (바이너리 대신 경로 전달)
     image_path: Annotated[Optional[str], keep_last]
+    image_paths: Annotated[Optional[List[str]], keep_last_list]  # 다중 이미지 통합 분석용
     
     # 공통 Hotspot 탐지 결과 (메인 그래프에서 생성)
-    hotspots: Annotated[Optional[List[Dict[str, Any]]], keep_last]  # 마지막에 설정된 값만 유지
+    hotspots: Annotated[Optional[List[UnifiedHotspot]], keep_last]  # 마지막에 설정된 값만 유지
 
     # [#5 Preprocessor] 전처리 완료 Hotspot 목록
     # preprocessor_node가 Crop+Classification+Enhancement를 1회 수행한 결과.
     # 각 항목에는 원본 hotspot 필드 외에 roi_image_path, component_type, _preprocessed=True가 추가됨.
     # 전문가 Worker는 _preprocessed=True이면 Crop/Classification/Enhancement 단계를 건너뜀.
-    preprocessed_hotspots: Annotated[Optional[List[Dict[str, Any]]], keep_last]
+    preprocessed_hotspots: Annotated[Optional[List[UnifiedHotspot]], keep_last]
 
     # total_count 보정 값 (hotspot_detector_node에서 설정)
     corrected_total_count: Annotated[Optional[int], keep_last]
@@ -152,8 +154,8 @@ class InvestigationState(TypedDict):
     # 각 전문가의 신뢰도 점수
     expert_confidence_scores: Annotated[dict, merge_dicts]  # {"contact": 85, "tracking": 72, ...}
     
-    # 각 전문가의 증거
-    expert_evidence: Annotated[dict, merge_dicts]  # {"contact": [...], "tracking": [...], ...}
+    # 각 전문가의 증거 (Evidence-First Architecture: ExpertReport 객체 혹은 증거 목록 리스트)
+    expert_evidence: Annotated[dict, merge_dicts]  # {"contact": ExpertReport(...), "tracking": ...}
     
     # 최종 결론
     final_verdict: Annotated[Optional[str], keep_last]  # 마지막에 설정된 값만 유지
@@ -164,5 +166,11 @@ class InvestigationState(TypedDict):
     
     # 에러 수집
     errors: Annotated[List[str], operator.add]
+    
+    # 시각화 이미지 경로
+    visual_report_path: Annotated[Optional[str], keep_last]
+
+    # 결과 저장 디렉토리 (visualization_node에서 시각화 이미지 저장 위치로 사용)
+    output_dir: Annotated[Optional[str], keep_last]
     
 
