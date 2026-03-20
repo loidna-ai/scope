@@ -705,7 +705,6 @@ def save_investigation_result(
                     img_ref = _to_embedded_image_data_uri(visual_report_path) or _to_relative_image_path(output_file, visual_report_path)
                 else:
                     img_ref = _to_relative_image_path(output_file, visual_report_path)
-                
                 img_markdown = f"![분석 결과 시각화]({img_ref})"
                 
                 # [Optimization] 사용자 요청에 따라 {{VISUAL_REPORT_IMAGE}} 플레이스홀더가 있으면 해당 위치에 삽입
@@ -714,7 +713,6 @@ def save_investigation_result(
                 else:
                     # 플레이스홀더가 없는 경우 하단에 추가 (Fallback)
                     llm_report += f"\n\n## 3. 상세 증거 분석 시각화\n{img_markdown}\n"
-                    
             formatted_result = llm_report
             logger.info("LLM 기반 통합 리포트 생성 및 이미지 삽입 완료")
             print("  [리포트] LLM 기반 통합 리포트 생성 완료 (이미지 삽입됨)")

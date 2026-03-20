@@ -124,7 +124,7 @@ def create_supervisor_verdict_node(
 def create_verdict_analyst_node(
     expert_type: str,
     get_initial_prompt_fn: Callable[[str], str],
-    get_reanalysis_prompt_fn: Callable[[str, str, str, int, int, str], str]
+    get_reanalysis_prompt_fn: Callable[..., str]
 ):
     """
     Analyst 노드를 생성하는 팩토리 함수
@@ -161,14 +161,16 @@ def create_verdict_analyst_node(
                 logger.warning(f"{expert_type.capitalize()} Analyst: Fallback to regex for hotspot extraction")
             
             focused_summary = format_report_summary(focused_hotspots, expert_type=expert_type)
-            
+            debate_transcript = "\n\n".join(debate_messages)
             system_prompt = get_reanalysis_prompt_fn(
                 prev_hypothesis=prev_hypothesis,
                 critique=critique,
                 focused_summary=focused_summary,
                 total_hotspot_count=len(results),
                 focused_count=len(focused_hotspots),
-                full_context=report_summary
+                full_context=report_summary,
+                critique_result=critique_result,
+                debate_transcript=debate_transcript
             )
         
         try:
@@ -229,6 +231,21 @@ def create_verdict_critic_node(
     async def verdict_critic_node(state: Dict[str, Any]) -> Dict[str, Any]:
         hypothesis = state.get("current_hypothesis", "")
         results = state.get("analysis_results", [])
+        # [Phase 1.1] analysis_results 비어 있으면 preliminary_assessments/preprocessed_hotspots에서 ROI Fallback
+        if not results:
+            assessments = state.get("preliminary_assessments", [])
+            preprocessed = state.get("preprocessed_hotspots") or []
+            for a in assessments:
+                roi_path = a.get("_roi_image_path")
+                if not roi_path and preprocessed:
+                    for p in preprocessed:
+                        if p.get("id") == a.get("id"):
+                            roi_path = p.get("roi_image_path")
+                            break
+                if roi_path:
+                    results.append({"roi_image_path": roi_path})
+            if results:
+                logger.info(f"{expert_type.capitalize()} Critic: Using ROI fallback from preliminary_assessments/preprocessed_hotspots")
         debate_iter = state.get("debate_iteration", 0)
         
         if not hypothesis or "오류" in hypothesis or "없습니다" in hypothesis:
@@ -423,6 +440,13 @@ def create_verdict_finalize_node(expert_type: str):
                             confidence = getattr(analyst_result, "probability", 0)
                     
                     logger.info(f"{expert_type.capitalize()} Finalize: Adopted Analyst verdict: {conclusion} ({confidence}%)")
+                    # [Phase 2.2] Rebuttal 페널티: debate 발생 시 rebuttal_to_critic 비어 있으면 신뢰도 0.8배
+                    if debate_iter > 0 and hasattr(analyst_result, "revised_hypothesis") and analyst_result.revised_hypothesis:
+                        rev = analyst_result.revised_hypothesis
+                        rebuttal = getattr(rev, "rebuttal_to_critic", None) or ""
+                        if not (rebuttal and rebuttal.strip()):
+                            confidence = confidence * 0.8
+                            logger.info(f"{expert_type.capitalize()} Finalize: Rebuttal penalty applied (confidence *= 0.8)")
                 except Exception as e:
                     logger.error(f"{expert_type.capitalize()} Finalize Logic extraction error: {e}")
                     conclusion = "판독 불가"
@@ -435,13 +459,26 @@ def create_verdict_finalize_node(expert_type: str):
                 confidence = 50.0
             if "불가" not in conclusion and "아님" not in conclusion and "의심" not in conclusion:
                 conclusion += " 의심"
+        
+        # [Phase 1.4] 토론 섹션: debate_iter > 0일 때 토론 턴 수, 합의 여부, 토론 기록 포함
+        debate_section = ""
+        if debate_iter > 0:
+            critique_result = state.get("critique_result")
+            consensus = "합의 도달" if (critique_result and getattr(critique_result, "is_approved", False)) else "합의 미도달"
+            debate_section = f"""
+### Analyst-Critic 토론
+- 토론 턴 수: {debate_iter}
+- 합의 여부: {consensus}
+- 토론 기록:
+{chr(10).join(f"  {m}" for m in debate_messages)}
+"""
             
         full_report = f"""## {expert_type.capitalize()} 전문가 최종 분석 결과
 
 ### 특이점 진단 요약
 - 발견된 특이점 개수: {len(results)}개
 - 최종 판독: **{conclusion}** (신뢰도: {confidence:.1f}%)
-
+{debate_section}
 ### 상세 분석 논리
 {hypothesis}
 

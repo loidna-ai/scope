@@ -1,0 +1,16 @@
+=== Stage 2 Slicing Debug Summary ===
+Image: IMG_1634.JPG (4032x3024)
+Scale Factor: 0.5079 -> (2048x1536)
+Config: Size=1024, Overlap=200, Stride=824
+Thresholds: Blur=50.0, Edge=10
+Total Patches Generated: 6
+  - PASS: 6
+  - FILTERED: 0
+
+Patch Details:
+[0,0] Status: PASS, Var: 352.0, Edge: 29.16, Offset: (0, 0)
+[0,1] Status: PASS, Var: 587.0, Edge: 66.64, Offset: (824, 0)
+[0,2] Status: PASS, Var: 628.6, Edge: 71.68, Offset: (1024, 0)
+[1,0] Status: PASS, Var: 426.0, Edge: 24.30, Offset: (0, 512)
+[1,1] Status: PASS, Var: 388.0, Edge: 38.35, Offset: (824, 512)
+[1,2] Status: PASS, Var: 399.9, Edge: 40.24, Offset: (1024, 512)

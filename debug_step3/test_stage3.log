@@ -1,0 +1,26 @@
+2026-03-20 10:58:27,984 - INFO - === Stage 3 Debugging Test Started ===
+2026-03-20 10:58:28,436 - INFO - Model: gemini-2.5-flash
+2026-03-20 10:58:28,436 - INFO - Batch Size (Config): 5
+2026-03-20 10:58:28,437 - INFO - Test Batch size for this specific call: 3 patches
+2026-03-20 10:58:28,437 - INFO -   Patch 1: patch_0_0.jpg
+2026-03-20 10:58:28,437 - INFO -   Patch 2: patch_0_1.jpg
+2026-03-20 10:58:28,437 - INFO -   Patch 3: patch_0_2.jpg
+2026-03-20 10:58:28,438 - INFO - Calling batch_process_hotspots...
+2026-03-20 10:58:28,440 - INFO - AFC is enabled with max remote calls: 10.
+2026-03-20 10:59:06,412 - INFO - HTTP Request: POST https://aiplatform.googleapis.com/v1beta1/projects/loidna-ai-scope/locations/global/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-03-20 10:59:06,429 - INFO - Hotspot Detector Concurrency: Batch Processing stats — success: 100.0%
+2026-03-20 10:59:06,429 - INFO - API Call Duration: 37.99s
+2026-03-20 10:59:06,429 - INFO - API Result - Response contains 2 hotspots.
+2026-03-20 10:59:06,430 - INFO - Hotspot 1:
+2026-03-20 10:59:06,430 - INFO -   - Image Index: 1 (Correct for this patch?)
+2026-03-20 10:59:06,432 - INFO -   - Severity: 90
+2026-03-20 10:59:06,432 - INFO -   - Box: {'ymin': 400, 'xmin': 550, 'ymax': 600, 'xmax': 850}
+2026-03-20 10:59:06,432 - INFO -   - Evidence: 어두운 부품은 심하게 탄화되고 녹아 형태가 변형되었으며 표면이 거칠다. 인접한 구리선 다발은 검게 변색되었고 일부는 서로 엉겨 붙어 용융 흔적을 보인다. 표면에 흰색 잔여물이 관찰된다.
+2026-03-20 10:59:06,432 - INFO -   - Associated with patch: patch_0_0.jpg
+2026-03-20 10:59:06,433 - INFO - Hotspot 2:
+2026-03-20 10:59:06,433 - INFO -   - Image Index: 2 (Correct for this patch?)
+2026-03-20 10:59:06,433 - INFO -   - Severity: 75
+2026-03-20 10:59:06,433 - INFO -   - Box: {'ymin': 400, 'xmin': 400, 'ymax': 600, 'xmax': 700}
+2026-03-20 10:59:06,434 - INFO -   - Evidence: 금속 원통 표면은 광범위하게 검게 변색되었고, 여러 부위에 걸쳐 표면이 거칠고 요철이 심하며 일부 재료 손실로 보이는 흔적이 관찰된다.
+2026-03-20 10:59:06,434 - INFO -   - Associated with patch: patch_0_1.jpg
+2026-03-20 10:59:06,435 - INFO - === Stage 3 Debugging Test Completed ===

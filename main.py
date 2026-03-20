@@ -237,10 +237,17 @@ async def run_analysis_pipeline(
         logger.info(f"전체 결과 저장 완료: {output_file}")
         docx_file = output_dir / "investigation_result.docx"
         if docx_file.exists():
+<<<<<<< HEAD
             print(f"\nOK: 전체 결과가 저장되었습니다: {output_file}")
             print(f"   Word 문서: {docx_file}")
         else:
             print(f"\nOK: 전체 결과가 저장되었습니다: {output_file}")
+=======
+            print(f"\n✅ 전체 결과가 저장되었습니다: {output_file}")
+            print(f"   Word 문서: {docx_file}")
+        else:
+            print(f"\n✅ 전체 결과가 저장되었습니다: {output_file}")
+>>>>>>> origin
         
         # 개별 리포트 저장
         save_expert_reports(expert_reports, output_dir)
@@ -285,10 +292,17 @@ def export_existing_to_docx():
         try:
             content = txt_path.read_text(encoding="utf-8")
             save_investigation_result_docx(content, docx_path, base_dir, raw_visual)
+<<<<<<< HEAD
             print(f"  OK: {docx_path.relative_to(output_base)}")
             found += 1
         except Exception as e:
             print(f"  Error: {txt_path.relative_to(output_base)}: {e}")
+=======
+            print(f"  ✓ {docx_path.relative_to(output_base)}")
+            found += 1
+        except Exception as e:
+            print(f"  ✗ {txt_path.relative_to(output_base)}: {e}")
+>>>>>>> origin
     for md_path in output_base.rglob("investigation_result.md"):
         docx_path = md_path.with_suffix(".docx")
         if docx_path.exists():
@@ -306,10 +320,17 @@ def export_existing_to_docx():
         try:
             content = md_path.read_text(encoding="utf-8")
             save_investigation_result_docx(content, docx_path, base_dir, raw_visual)
+<<<<<<< HEAD
             print(f"  OK: {docx_path.relative_to(output_base)}")
             found += 1
         except Exception as e:
             print(f"  Error: {md_path.relative_to(output_base)}: {e}")
+=======
+            print(f"  ✓ {docx_path.relative_to(output_base)}")
+            found += 1
+        except Exception as e:
+            print(f"  ✗ {md_path.relative_to(output_base)}: {e}")
+>>>>>>> origin
     return found
 
 
@@ -330,7 +351,11 @@ def main():
         from src.nodes.enhancement_cache import clear_enhancement_cache, clear_visual_reports
         clear_enhancement_cache(max_age_days=0)
         clear_visual_reports(max_age_days=0)
+<<<<<<< HEAD
         print("OK: 캐시 정리 완료 (.enhancement_cache, visual_reports)")
+=======
+        print("✓ 캐시 정리 완료 (.enhancement_cache, visual_reports)")
+>>>>>>> origin
         sys.exit(0)
 
     # 0b. 기존 결과 docx 변환

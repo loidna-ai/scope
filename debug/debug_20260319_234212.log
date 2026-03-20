@@ -1,0 +1,503 @@
+2026-03-19 23:42:16 [INFO] __main__.write: ============================================================
+2026-03-19 23:42:16 [INFO] __main__.write: 사용 가능한 이미지 파일:
+2026-03-19 23:42:16 [INFO] __main__.write: ============================================================
+2026-03-19 23:42:16 [INFO] __main__.write: [1] 20260103.jpg (999.0 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [2] 20260219_082220.jpg (3296.8 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [3] 20260224_120311.jpg (3041.7 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [4] 20260224_120407.jpg (2675.7 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [5] IMG_1634.JPG (3303.8 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [6] IMG_1638.JPG (3173.6 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [7] IMG_3994.JPG (1299.8 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [8] IMG_5086.JPG (2837.3 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [9] IMG_8113.jpg (1208.0 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [10] Poor_Contact_001.jpg (387.5 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [11] YJ_20260127.jpg (3327.0 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: [12] YJ_20260127_B.jpg (3412.5 KB)
+2026-03-19 23:42:16 [INFO] __main__.write: ============================================================
+2026-03-19 23:42:16 [INFO] __main__.write: 이미지 번호를 선택하세요 (1-12):
+2026-03-19 23:42:22 [INFO] src.utils.io_utils.select_image_file: 이미지 선택됨: IMG_3994.JPG
+2026-03-19 23:42:22 [INFO] __main__.write: 선택된 이미지: IMG_3994.JPG
+2026-03-19 23:42:22 [INFO] __main__.run_analysis_pipeline: 화재 조사 멀티 에이전트 시스템 가동 - 분석 대상: IMG_3994.JPG
+2026-03-19 23:42:22 [INFO] __main__.write: ============================================================
+2026-03-19 23:42:22 [INFO] __main__.write: 화재 조사 멀티 에이전트 시스템 가동
+2026-03-19 23:42:22 [INFO] __main__.write: ============================================================
+2026-03-19 23:42:22 [INFO] __main__.write: 분석 대상: IMG_3994.JPG
+2026-03-19 23:42:22 [INFO] __main__.write: [System] API 할당량 최적화를 위해 5초간 대기합니다...
+2026-03-19 23:42:27 [INFO] __main__.write: [1단계] 입력 데이터 처리 중...
+2026-03-19 23:42:27 [INFO] __main__.run_analysis_pipeline: Payload 생성 완료 (2 parts)
+2026-03-19 23:42:27 [INFO] __main__.write: OK: Payload 생성 완료 (2 parts)
+2026-03-19 23:42:27 [INFO] __main__.write: [2단계] 멀티 에이전트 병렬 분석 시작
+2026-03-19 23:42:27 [INFO] __main__.write: - Hotspot Detector가 관심 영역을 탐지합니다.
+2026-03-19 23:42:27 [INFO] __main__.write: - 3인의 전문가 에이전트가 병렬로 동시에 분석합니다. (Fan-Out)
+2026-03-19 23:42:27 [INFO] __main__.write: (Contact, Deform, Necking - Map-Reduce Pattern)
+2026-03-19 23:42:27 [INFO] __main__.write: - 각 전문가는 독립적인 서브그래프로 동작하며 Map-Reduce 패턴을 사용합니다.
+2026-03-19 23:42:27 [INFO] __main__.write: - 모든 분석 결과를 수집합니다. (Fan-In)
+2026-03-19 23:42:27 [INFO] __main__.write: - 수석 조사관(Arbiter)이 종합하여 최종 결론을 도출합니다.
+2026-03-19 23:42:27 [INFO] src.utils.io_utils.process_payload_images: [System] Initial Image 1 Saved to: C:\Users\loidn\AppData\Local\Temp\tmp8o14xy06.jpg
+2026-03-19 23:42:28 [INFO] src.utils.image_processing.slice_multiple_images: Image Slicing: Processing C:\Users\loidn\AppData\Local\Temp\tmp8o14xy06.jpg...
+2026-03-19 23:42:28 [INFO] src.utils.image_processing.slice_image: Slicing complete: Filtered out 2 blank/blurry background patches using CV2 thresholds.
+2026-03-19 23:42:35 [INFO] __main__.write: ⚠️ [Batch 0 (1 images)] Retry 1/3: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 16.65s)
+2026-03-19 23:42:39 [INFO] __main__.write: ⚠️ [Batch 1 (1 images)] Retry 1/3: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 18.59s)
+2026-03-19 23:43:11 [INFO] __main__.write: ⚠️ [Batch 3 (1 images)] Retry 1/3: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 16.23s)
+2026-03-19 23:44:06 [ERROR] __main__.write: Traceback (most recent call last):
+2026-03-19 23:44:06 [ERROR] __main__.write: File "C:\Users\loidn\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 118, in run
+2026-03-19 23:44:06 [ERROR] __main__.write: return self._loop.run_until_complete(task)
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "C:\Users\loidn\AppData\Local\Programs\Python\Python311\Lib\asyncio\base_events.py", line 654, in run_until_complete
+2026-03-19 23:44:06 [ERROR] __main__.write: return future.result()
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\main.py", line 166, in run_analysis_pipeline
+2026-03-19 23:44:06 [ERROR] __main__.write: result = await analyze_fire_evidence(payload, output_dir=str(output_dir))
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\src\agent.py", line 111, in analyze_fire_evidence
+2026-03-19 23:44:06 [ERROR] __main__.write: result = await graph.ainvoke(initial_state)
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "V:\Projects\P_04_Scope\venv\Lib\site-packages\langgraph\pregel\main.py", line 3161, in ainvoke
+2026-03-19 23:44:06 [ERROR] __main__.write: async for chunk in self.astream(
+2026-03-19 23:44:06 [ERROR] __main__.write: File "V:\Projects\P_04_Scope\venv\Lib\site-packages\langgraph\pregel\main.py", line 2974, in astream
+2026-03-19 23:44:06 [ERROR] __main__.write: async for _ in runner.atick(
+2026-03-19 23:44:06 [ERROR] __main__.write: File "V:\Projects\P_04_Scope\venv\Lib\site-packages\langgraph\pregel\_runner.py", line 304, in atick
+2026-03-19 23:44:06 [ERROR] __main__.write: await arun_with_retry(
+2026-03-19 23:44:06 [ERROR] __main__.write: File "V:\Projects\P_04_Scope\venv\Lib\site-packages\langgraph\pregel\_retry.py", line 138, in arun_with_retry
+2026-03-19 23:44:06 [ERROR] __main__.write: return await task.proc.ainvoke(task.input, config)
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "V:\Projects\P_04_Scope\venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 705, in ainvoke
+2026-03-19 23:44:06 [ERROR] __main__.write: input = await asyncio.create_task(
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "V:\Projects\P_04_Scope\venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 473, in ainvoke
+2026-03-19 23:44:06 [ERROR] __main__.write: ret = await self.afunc(*args, **kwargs)
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\src\nodes\common_nodes.py", line 150, in hotspot_detector_node
+2026-03-19 23:44:06 [ERROR] __main__.write: batch_results = await batch_process_hotspots(
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\src\utils\api_concurrency.py", line 290, in batch_process_hotspots
+2026-03-19 23:44:06 [ERROR] __main__.write: results = await asyncio.gather(*tasks)
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\src\utils\api_concurrency.py", line 253, in _process_patch_batch
+2026-03-19 23:44:06 [ERROR] __main__.write: response = await async_retry_with_backoff(
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\src\utils\retry_utils.py", line 147, in async_retry_with_backoff
+2026-03-19 23:44:06 [ERROR] __main__.write: return await asyncio.wait_for(_do_api_call(), timeout=timeout_seconds)
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "C:\Users\loidn\AppData\Local\Programs\Python\Python311\Lib\asyncio\tasks.py", line 476, in wait_for
+2026-03-19 23:44:06 [ERROR] __main__.write: await waiter
+2026-03-19 23:44:06 [ERROR] __main__.write: asyncio.exceptions
+2026-03-19 23:44:06 [ERROR] __main__.write: .
+2026-03-19 23:44:06 [ERROR] __main__.write: CancelledError
+2026-03-19 23:44:06 [ERROR] __main__.write: During handling of the above exception, another exception occurred:
+2026-03-19 23:44:06 [ERROR] __main__.write: Traceback (most recent call last):
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\main.py", line 417, in <module>
+2026-03-19 23:44:06 [ERROR] __main__.write: main()
+2026-03-19 23:44:06 [ERROR] __main__.write: File "v:\Projects\P_04_Scope\main.py", line 413, in main
+2026-03-19 23:44:06 [ERROR] __main__.write: asyncio.run(run_analysis_pipeline(input_image_path, output_dir, args.query))
+2026-03-19 23:44:06 [ERROR] __main__.write: File "C:\Users\loidn\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 190, in run
+2026-03-19 23:44:06 [ERROR] __main__.write: return runner.run(main)
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: ^
+2026-03-19 23:44:06 [ERROR] __main__.write: File "C:\Users\loidn\AppData\Local\Programs\Python\Python311\Lib\asyncio\runners.py", line 123, in run
+2026-03-19 23:44:06 [ERROR] __main__.write: raise KeyboardInterrupt()
+2026-03-19 23:44:06 [ERROR] __main__.write: KeyboardInterrupt

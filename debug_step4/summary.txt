@@ -1,0 +1,6 @@
+=== Stage 4 Coordinate Transformation Debug Summary ===
+Source Image: IMG_1634.JPG ((4032, 3024))
+Scale Factor used: 0.5079
+Detections:
+  #1 [ImgIdx:1] NormBox:{'ymin': 266, 'xmin': 275, 'ymax': 399, 'xmax': 425}
+  #2 [ImgIdx:2] NormBox:{'ymin': 266, 'xmin': 602, 'ymax': 399, 'xmax': 752}

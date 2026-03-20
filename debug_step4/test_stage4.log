@@ -1,0 +1,12 @@
+2026-03-20 11:00:28,761 - INFO - === Stage 4 Debugging Test Started ===
+2026-03-20 11:00:28,761 - INFO - Calling map_hotspots_to_global...
+2026-03-20 11:00:28,846 - INFO - Detection 1 (ImgIdx 1):
+2026-03-20 11:00:28,848 - INFO -   - Original Patch offset: (0, 0)
+2026-03-20 11:00:28,848 - INFO -   - Global Normalized Box: {'ymin': 266, 'xmin': 275, 'ymax': 399, 'xmax': 425}
+2026-03-20 11:00:28,849 - INFO -   - Global Pixel Box: [804, 1108, 1206, 1713]
+2026-03-20 11:00:28,850 - INFO - Detection 2 (ImgIdx 2):
+2026-03-20 11:00:28,850 - INFO -   - Original Patch offset: (1622, 0)
+2026-03-20 11:00:28,851 - INFO -   - Global Normalized Box: {'ymin': 266, 'xmin': 602, 'ymax': 399, 'xmax': 752}
+2026-03-20 11:00:28,851 - INFO -   - Global Pixel Box: [804, 2427, 1206, 3032]
+2026-03-20 11:00:28,924 - INFO - Global mapping visualization saved to: v:\Projects\P_04_Scope\debug_step4\global_mapping_test.jpg
+2026-03-20 11:00:28,924 - INFO - === Stage 4 Debugging Test Completed ===

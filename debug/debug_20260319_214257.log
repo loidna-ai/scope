@@ -1,0 +1,205 @@
+2026-03-19 21:43:03 [INFO] __main__.write: ============================================================
+2026-03-19 21:43:03 [INFO] __main__.write: 사용 가능한 이미지 파일:
+2026-03-19 21:43:03 [INFO] __main__.write: ============================================================
+2026-03-19 21:43:03 [INFO] __main__.write: [1] 20260103.jpg (999.0 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [2] 20260219_082220.jpg (3296.8 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [3] 20260224_120311.jpg (3041.7 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [4] 20260224_120407.jpg (2675.7 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [5] IMG_1634.JPG (3303.8 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [6] IMG_1638.JPG (3173.6 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [7] IMG_3994.JPG (1299.8 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [8] IMG_5086.JPG (2837.3 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [9] IMG_8113.jpg (1208.0 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [10] Poor_Contact_001.jpg (387.5 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [11] YJ_20260127.jpg (3327.0 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: [12] YJ_20260127_B.jpg (3412.5 KB)
+2026-03-19 21:43:03 [INFO] __main__.write: ============================================================
+2026-03-19 21:43:03 [INFO] __main__.write: 이미지 번호를 선택하세요 (1-12):
+2026-03-19 21:43:09 [INFO] src.utils.io_utils.select_image_file: 이미지 선택됨: IMG_3994.JPG
+2026-03-19 21:43:09 [INFO] __main__.write: 선택된 이미지: IMG_3994.JPG
+2026-03-19 21:43:09 [INFO] __main__.run_analysis_pipeline: 화재 조사 멀티 에이전트 시스템 가동 - 분석 대상: IMG_3994.JPG
+2026-03-19 21:43:09 [INFO] __main__.write: ============================================================
+2026-03-19 21:43:09 [INFO] __main__.write: 화재 조사 멀티 에이전트 시스템 가동
+2026-03-19 21:43:09 [INFO] __main__.write: ============================================================
+2026-03-19 21:43:09 [INFO] __main__.write: 분석 대상: IMG_3994.JPG
+2026-03-19 21:43:09 [INFO] __main__.write: [1단계] 입력 데이터 처리 중...
+2026-03-19 21:43:09 [INFO] __main__.run_analysis_pipeline: Payload 생성 완료 (2 parts)
+2026-03-19 21:43:09 [INFO] __main__.write: OK: Payload 생성 완료 (2 parts)
+2026-03-19 21:43:09 [INFO] __main__.write: [2단계] 멀티 에이전트 병렬 분석 시작
+2026-03-19 21:43:09 [INFO] __main__.write: - Hotspot Detector가 관심 영역을 탐지합니다.
+2026-03-19 21:43:09 [INFO] __main__.write: - 3인의 전문가 에이전트가 병렬로 동시에 분석합니다. (Fan-Out)
+2026-03-19 21:43:09 [INFO] __main__.write: (Contact, Deform, Necking - Map-Reduce Pattern)
+2026-03-19 21:43:09 [INFO] __main__.write: - 각 전문가는 독립적인 서브그래프로 동작하며 Map-Reduce 패턴을 사용합니다.
+2026-03-19 21:43:09 [INFO] __main__.write: - 모든 분석 결과를 수집합니다. (Fan-In)
+2026-03-19 21:43:09 [INFO] __main__.write: - 수석 조사관(Arbiter)이 종합하여 최종 결론을 도출합니다.
+2026-03-19 21:43:09 [INFO] src.utils.io_utils.process_payload_images: [System] Initial Image 1 Saved to: C:\Users\loidn\AppData\Local\Temp\tmpvjcp_pie.jpg
+2026-03-19 21:43:09 [INFO] src.utils.image_processing.slice_multiple_images: Image Slicing: Processing C:\Users\loidn\AppData\Local\Temp\tmpvjcp_pie.jpg...
+2026-03-19 21:43:10 [INFO] src.utils.image_processing.slice_image: Slicing complete: Filtered out 2 blank/blurry background patches using CV2 thresholds.
+2026-03-19 21:44:12 [INFO] common_nodes.hotspot_detector_node: Hotspot Detector: 3 raw hotspots detected.
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node.preprocess_hotspots_node: Preprocessor: Processing 3 hotspot(s) …
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node._crop_roi: Preprocessor 3: Crop done → C:\Users\loidn\AppData\Local\Temp\roi_crop_p0rik9j8.jpg
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 3: Waiting for enhancement lock...
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 3: Applying 2x enhancement...
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node._crop_roi: Preprocessor 1: Crop done → C:\Users\loidn\AppData\Local\Temp\roi_crop_gd8pkcfp.jpg
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 1: Waiting for enhancement lock...
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node._crop_roi: Preprocessor 2: Crop done → C:\Users\loidn\AppData\Local\Temp\roi_crop_ocm1f7l7.jpg
+2026-03-19 21:44:12 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 2: Waiting for enhancement lock...
+2026-03-19 21:44:17 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 3: Enhancement done → C:\Users\loidn\AppData\Local\Temp\roi_crop_p0rik9j8.jpg
+2026-03-19 21:44:17 [INFO] src.nodes.preprocessor_node._classify: Preprocessor 3: Classifying component...
+2026-03-19 21:44:17 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 1: Applying 2x enhancement...
+2026-03-19 21:44:21 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 1: Enhancement done → C:\Users\loidn\AppData\Local\Temp\roi_crop_gd8pkcfp.jpg
+2026-03-19 21:44:22 [INFO] src.nodes.preprocessor_node._classify: Preprocessor 1: Classifying component...
+2026-03-19 21:44:22 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 2: Applying 2x enhancement...
+2026-03-19 21:44:26 [INFO] src.nodes.preprocessor_node._enhance_roi: Preprocessor 2: Enhancement done → C:\Users\loidn\AppData\Local\Temp\roi_crop_ocm1f7l7.jpg
+2026-03-19 21:44:26 [INFO] src.nodes.preprocessor_node._classify: Preprocessor 2: Classifying component...
+2026-03-19 21:44:42 [INFO] src.nodes.preprocessor_node._classify: Preprocessor 1: → Splice (conf: 85%)
+2026-03-19 21:44:51 [INFO] src.nodes.preprocessor_node._classify: Preprocessor 2: → Splice (conf: 95%)
+2026-03-19 21:45:03 [INFO] src.nodes.preprocessor_node._classify: Preprocessor 3: → Splice (conf: 85%)
+2026-03-19 21:45:03 [INFO] src.nodes.preprocessor_node.preprocess_hotspots_node: Preprocessor: Done - 3 hotspot(s) ready
+2026-03-19 21:45:03 [INFO] src.graphs.graph_utils.wrapper_node: Contact Expert: Starting analysis with streaming...
+2026-03-19 21:45:04 [INFO] src.graphs.graph_utils.wrapper_node: Necking Expert: Starting analysis with streaming...
+2026-03-19 21:45:04 [INFO] src.graphs.graph_utils.distribute_work_generic: Contact Expert: Using 3 pre-processed hotspot(s)
+2026-03-19 21:45:04 [INFO] src.graphs.graph_utils.distribute_work_generic: Necking Expert: Using 3 pre-processed hotspot(s)
+2026-03-19 21:45:04 [INFO] __main__.write: [Distribute] [Contact Distribute] 3개 Worker 병렬 분산
+2026-03-19 21:45:04 [INFO] __main__.write: [Distribute] [Necking Distribute] 3개 Worker 병렬 분산
+2026-03-19 21:45:04 [INFO] __main__.write: 선택된 IDs: [1, 2, 3]
+2026-03-19 21:45:04 [INFO] __main__.write: 선택된 IDs: [1, 2, 3]
+2026-03-19 21:45:04 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 1: Evidence collection started
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 1: Using pre-processed (crop+classify+enhance) for 1 view(s)
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes._analyze_specialist: Worker 1: Collecting Splice evidence across 1 view(s)...
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 2: Evidence collection started
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 2: Using pre-processed (crop+classify+enhance) for 1 view(s)
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes._analyze_specialist: Worker 2: Collecting Splice evidence across 1 view(s)...
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 3: Evidence collection started
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 3: Using pre-processed (crop+classify+enhance) for 1 view(s)
+2026-03-19 21:45:04 [INFO] src.nodes.contact_nodes._analyze_specialist: Worker 3: Collecting Splice evidence across 1 view(s)...
+2026-03-19 21:45:05 [INFO] __main__.write: ✓ [Necking] Completed: verdict_finalize
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 1: Evidence collection started
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 1: Using pre-processed (crop+classify+enhance): C:\Users\loidn\AppData\Local\Temp\roi_crop_gd8pkcfp.jpg
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes._collect_evidence: Worker 1: Skipped (Not Wire)
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 1: Evidence collection completed
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 2: Evidence collection started
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 2: Using pre-processed (crop+classify+enhance): C:\Users\loidn\AppData\Local\Temp\roi_crop_ocm1f7l7.jpg
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes._collect_evidence: Worker 2: Skipped (Not Wire)
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 2: Evidence collection completed
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 3: Evidence collection started
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 3: Using pre-processed (crop+classify+enhance): C:\Users\loidn\AppData\Local\Temp\roi_crop_p0rik9j8.jpg
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes._collect_evidence: Worker 3: Skipped (Not Wire)
+2026-03-19 21:45:05 [INFO] src.nodes.necking_nodes.analyze_hotspot_worker: Worker 3: Evidence collection completed
+2026-03-19 21:45:05 [INFO] __main__.write: ✓ [Necking] Completed: verdict_finalize
+2026-03-19 21:45:05 [INFO] src.nodes.verdict_debate_nodes.supervisor_verdict: Necking Supervisor: Reviewing evidence from 3 Workers...
+2026-03-19 21:45:05 [INFO] __main__.write: 🤔 [Necking Supervisor] 종합 판정 중...
+2026-03-19 21:45:22 [INFO] src.nodes.verdict_debate_nodes.supervisor_verdict: Necking Supervisor: Final Verdict: 반단선 아님 (Conf: 100)
+2026-03-19 21:45:22 [INFO] src.nodes.verdict_debate_nodes.supervisor_verdict: Necking Supervisor: Fast path (no debate needed)
+2026-03-19 21:45:22 [INFO] src.graphs.graph_utils.route_supervisor_decision_generic: Router: Supervisor Fast Path verdict -> Proceeding to Finalize
+2026-03-19 21:45:22 [INFO] __main__.write: ✓ [Necking] Completed: verdict_finalize
+2026-03-19 21:45:22 [INFO] src.nodes.verdict_debate_nodes.verdict_finalize_node: Necking Finalize: Consolidating verdict (Debate Rounds: 0)...
+2026-03-19 21:45:22 [INFO] src.nodes.verdict_debate_nodes.verdict_finalize_node: Necking Finalize: Adopted Supervisor Fast Path verdict: 반단선 아님 (100.0%)
+2026-03-19 21:45:22 [INFO] __main__.write: ✓ [Necking] Completed: verdict_finalize
+2026-03-19 21:45:43 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 1: Evidence: Zone 1 (기준 도체): 좌측 전선의 원본 형태를 유지하는 구간은 검은색 절연체로 덮여 있으며 대체로 원통형의 형상을 보인다. 우측 전선의 원본 형태를 유지하는 구간은 여러 가닥의 연선이 꼬여 있는 형태로... | Zone 3 (접속부): 좌측 전선의 끝단은 심하게 용융되어 본래의 형태를 알아보기 힘든 불규칙한 금속 덩어리로 변형되었다. 덩어리 표면에는 크고 작은 융착된 돌기들이 관찰된다. 우측 전선은 연선들이 넓게... | Zone 4 (용융 흔적): 좌측 심하게 용융된 전선 끝단에 여러 개의 작고 반짝이는 구형 또는 반구형 금속 돌기들이 융착되어 관찰되지만, 개별 돌기에 대한 독립적인 3D 그림자가 명확히 식별되지 않아 용융 ... (Score: 85)
+2026-03-19 21:45:43 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 1: Evidence collection completed
+2026-03-19 21:45:47 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 2: Evidence: Zone 1 (기준 도체): 이미지 우측에 위치한 도체 다발은 여러 가닥의 소선이 꼬여 있는 형태로, 일부 소선은 다발에서 분리되어 흩어져 있다. 전체적으로 원형의 단면을 유지하지 못하고 형태가 일그러져 있다... | Zone 3 (접속부): 접속부는 두 전선이 심하게 꼬여 탄화된 덩어리 형태를 이루고 있으며, 원래의 연결 형태나 구성 요소(예: 와이어 커넥터)는 육안으로 식별하기 어렵다. 도체 소선들은 녹아내린 피복과... | Zone 4 (용융 흔적): 이미지 전체에서 육안으로 명확하게 3가지 검증 기준(입체적 그림자 유무, 모재와의 융합성, 매끄러운 표면 질감)을 모두 통과하는 용융 비드는 관찰되지 않는다. 용융된 금속의 불규칙... (Score: 75)
+2026-03-19 21:45:47 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 2: Evidence collection completed
+2026-03-19 21:45:48 [INFO] __main__.write: ⚠️ [Worker #3 Splice Evidence] Retry 1/5: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 18.61s)
+2026-03-19 21:46:21 [INFO] __main__.write: ⚠️ [Worker #3 Splice Evidence] Retry 2/5: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 32.43s)
+2026-03-19 21:47:17 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 3: Evidence: Zone 1 (기준 도체): 오른쪽 전선의 최우측 끝단에 노출된 소선들은 원래의 원형 형태를 유지하고 있으며, 개별 소선들이 분리된 상태로 관찰됩니다. 일부 소선은 다소 휘어져 있습니다.... | Zone 3 (접속부): 오른쪽 전선의 중앙부에 여러 가닥의 소선들이 꼬여 결속된 형태로 관찰됩니다. 이 부분의 피복은 완전히 소실되었으며, 노출된 소선들 사이에는 심하게 탄화된 잔여물이 엉겨 붙어 있습니... | Zone 4 (용융 흔적): Image A에서 전반적으로 심한 탄화 및 변색이 관찰되지만, 명확한 입체적 형태, 모재와의 융합성, 매끄러운 표면 질감의 세 가지 검증 기준을 모두 충족하는 구형 또는 반구형의 ... (Score: 70)
+2026-03-19 21:47:17 [INFO] src.nodes.contact_nodes.analyze_hotspot_worker: Worker 3: Evidence collection completed
+2026-03-19 21:47:17 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:47:17 [INFO] src.nodes.verdict_debate_nodes.supervisor_verdict: Contact Supervisor: Reviewing evidence from 3 Workers...
+2026-03-19 21:47:17 [INFO] __main__.write: 🤔 [Contact Supervisor] 종합 판정 중...
+2026-03-19 21:47:28 [INFO] __main__.write: ⚠️ [Contact Supervisor] Retry 1/5: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 45.85s)
+2026-03-19 21:48:45 [INFO] src.nodes.verdict_debate_nodes.supervisor_verdict: Contact Supervisor: Final Verdict: 접촉불량 의심 (Conf: 60)
+2026-03-19 21:48:45 [INFO] src.nodes.verdict_debate_nodes.supervisor_verdict: Contact Supervisor: Debate requested (confidence=60, conclusion=접촉불량 의심)
+2026-03-19 21:48:45 [INFO] src.graphs.graph_utils.route_supervisor_decision_generic: Router: Supervisor requested debate -> Proceeding to Analyst
+2026-03-19 21:48:45 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:48:45 [INFO] src.nodes.verdict_debate_nodes.verdict_analyst_node: Contact Analyst: Establishing initial hypothesis...
+2026-03-19 21:49:13 [INFO] src.nodes.verdict_debate_nodes.verdict_analyst_node: Contact Analyst: Hypothesis: 접촉불량 유력 (High) (85%)
+2026-03-19 21:49:13 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:49:13 [INFO] src.nodes.verdict_debate_nodes.verdict_critic_node: Contact Critic: Verifying hypothesis (Round 1)...
+2026-03-19 21:49:13 [INFO] src.nodes.verdict_debate_nodes.verdict_critic_node: Contact Critic: Calling Vision API with images...
+2026-03-19 21:49:18 [INFO] __main__.write: ⚠️ [Contact Critic Vision] Retry 1/5: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 45.43s)
+2026-03-19 21:50:11 [INFO] __main__.write: ⚠️ [Contact Critic Vision] Retry 2/5: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'Resource exhausted. Please try again lat... (waiting 93.73s)
+2026-03-19 21:52:14 [INFO] src.nodes.verdict_debate_nodes.verdict_critic_node: Contact Critic: Objection raised: 증거 과대해석
+2026-03-19 21:52:14 [INFO] src.graphs.graph_utils.route_verdict_debate_generic: Debate Supervisor: Debate continues (Round 2/3)
+2026-03-19 21:52:14 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:52:14 [INFO] src.nodes.verdict_debate_nodes.verdict_analyst_node: Contact Analyst: Re-analyzing based on critique (Round 2)...
+2026-03-19 21:52:14 [INFO] src.nodes.verdict_debate_nodes.verdict_analyst_node: Contact Analyst: Critic specified hotspots: [1, 2, 3]
+2026-03-19 21:52:52 [INFO] src.nodes.verdict_debate_nodes.verdict_analyst_node: Contact Analyst: Hypothesis: 접촉불량 의심 (Suspected) (60%)
+2026-03-19 21:52:52 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:52:52 [INFO] src.nodes.verdict_debate_nodes.verdict_critic_node: Contact Critic: Verifying hypothesis (Round 2)...
+2026-03-19 21:52:52 [INFO] src.nodes.verdict_debate_nodes.verdict_critic_node: Contact Critic: Calling Vision API with images...
+2026-03-19 21:53:30 [INFO] src.nodes.verdict_debate_nodes.verdict_critic_node: Contact Critic: Objection raised: 시스템 오류
+2026-03-19 21:53:30 [WARNING] src.graphs.graph_utils.route_verdict_debate_generic: Debate Supervisor: Critic reported system error. Forcing finalize.
+2026-03-19 21:53:30 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:53:30 [INFO] src.nodes.verdict_debate_nodes.verdict_finalize_node: Contact Finalize: Consolidating verdict (Debate Rounds: 2)...
+2026-03-19 21:53:30 [INFO] src.nodes.verdict_debate_nodes.verdict_finalize_node: Contact Finalize: Adopted Supervisor Fast Path verdict: 접촉불량 의심 (60.0%)
+2026-03-19 21:53:30 [INFO] __main__.write: ✓ [Contact] Completed: verdict_finalize
+2026-03-19 21:53:30 [INFO] src.graphs.arbiter_expert_graph.arbiter_expert_wrapper_node: Arbiter Expert wrapper: Starting debate process
+2026-03-19 21:53:30 [INFO] src.nodes.arbiter_nodes.debate_data_extractor.extract_expert_opinions: Extracting expert opinions from 2 experts
+2026-03-19 21:53:30 [INFO] src.nodes.arbiter_nodes.debate_data_extractor.extract_expert_opinions: contact expert opinion extracted (confidence: 60.0%)
+2026-03-19 21:53:30 [WARNING] src.nodes.arbiter_nodes.debate_data_extractor.extract_expert_opinions: deform expert data not found, skipping
+2026-03-19 21:53:30 [INFO] src.nodes.arbiter_nodes.debate_data_extractor.extract_expert_opinions: necking expert opinion extracted (confidence: 100.0%)
+2026-03-19 21:53:30 [WARNING] src.nodes.arbiter_nodes.debate_data_extractor.extract_expert_opinions: aging expert data not found, skipping
+2026-03-19 21:53:30 [INFO] src.nodes.arbiter_nodes.debate_data_extractor.extract_expert_opinions: Expert opinions extraction completed: 2 opinions extracted
+2026-03-19 21:53:30 [INFO] src.graphs.arbiter_expert_graph.arbiter_expert_wrapper_node: Arbiter wrapper: Extracted 2 expert opinions
+2026-03-19 21:53:30 [INFO] src.graphs.arbiter_expert_graph.arbiter_expert_wrapper_node: Arbiter wrapper: Building debate graph
+2026-03-19 21:53:30 [INFO] src.graphs.arbiter_expert_graph.arbiter_expert_wrapper_node: Arbiter wrapper: Invoking debate graph
+2026-03-19 21:53:30 [INFO] src.nodes.arbiter_nodes.debate_data_extractor.debate_data_extractor_node: Debate init: opening stage, round 1
+2026-03-19 21:53:30 [INFO] src.graphs.arbiter_expert_graph.route_after_extraction: Arbiter: Expert consensus detected → judge (skip debate)
+  Conclusions: {'contact': '접촉불량 의심', 'necking': '반단선 아님'}
+  Positive: ['contact', 'necking'], Negative: []
+2026-03-19 21:53:30 [INFO] src.nodes.arbiter_nodes.judge_node.judge_node: Judge node: Starting final verdict generation
+2026-03-19 21:53:30 [INFO] src.nodes.arbiter_nodes.judge_node.judge_node: Judge: Generating structured final verdict (consensus: False)
+2026-03-19 21:54:01 [INFO] src.nodes.arbiter_nodes.judge_node.judge_node: Judge: Structured final verdict generated (confidence: 60.0%)
+2026-03-19 21:54:01 [INFO] src.graphs.arbiter_expert_graph.arbiter_expert_wrapper_node: Arbiter wrapper: Debate graph completed (verdict: generated)
+2026-03-19 21:54:01 [INFO] src.graphs.arbiter_expert_graph.arbiter_expert_wrapper_node: Arbiter wrapper: Debate completed with 1 messages
+2026-03-19 21:54:01 [INFO] __main__.write: [Visualization] 시각적 보고서 생성 중...
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug] expert_analysis_results keys: ['contact', 'necking']
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug] contact: multi_hotspot_results count=3
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug]   [contact] res[0]: hotspot_info=True, box_2d=False, res.keys=['hotspot_id', 'hotspot_info', 'roi_image_path', 'specialist_result', 'connection_type']
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug]   [contact] res[1]: hotspot_info=True, box_2d=False, res.keys=['hotspot_id', 'hotspot_info', 'roi_image_path', 'specialist_result', 'connection_type']
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug]   [contact] res[2]: hotspot_info=True, box_2d=False, res.keys=['hotspot_id', 'hotspot_info', 'roi_image_path', 'specialist_result', 'connection_type']
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug] necking: multi_hotspot_results count=3
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug]   [necking] res[0]: hotspot_info=True, box_2d=False, res.keys=['hotspot_id', 'hotspot_info', 'roi_image_path', 'specialist_result', 'connection_type']
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug]   [necking] res[1]: hotspot_info=True, box_2d=False, res.keys=['hotspot_id', 'hotspot_info', 'roi_image_path', 'specialist_result', 'connection_type']
+2026-03-19 21:54:01 [INFO] visualization_node.draw_annotation_node: [Visualization Debug]   [necking] res[2]: hotspot_info=True, box_2d=False, res.keys=['hotspot_id', 'hotspot_info', 'roi_image_path', 'specialist_result', 'connection_type']
+2026-03-19 21:54:01 [INFO] __main__.write: OK: [Visualization] 리포트 저장 완료: outputs\IMG_3994\visual_report_aa326020.jpg
+2026-03-19 21:54:01 [INFO] agent.analyze_fire_evidence: Graph execution: 651657ms
+2026-03-19 21:54:01 [INFO] __main__.run_analysis_pipeline: 분석 완료 (소요 시간: 652.0초)
+2026-03-19 21:54:01 [INFO] __main__.write: OK: 분석 완료 (소요 시간: 652.0초)
+2026-03-19 21:54:01 [INFO] __main__.run_analysis_pipeline: 최종 분석 결과 출력
+2026-03-19 21:54:01 [INFO] __main__.write: ============================================================
+2026-03-19 21:54:01 [INFO] __main__.write: 최종 분석 결과 (Final Verdict)
+2026-03-19 21:54:01 [INFO] __main__.write: ============================================================
+2026-03-19 21:54:01 [INFO] __main__.write: **최종 판정**: 접촉불량(의심)
+**신뢰도**: 60.0% (Medium)
+
+**판정 근거:**
+접속부에서 심한 국부적 용융 및 탄화가 관찰되었으며, 일부 분석에서 접속이 '헐거워 보인다'는 보고가 있었습니다. 이는 저항 증가로 인한 국부적 과열, 즉 접촉불량의 가능성을 시사합니다. 명확한 단락흔(용융 비드)이 발견되지 않아 단락 가능성은 낮게 평가되므로, 접촉불량을 주요 원인으로 의심합니다.
+
+**핵심 증거:**
+1. 접속부의 심한 국부적 용융 및 탄화
+2. '헐거워 보이는' 접속 상태 관찰
+3. 명확한 단락흔(용융 비드) 부재
+4. 분석 대상이 전선이 아닌 접속부(Splice)임
+
+**Zone 정보:**
+- Zone 1 (기준 도체): 좌우 전선 모두 원본 형태를 비교적 유지하는 구간. 좌측은 검은색 절연체로 덮인 원통형, 우측은 여러 가닥의 연선이 꼬인 형태를 보임.
+- Zone 3 (접속부): 전선 끝단이 심하게 용융되어 불규칙한 금속 덩어리로 변형됨. 원래의 연결 형태 식별이 어려우며, 심하게 탄화된 잔여물이 엉겨 붙어 있음.
+- Zone 4 (용융 흔적): 심하게 용융된 전선 끝단에 작고 반짝이는 금속 돌기들이 융착되어 있으나, 단락을 특정하는 명확한 구형의 용융 비드는 관찰되지 않음.
+
+**추가 조사 권고 사항:**
+1. 접속부의 체결 상태에 대한 정밀 물리 분석 권고
+2. 용융물의 성분 분석을 통한 과열 원인 규명
+2026-03-19 21:54:01 [INFO] __main__.write: ============================================================
+2026-03-19 21:54:41 [INFO] src.utils.io_utils.save_investigation_result: LLM 기반 통합 리포트 생성 및 이미지 삽입 완료
+2026-03-19 21:54:41 [INFO] __main__.write: [리포트] LLM 기반 통합 리포트 생성 완료 (이미지 삽입됨)
+2026-03-19 21:54:42 [INFO] __main__.write: - investigation_result.docx 저장 완료
+2026-03-19 21:54:42 [INFO] __main__.run_analysis_pipeline: 전체 결과 저장 완료: outputs\IMG_3994\investigation_result.txt
+2026-03-19 21:54:42 [INFO] __main__.write: OK: 전체 결과가 저장되었습니다: outputs\IMG_3994\investigation_result.txt
+2026-03-19 21:54:42 [INFO] __main__.write: Word 문서: outputs\IMG_3994\investigation_result.docx
+2026-03-19 21:54:42 [INFO] src.utils.io_utils.save_expert_reports: 개별 리포트 저장 시작
+2026-03-19 21:54:42 [INFO] __main__.write: - Contact_Expert_Report.txt 저장 완료
+2026-03-19 21:54:42 [INFO] __main__.write: - Necking_Expert_Report.txt 저장 완료
+2026-03-19 21:54:42 [INFO] __main__.write: - Arbiter_Report.txt 저장 완료

@@ -1,0 +1,14 @@
+2026-03-20 10:55:20,461 - INFO - === Stage 1 Debugging Test Started ===
+2026-03-20 10:55:20,461 - INFO - Target Test Image: Poor_Contact_001.jpg
+2026-03-20 10:55:20,469 - INFO - Original Properties: Res=(899, 638), Size=387.45 KB
+2026-03-20 10:55:20,469 - INFO - Testing create_payload_from_image...
+2026-03-20 10:55:20,474 - INFO - Payload MIME Type: image/jpeg
+2026-03-20 10:55:20,474 - INFO - Base64 Data Length: 529000 chars
+2026-03-20 10:55:20,475 - INFO - Testing process_payload_images...
+2026-03-20 10:55:20,475 - INFO - Config - PRE_RESIZE_ENABLED: True, MAX_DIM: 2048
+2026-03-20 10:55:20,514 - INFO - Restored Temp Image: C:\Users\loidn\AppData\Local\Temp\tmpqj5507pw.jpg
+2026-03-20 10:55:20,519 - INFO - Restored Properties: Res=(899, 638), Size=387.45 KB
+2026-03-20 10:55:20,519 - INFO - Image was within max dimension, no downscaling expected (unless quality setting changed).
+2026-03-20 10:55:20,524 - INFO - Saved restored image to: v:\Projects\P_04_Scope\debug_step1\outputs\restored_Poor_Contact_001.jpg
+2026-03-20 10:55:20,525 - INFO - === Stage 1 Debugging Test Completed ===
+2026-03-20 10:55:20,525 - INFO - Summary saved to: v:\Projects\P_04_Scope\debug_step1\outputs\summary.txt

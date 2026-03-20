@@ -1,0 +1,324 @@
+diff --git a/src/utils/api_concurrency.py b/src/utils/api_concurrency.py
+index 9f20a54..f0c3529 100644
+--- a/src/utils/api_concurrency.py
++++ b/src/utils/api_concurrency.py
+@@ -1,13 +1,11 @@
+ """
+-전역 Gemini API 동시성 제어 (Flash / Pro 분리)
+-
+-Flash와 Pro는 Vertex AI에서 별도 할당량을 가지므로, 단일 Rate Limiter 사용은 안티패턴.
+-- Flash: 30 RPM / 2 concurrent (Hotspot, Preprocessor, Workers 등)
+-- Pro: 15 RPM / 1 concurrent (Supervisor, Judge, Report Generator 등)
++전역 Gemini API 동시성 제어
++Hotspot Detector + 모든 Expert 노드(Contact, Deform, Necking)가 공유하는
++단일 Rate Limiter 및 Semaphore로 429/503 에러 방지
+ 
+ Note: asyncio.Semaphore는 event loop에 바인딩되므로, Expert 그래프가 각각
+ asyncio.run()으로 별도 루프에서 실행될 때 "bound to different event loop" 에러 발생.
+-→ asyncio.Semaphore 사용 (동일 루프 내에서만 공유되므로 LangGraph 단일 루프에서는 안전)
++→ threading.Semaphore 사용 (스레드/루프 무관, asyncio.to_thread로 비블로킹 acquire)
+ 
+ ThreadSafeRateLimiter: 여러 이벤트 루프에서 안전하게 작동하는 thread-safe rate limiter
+ - threading.Lock으로 thread-safe 보장
+@@ -16,7 +14,6 @@ ThreadSafeRateLimiter: 여러 이벤트 루프에서 안전하게 작동하는 t
+ """
+ from contextlib import asynccontextmanager
+ from collections import deque
+-from typing import Literal
+ import asyncio
+ import threading
+ import time
+@@ -25,51 +22,21 @@ import config
+ 
+ logger = logging.getLogger(__name__)
+ 
+-ModelType = Literal["flash", "pro"]
+-
+-# Flash / Pro 별도 인스턴스 (모델별 독립 할당량)
+-_flash_rate_limiter: "ThreadSafeRateLimiter | None" = None
+-_pro_rate_limiter: "ThreadSafeRateLimiter | None" = None
+-_flash_semaphore: asyncio.Semaphore | None = None
+-_pro_semaphore: asyncio.Semaphore | None = None
++# 전역 인스턴스
++# - ThreadSafeRateLimiter: thread-safe, 여러 이벤트 루프에서 안전하게 작동
++# - threading.Semaphore: 스레드/루프 무관 → Expert의 asyncio.run() 별도 루프에서도 안전
++_global_rate_limiter = None
+ _limiter_lock = threading.Lock()
++_global_semaphore_async = None
+ _semaphore_lock = threading.Lock()
+ 
+-
+-def _get_rate_limiter(model_type: ModelType) -> "ThreadSafeRateLimiter":
+-    global _flash_rate_limiter, _pro_rate_limiter
+-    with _limiter_lock:
+-        if model_type == "flash":
+-            if _flash_rate_limiter is None:
+-                _flash_rate_limiter = ThreadSafeRateLimiter(
+-                    max_rate=config.GEMINI_TIER1_RPM,
+-                    time_period=60.0,
+-                    label="Flash",
+-                )
+-            return _flash_rate_limiter
+-        else:
+-            if _pro_rate_limiter is None:
+-                _pro_rate_limiter = ThreadSafeRateLimiter(
+-                    max_rate=getattr(config, "GEMINI_PRO_RPM", 15),
+-                    time_period=60.0,
+-                    label="Pro",
+-                )
+-            return _pro_rate_limiter
+-
+-
+-def _get_semaphore(model_type: ModelType) -> asyncio.Semaphore:
+-    global _flash_semaphore, _pro_semaphore
+-    with _semaphore_lock:
+-        if model_type == "flash":
+-            if _flash_semaphore is None:
+-                _flash_semaphore = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
+-            return _flash_semaphore
+-        else:
+-            if _pro_semaphore is None:
+-                _pro_semaphore = asyncio.Semaphore(
+-                    getattr(config, "GEMINI_PRO_CONCURRENT", 1)
+-                )
+-            return _pro_semaphore
++def _get_global_semaphore() -> asyncio.Semaphore:
++    global _global_semaphore_async
++    if _global_semaphore_async is None:
++        with _semaphore_lock:
++            if _global_semaphore_async is None:
++                _global_semaphore_async = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
++    return _global_semaphore_async
+ 
+ 
+ class ThreadSafeRateLimiter:
+@@ -83,18 +50,16 @@ class ThreadSafeRateLimiter:
+     unlike AsyncLimiter which is bound to a single event loop.
+     """
+     
+-    def __init__(self, max_rate: int, time_period: float = 60.0, label: str = ""):
++    def __init__(self, max_rate: int, time_period: float = 60.0):
+         """
+         Initialize thread-safe rate limiter.
+         
+         Args:
+             max_rate: Maximum number of requests allowed in time_period
+             time_period: Time window in seconds (default: 60.0)
+-            label: 로깅용 라벨 (예: "Flash", "Pro")
+         """
+         self.max_rate = max_rate
+         self.time_period = time_period
+-        self._label = label or "API"
+         self._lock = threading.Lock()
+         self._requests = deque()  # timestamps
+         # Minimum interval between requests to prevent burst (60 seconds / max_rate)
+@@ -147,9 +112,9 @@ class ThreadSafeRateLimiter:
+                 # Can proceed immediately - record timestamp atomically
+                 self._requests.append(now)
+                 count_after = len(self._requests)
+-                logger.debug(f"[RateLimiter:{self._label}] Request recorded. Current count: {count_after}/{self.max_rate}")
++                logger.debug(f"[RateLimiter] Request recorded. Current count: {count_after}/{self.max_rate}")
+                 if count_after >= self.max_rate * 0.8:  # 80% 이상 사용 시 경고
+-                    logger.warning(f"[RateLimiter:{self._label}] Rate limit approaching: {count_after}/{self.max_rate} requests in last 60s")
++                    logger.warning(f"[RateLimiter] Rate limit approaching: {count_after}/{self.max_rate} requests in last 60s")
+                 return True, 0.0
+             
+             # Need to wait until oldest request expires
+@@ -162,7 +127,7 @@ class ThreadSafeRateLimiter:
+                 self._requests.popleft()
+                 self._requests.append(now)
+                 count_after = len(self._requests)
+-                logger.debug(f"[RateLimiter:{self._label}] Request recorded. Current count: {count_after}/{self.max_rate}")
++                logger.debug(f"[RateLimiter] Request recorded. Current count: {count_after}/{self.max_rate}")
+                 return True, 0.0
+     
+     @asynccontextmanager
+@@ -180,10 +145,10 @@ class ThreadSafeRateLimiter:
+             if can_proceed:
+                 # Timestamp already recorded atomically in _try_acquire_and_record()
+                 if loop_count > 0:
+-                    logger.debug(f"[RateLimiter:{self._label}] Acquired after {loop_count} wait cycles")
++                    logger.debug(f"[RateLimiter] Acquired after {loop_count} wait cycles")
+                 break
+             loop_count += 1
+-            logger.warning(f"[RateLimiter:{self._label}] Rate limit reached ({self.max_rate} RPM), waiting {wait_time:.2f}s (attempt {loop_count})")
++            logger.warning(f"[RateLimiter] Rate limit reached ({self.max_rate} RPM), waiting {wait_time:.2f}s (attempt {loop_count})")
+             await asyncio.sleep(wait_time)
+         
+         try:
+@@ -193,28 +158,39 @@ class ThreadSafeRateLimiter:
+             pass
+ 
+ 
+-@asynccontextmanager
+-async def acquire_api_slot(model_type: ModelType = "flash"):
++def _get_rate_limiter() -> ThreadSafeRateLimiter:
+     """
+-    API 호출 전 슬롯 획득 (rate limit + concurrency)
++    Get or create global thread-safe rate limiter.
+     
+-    Flash와 Pro는 Vertex AI에서 별도 할당량을 가지므로 분리된 풀 사용.
++    Lazy initialization pattern ensures single instance across all event loops.
+     
+-    Args:
+-        model_type: "flash" | "pro"
+-            - flash: 30 RPM, 2 concurrent (Hotspot, Preprocessor, Workers 등)
+-            - pro: 15 RPM, 1 concurrent (Supervisor, Judge, Report Generator 등)
++    Returns:
++        ThreadSafeRateLimiter instance
++    """
++    global _global_rate_limiter
++    if _global_rate_limiter is None:
++        with _limiter_lock:
++            if _global_rate_limiter is None:
++                _global_rate_limiter = ThreadSafeRateLimiter(
++                    max_rate=config.GEMINI_TIER1_RPM,
++                    time_period=60.0
++                )
++    return _global_rate_limiter
++
++
++@asynccontextmanager
++async def acquire_api_slot():
++    """
++    API 호출 전 슬롯 획득 (rate limit + concurrency)
+     
+-    Usage:
+-        async with acquire_api_slot("flash"):
+-            await call_flash_api()
+-        async with acquire_api_slot("pro"):
+-            await call_pro_api()
++    Thread-safe rate limiter와 asyncio semaphore를 사용하여:
++    - Rate limiting: 분당 요청 수 제한 (GEMINI_TIER1_RPM)
++    - Concurrency limiting: 동시 실행 수 제한 (GEMINI_TIER1_CONCURRENT)
+     """
+-    sem = _get_semaphore(model_type)
++    sem = _get_global_semaphore()
+     await sem.acquire()
+     try:
+-        limiter = _get_rate_limiter(model_type)
++        limiter = _get_rate_limiter()
+         async with limiter.acquire():
+             yield
+     finally:
+diff --git a/src/utils/identity_fusion.py b/src/utils/identity_fusion.py
+new file mode 100644
+index 0000000..a3e8774
+--- /dev/null
++++ b/src/utils/identity_fusion.py
+@@ -0,0 +1,115 @@
++"""
++Identity Fusion (다중 뷰 객체 병합) 로직
++여러 각도/위치에서 탐지된 Hotspot들을 하나의 객체로 병합
++"""
++import json
++import os
++from typing import Any, Dict, List, Optional
++
++from google.genai import types
++
++import config
++from src.models.hotspot_models import IdentityFusionResult
++from src.prompts.common_prompts import get_identity_fusion_prompt
++from src.tools.experts.expert_utils import load_image_data
++from src.utils import async_retry_with_backoff
++from src.utils.logging_config import setup_logger
++
++logger = setup_logger("identity_fusion")
++
++async def run_identity_fusion(
++    client: Any,
++    image_paths: List[str],
++    final_raw_hotspots: List[Dict[str, Any]],
++) -> List[Dict[str, Any]]:
++    """
++    다중 이미지에서 탐지된 Hotspot들을 분석하여 동일 객체여부를 판단하고 병합합니다.
++    """
++    if len(image_paths) <= 1:
++        # 단일 이미지인 경우 Fusion 없이 1:1 매핑
++        return _fallback_to_mapping(final_raw_hotspots)
++
++    logger.info(f"Identity Fusion: Running for {len(final_raw_hotspots)} hotspots across {len(image_paths)} images...")
++    
++    fusion_prompt = get_identity_fusion_prompt()
++    # 프롬프트에 식별하기 쉽도록 Raw Hotspot 데이터를 주입
++    fusion_prompt += "\n\n<raw_hotspots_json>\n" + json.dumps(final_raw_hotspots, ensure_ascii=False, indent=2) + "\n</raw_hotspots_json>"
++    
++    # 원본 이미지 바이트 데이터 로드
++    fusion_image_bytes = []
++    for path in image_paths:
++        try:
++            b = load_image_data(path)
++            fusion_image_bytes.append(b)
++        except Exception as e:
++            logger.error(f"Failed to load image for Identity Fusion: {path} - {e}")
++    
++    if not fusion_image_bytes:
++        logger.warning("Identity Fusion: No image bytes loaded. Falling back to 1:1 mapping.")
++        return _fallback_to_mapping(final_raw_hotspots)
++
++    # Fusion 모델 설정
++    fusion_model = getattr(config, 'GEMINI_PRO_MODEL_NAME', config.GEMINI_MODEL_NAME)
++    
++    json_schema_fusion = IdentityFusionResult.model_json_schema()
++    req_f = json_schema_fusion.setdefault("required", [])
++    if "unified_hotspots" not in req_f: req_f.append("unified_hotspots")
++    if "reasoning" not in req_f: req_f.append("reasoning")
++    
++    contents = [fusion_prompt]
++    for idx, b in enumerate(fusion_image_bytes):
++        contents.append(f"Image {idx + 1}:")
++        contents.append(types.Part.from_bytes(data=b, mime_type="image/jpeg"))
++        
++    f_api_config = {
++        "response_mime_type": "application/json",
++        "response_json_schema": json_schema_fusion,
++    }
++    
++    async def _call_fusion():
++        return await client.aio.models.generate_content(
++            model=fusion_model,
++            contents=contents,
++            config=f_api_config
++        )
++        
++    try:
++        f_response = await async_retry_with_backoff(
++            _call_fusion, 
++            max_retries=3, 
++            context_name="Identity Fusion", 
++            model_name=fusion_model
++        )
++        
++        if hasattr(f_response, "text") and f_response.text:
++            f_parsed = IdentityFusionResult.model_validate_json(f_response.text)
++            unified_hotspots = [u.model_dump(mode='json') for u in f_parsed.unified_hotspots]
++            logger.info(f"Identity Fusion: Complete. Merged into {len(unified_hotspots)} Unified Hotspots.")
++            logger.info(f"Identity Fusion: Reasoning: {f_parsed.reasoning}")
++            return unified_hotspots
++        else:
++            raise ValueError("Empty response from Identity Fusion")
++    except Exception as e:
++        logger.error(f"Identity Fusion failed: {e}. Falling back to 1:1 mapping.")
++        return _fallback_to_mapping(final_raw_hotspots)
++
++def _fallback_to_mapping(final_raw_hotspots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
++    """Fusion 실패 또는 미대상 시 1:1 매핑을 수행합니다."""
++    unified_hotspots = []
++    for h in final_raw_hotspots:
++        h_id = h['id']
++        src_path = h['source_image_path']
++        uh = {
++            "id": h_id,
++            "source_images": [src_path],
++            "boxes": {src_path: h['box_2d']},
++            "severity_score": h.get('severity_score', 0),
++            "location_description": h.get('location_description', ''),
++            "visual_evidence": h.get('visual_evidence', ''),
++            "raw_hotspot_ids": [h_id],
++            "roi_image_paths": {},
++            "component_type": None,
++            "_preprocessed": False
++        }
++        unified_hotspots.append(uh)
++    return unified_hotspots

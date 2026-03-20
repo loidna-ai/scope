@@ -1,0 +1,38 @@
+2026-03-20 11:01:53,629 - INFO - === Integrated Detection Test Started: Poor_Contact_001.jpg ===
+2026-03-20 11:01:53,630 - INFO - --- Stage 2: Slicing ---
+2026-03-20 11:01:53,707 - INFO - Generated 1 patches.
+2026-03-20 11:01:53,707 - INFO - --- Stage 3: Gemini API ---
+2026-03-20 11:01:54,367 - INFO - Calling API for 1 batches...
+2026-03-20 11:01:54,368 - INFO - AFC is enabled with max remote calls: 10.
+2026-03-20 11:02:36,611 - INFO - HTTP Request: POST https://aiplatform.googleapis.com/v1beta1/projects/loidna-ai-scope/locations/global/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-03-20 11:02:36,611 - INFO - Hotspot Detector Concurrency: Batch Processing stats — success: 100.0%
+2026-03-20 11:02:36,611 - INFO - --- Stage 4: Mapping & Visualization ---
+2026-03-20 11:03:00,994 - INFO - === Integrated Detection Test Started: Poor_Contact_001.jpg ===
+2026-03-20 11:03:00,994 - INFO - --- Stage 2: Slicing ---
+2026-03-20 11:03:01,044 - INFO - Generated 1 patches.
+2026-03-20 11:03:01,044 - INFO - --- Stage 3: Gemini API ---
+2026-03-20 11:03:01,437 - INFO - Calling API for 1 batches...
+2026-03-20 11:03:01,439 - INFO - AFC is enabled with max remote calls: 10.
+2026-03-20 11:03:29,349 - INFO - HTTP Request: POST https://aiplatform.googleapis.com/v1beta1/projects/loidna-ai-scope/locations/global/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-03-20 11:03:29,357 - INFO - Hotspot Detector Concurrency: Batch Processing stats — success: 100.0%
+2026-03-20 11:03:29,357 - INFO - --- Stage 4: Mapping & Visualization ---
+2026-03-20 11:03:29,357 - INFO - Detected 2 global hotspots.
+2026-03-20 11:03:29,365 - INFO - Hotspot #1: LocalIdx:1 Box:{'ymin': 150, 'xmin': 100, 'ymax': 350, 'xmax': 500}
+2026-03-20 11:03:29,365 - INFO - Hotspot #2: LocalIdx:1 Box:{'ymin': 250, 'xmin': 550, 'ymax': 600, 'xmax': 950}
+2026-03-20 11:03:29,369 - INFO - Result visualization saved to: v:\Projects\P_04_Scope\debug_step4\mapping_result_Poor_Contact_001.jpg
+2026-03-20 11:03:37,669 - INFO - === Integrated Detection Test Started: 20260219_082220.jpg ===
+2026-03-20 11:03:37,669 - INFO - --- Stage 2: Slicing ---
+2026-03-20 11:03:38,016 - INFO - Generated 1 patches.
+2026-03-20 11:03:38,016 - INFO - --- Stage 3: Gemini API ---
+2026-03-20 11:03:38,355 - INFO - Calling API for 1 batches...
+2026-03-20 11:03:38,356 - INFO - AFC is enabled with max remote calls: 10.
+2026-03-20 11:03:54,980 - INFO - HTTP Request: POST https://aiplatform.googleapis.com/v1beta1/projects/loidna-ai-scope/locations/global/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 429 Too Many Requests"
+2026-03-20 11:04:10,312 - INFO - AFC is enabled with max remote calls: 10.
+2026-03-20 11:04:31,719 - INFO - HTTP Request: POST https://aiplatform.googleapis.com/v1beta1/projects/loidna-ai-scope/locations/global/publishers/google/models/gemini-2.5-flash:generateContent "HTTP/1.1 200 OK"
+2026-03-20 11:04:31,723 - INFO - Hotspot Detector Concurrency: Batch Processing stats — success: 100.0%
+2026-03-20 11:04:31,723 - INFO - --- Stage 4: Mapping & Visualization ---
+2026-03-20 11:04:31,724 - INFO - Detected 3 global hotspots.
+2026-03-20 11:04:31,794 - INFO - Hotspot #1: LocalIdx:1 Box:{'ymin': 293, 'xmin': 452, 'ymax': 386, 'xmax': 502}
+2026-03-20 11:04:31,794 - INFO - Hotspot #2: LocalIdx:1 Box:{'ymin': 300, 'xmin': 652, 'ymax': 653, 'xmax': 892}
+2026-03-20 11:04:31,794 - INFO - Hotspot #3: LocalIdx:1 Box:{'ymin': 200, 'xmin': 527, 'ymax': 466, 'xmax': 777}
+2026-03-20 11:04:31,842 - INFO - Result visualization saved to: v:\Projects\P_04_Scope\debug_step4\mapping_result_20260219_082220.jpg

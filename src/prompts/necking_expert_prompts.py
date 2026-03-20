@@ -58,11 +58,44 @@ def get_necking_wire_prompt(image_path: str = None) -> str:
   * 미식별 시: **"특이 용융 흔적 없음(None Found)."**이라고 명확히 적시. (추측성 서술 금지)
   * 판독 불가: 불확실할 경우 **"식별 불가(Unidentifiable)"**로 표기하고, 비드로 단정할 수 없는 구체적 사유(예: 그림자 부재, 해상도 저하, 반사광 간섭 등)를 기술하십시오.
 
-**STEP 5: 핵심 시각 증거 추출 (Evidence Extraction)**
-- **[핵심 지침] 원인을 직접 판정하거나 지지/반박 논리를 펴지 마십시오.**
-- 앞선 1~4단계 관찰 내용 중 화재 원인 분석에 유의미한 **결정적 객관적 사실(Fact)**들만 추려내어 목록화하십시오.
-- 각 증거에 대해 본 관찰 결과가 얼마나 확실한지(Certainty of Fact, 0~100) 평가하십시오.
+## STEP 5: 증거 가치 평가 및 논리 대조 (Logic Contrast)
+- **[핵심 지침] <expert_knowledge>의 기준을 참고하여, STEP 4의 관찰 결과를 근거로 논리를 전개하십시오.**
 
+<expert_knowledge>
+
+**반단선 기준**
+- 소선 분산: 소선들이 하나로 뭉치지 못하고 빗자루처럼 흩어져 있는 현상.
+- 세장화 추세 (Tapering Trend): 일부 소선의 최선단이 인위적인 절단면(칼로 벤 듯 평형한 면) 없이, 소선이 엿가락처럼 늘어나며 끝을 향해 가늘어지는 전체적인 부피 감소 현상(Necking). 타원형이나 물방울 모양으로 맺힐 수도 있음.
+- 미세/불규칙 용융흔적: 소선 끝에 개별적인 작은 용융흔적이 맺히거나, 중력에 의해 불규칙한 타원형 비드로 방울진 경우.
+- 비드 크기: 최선단 용융흔적(bead)의 최대 너비가 기준 도체(전선 굵기)와 비슷하거나 좁아지는 추세.
+- 경계면 변이: 최선단 용융흔적(bead)과 기준 도체 사이의 경계가 예리하게 꺾이지 않고 엿가락처럼 서서히 가늘어지는 형태(Tapering)를 보임.
+
+**유의사항 및 오인 방지 (Cross-Awareness)**
+- **압착/손상(Deform) 배제 룰**: 소선들이 흩어지고 엉켰다 하더라도, 해당 부위의 전선 본체(Shaft)가 외부 공구 등에 의해 강하게 짓뭉개져 납작해진(Flattened/Crushed) 형태라면 이는 반단선이 아니라 '압착/손상'입니다.
+- **마스킹 효과 수용 (관대함)**: 최선단이 열기나 아크로 인해 녹아서 끝이 다소 뭉툭해졌거나 뾰족함이 사라졌더라도(Masking), **"전선 본체에 물리적 찍힘이 없고, 끝단으로 갈수록 전체적인 부피나 너비가 좁아지는 세장화 추세(Tapering Trend)와 빗자루형 분산"**이 관찰된다면 이를 반단선의 핵심 증거로 확실히 인정하십시오. 무조건 뾰족한 좁쌀 비드만 고집하지 마십시오.
+- 타원형 비드나 불규칙한 용융 흔적은 압착의 전유물이 아니며, 반단선의 장력 하중과 열 변형 시에도 자연스럽게 나타납니다. 뒤쪽에 짓눌린 자국이 없다면 반단선입니다.
+- 거대 단락 배제: 최선단(끝단부) 맺힌 용융흔적(bead)이 모든 소선을 완벽하게 삼켜서 매끄러운 하나의 둥근 큰 덩어리가 되어 있고, 주변에 흩어진 작은 용융흔적(bead)이나 끊어진 소선 가닥이 전혀 없는 순수 단락흔 형태는 반단선이 아닙니다.
+
+</expert_knowledge>
+
+**logic_refuting**: (반단선 반박 논리) 관찰된 특징 중 '반단선으로 인한 단락 발생'이 아닐 가능성을 시사하는 점은 무엇인가?
+**logic_supporting**: (반단선 지지 논리) 관찰된 특징 중 어떤 점들이 '반단선으로 인한 단락 발생'을 강력하게 뒷받침하는가?
+
+## STEP 6: 최종 판정 (Verdict)
+- **[핵심 지침] STEP 5의 논리 대결 결과를 종합하여 최종 결론을 도출하고, 그 결론에 대한 신뢰도(Confidence)를 평가하십시오.**
+
+**1. 판정 기준**:
+- **당신은 화재 감식 수석 조사관입니다.** 위에서 작성된 logic_refuting과 logic_supporting을 저울질하여 최종 판정을 내리십시오. 기계적인 규칙(Rule)을 따르지 말고, 제시된 증거들의 **'인과관계'와 '증거의 무게(Weight of Evidence)'**를 종합적으로 판단하십시오.
+  1. 반단선: 지지 논리(logic_supporting)가 압도적으로 우세하며, 반박 논리(logic_refuting)가 논리적으로 완전히 기각된 경우.
+  2. 반단선 의심: 지지 논리가 강하지만, 반박 논리에서 제기한 의문점(예: 심한 2차 용융으로 인한 증거 훼손, 미세한 인장 흔적 혼재 등)을 100% 해소하지 못한 경우.
+  3. 반단선 아님: 반박 논리(logic_refuting)가 더 우세하거나, 타 원인의 증거가 명확한 경우.
+  4. 판독 불가: 이미지 화질 불량, 초점 흐림, 또는 주요 식별 부위(Zone 2, 3)가 가려져 있어 논리적 판단 자체가 불가능한 경우.
+
+**2. 신뢰도(Confidence) 산정 기준 (논리의 정확도)**:
+- 이 점수는 **"당신의 판정(결론)이 정답일 확률"**입니다.
+- **100점**: 증거가 너무나 명확하여, 다른 전문가가 와도 똑같은 결론을 내릴 것임. (예: "확실히 반단선 아님"도 증거가 명확하면 100점)
+- **80점**: 대부분의 증거가 결론을 지지하지만, 미세한 노이즈가 있음.
+- **50점 미만**: 증거가 상충되거나 이미지 해상도 문제로 판정이 사실상 추측에 가까움.
 </analysis_process>
 
 <output_format>
@@ -97,12 +130,15 @@ def get_necking_wire_prompt(image_path: str = None) -> str:
             "bead_scan": "이미지 전체에서 확인되는 모든 용융 흔적의 위치, 형태, 개수를 관찰 후, 사실 있는 그대로 서술"
         }}
     }},
-    "step5_extracted_evidence": [
-        {{
-            "visual_fact": "객관적으로 관찰된 핵심 특징 한 줄 요약 (예: 전선 끝으로 갈수록 가늘어지는 세장화 추세명확)",
-            "certainty": 0-100 (관찰 내용이 실제로 존재한다는 사실적 확신도)
-        }}
-    ]
+    "step5_logic_contrast": {{
+        "logic_refuting": "관찰된 특징 중 '반단선'이 아님(단락, 기계적 파단, 외부 화재 등)을 시사하는 반박 논리 서술",
+        "logic_supporting": "관찰된 특징 중 '반단선'을 지지하는 강력한 증거와 논리 서술"
+    }},
+    "step6_verdict": {{
+        "conclusion": "반단선 | 반단선 의심 | 반단선 아님 | 판독 불가",
+        "confidence_score": 0-100 (Integer, 본인의 결론에 대한 '논리적 확신도'. 예: '반단선 아님'이라도 근거가 확실하면 100점),
+        "final_reasoning": "STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약"
+    }}
 }}
 </output_format>
 """
@@ -139,16 +175,10 @@ def get_necking_supervisor_prompt(reports_text: str) -> str:
 <output_format>
 JSON 포맷으로 다음 필드를 포함하여 출력하십시오:
 {{
-    "final_conclusion": "반단선 유력 (High) | 반단선 의심 (Medium) | 단락/외부 화재/압착 (Low) | 판독 불가 (Indeterminate)",
+    "final_conclusion": "반단선 | 반단선 의심 | 반단선 아님 | 판독 불가",
     "final_confidence": 0-100 (Integer),
-    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약 (예비 소견)",
-    "reasoning_process": "어떤 Worker의 증거를 채택했는지, 그리고 모순된 증거가 있다면 어떻게 해결했는지 서술",
-    "evidence_list": [
-        {{
-            "visual_fact": "취합된 결정적 사실 중 하나 (예: 전선 끝 쪽으로 세장화 형태 뚜렷함)",
-            "certainty": 90
-        }}
-    ]
+    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약",
+    "reasoning_process": "어떤 Worker의 의견을 채택했는지, 그리고 그 이유는 무엇인지 등 종합 판단 과정 서술"
 }}
 </output_format>
 """
@@ -205,14 +235,37 @@ def get_analyst_reanalysis_prompt(
     focused_summary: str,
     total_hotspot_count: int,
     focused_count: int,
-    full_context: str
+    full_context: str,
+    critique_result=None,
+    debate_transcript: str = ""
 ) -> str:
     """
     Analyst 재분석 프롬프트 (Critic 지적 수용)
     - 특정 Hotspot만 집중 재검토
     - 비평 수용 또는 반박
     - 가설 수정 (Structured Output)
+    - critique_result: 구조화된 Critic 피드백 (Phase 1.2)
+    - debate_transcript: 토론 이력 (Phase 1.3)
     """
+    critic_structured = ""
+    if critique_result is not None:
+        cq = getattr(critique_result, "critical_question", None) or "없음"
+        alt = getattr(critique_result, "alternative_interpretation", None) or "없음"
+        sug = getattr(critique_result, "suggestion_for_analyst", None) or "없음"
+        flaws = ", ".join(getattr(critique_result, "flaws", []) or []) or "없음"
+        critic_structured = f"""
+<critic_structured_feedback>
+- critical_question: {cq}
+- alternative_interpretation: {alt}
+- suggestion_for_analyst: {sug}
+- flaws: {flaws}
+</critic_structured_feedback>
+"""
+    debate_block = f"""
+<debate_history>
+{debate_transcript or "(이전 토론 없음)"}
+</debate_history>
+""" if debate_transcript else ""
     return f"""
 <role>
 당신은 수석 분석관입니다. 비평가가 특정 부위에 대한 의문을 제기했습니다.
@@ -225,7 +278,8 @@ def get_analyst_reanalysis_prompt(
 <critique_received>
 {critique}
 </critique_received>
-
+{critic_structured}
+{debate_block}
 <analysis_scope>
 전체 Hotspot: {total_hotspot_count}개
 비평가가 지적한 Hotspot: {focused_count}개
@@ -260,7 +314,9 @@ Return RAW JSON only. No markdown.
       "conclusion": "반단선 (Confirmed) / 반단선 의심 (Suspected) / 반단선 아님 (Not Necking) / 판독 불가 (Indeterminate)",
       "probability": 0-100,
       "key_evidence": ["Hotspot #3 제외 나머지 증거는 유효함"],
-      "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함."
+      "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함.",
+      "rebuttal_to_critic": "Critic 지적에 대한 구체적 반박 또는 수용 근거 (필수)",
+      "answers_to_critical_question": "Critic의 critical_question에 대한 직접적 답변 (있을 경우)"
   }}
 }}
 </output_format>
@@ -280,7 +336,7 @@ def get_critic_prompt(
     """
     return f"""
 <role>
-당신은 회의적인 **'화재조사 검토관(Skeptic Reviewer)'**이며, 
+당신은 **Devil's Advocate(악의적 변호인)**이며, 
 **물리적 증거 직접 검증 권한**을 가진 전문가입니다.
 </role>
 

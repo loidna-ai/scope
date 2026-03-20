@@ -83,10 +83,51 @@ async def analyze_fire_evidence(payload_data: List[Any], output_dir: str = None)
     
     graph = build_investigation_graph()
     
+<<<<<<< HEAD
     from src.utils.io_utils import process_payload_images, cleanup_temporary_resources
     temp_image_paths = process_payload_images(payload_data)
     temp_image_path = temp_image_paths[0] if temp_image_paths else None
     
+=======
+    # [Memory Optimization]
+    # Payload에서 이미지를 추출하여 임시 파일로 저장하고, State에는 경로만 전달
+    from src.tools.experts.expert_utils import extract_image_from_payload, save_bytes_to_temp_file
+    import config
+    
+    def _resize_image_if_needed(img_bytes: bytes, max_dim: int, quality: int) -> bytes:
+        """이미지가 max_dim 초과 시 리사이즈 후 bytes 반환. 작을 경우 통과."""
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        w, h = img.size
+        if max(w, h) <= max_dim:
+            return img_bytes
+        scale = max_dim / max(w, h)
+        new_w, new_h = int(w * scale), int(h * scale)
+        img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        img_resized.save(buf, "JPEG", quality=quality, optimize=True)
+        return buf.getvalue()
+    
+    image_data = extract_image_from_payload(payload_data)
+    temp_image_path = None
+    
+    if image_data:
+        try:
+            # === [추가된 로직] 파이프라인 진입 전 리사이즈 ===
+            if getattr(config, 'PRE_RESIZE_ENABLED', True):
+                image_data = _resize_image_if_needed(
+                    image_data, 
+                    getattr(config, 'PRE_RESIZE_MAX_DIMENSION', getattr(config, 'HOTSPOT_MAX_IMAGE_DIMENSION', 2048)),
+                    getattr(config, 'PRE_RESIZE_JPEG_QUALITY', 88)
+                )
+            # ===============================================
+
+            temp_image_path = save_bytes_to_temp_file(image_data)
+            logger.info(f"💾 [System] Initial Image Saved to: {temp_image_path}")
+        except Exception as e:
+            logger.error(f"⚠️ [System] Failed to process and save initial image: {e}")
+>>>>>>> origin
     
     initial_state = {
         "payload": [],             # [Optimization] 바이너리 데이터 제거

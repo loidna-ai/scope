@@ -59,11 +59,42 @@ def get_deform_wire_prompt(image_path: str = None) -> str:
   * 미식별 시: **"특이 용융 흔적 없음(None Found)."**이라고 명확히 적시. (추측성 서술 금지)
   * 판독 불가: 불확실할 경우 **"식별 불가(Unidentifiable)"**로 표기하고, 비드로 단정할 수 없는 구체적 사유(예: 그림자 부재, 해상도 저하, 반사광 간섭 등)를 기술하십시오.
 
-**STEP 5: 핵심 시각 증거 추출 (Evidence Extraction)**
-- **[핵심 지침] 원인을 직접 판정하거나 지지/반박 논리를 펴지 마십시오.**
-- 앞선 1~4단계 관찰 내용 중 화재 원인 분석에 유의미한 **결정적 객관적 사실(Fact)**들만 추려내어 목록화하십시오.
-- 각 증거에 대해 본 관찰 결과가 얼마나 확실한지(Certainty of Fact, 0~100) 평가하십시오.
+## STEP 5: 증거 가치 평가 및 논리 대조 (Logic Contrast)
+- **[핵심 지침] <expert_knowledge>의 기준을 참고하여, STEP 4의 관찰 결과를 근거로 논리를 전개하십시오.**
 
+<expert_knowledge>
+
+**압착/손상 기준 (필수 전제조건)**
+- **본체 눌림(Crushing) 필수**: 단락흔(bead)이 형성된 지점 바로 뒤쪽 전선 본체(Shaft)가 외부 공구(펜치, 니퍼 등)나 이물질에 의해 물리적으로 눌려 **납작해진 형상(Flattened)이 명확히 식별**되어야 합니다. 소선 간의 틈이 없이 꽉 뭉개진 함몰(Indent) 자국이 필수적입니다.
+- 단락흔(bead)에 전선이 아닌 금속 물체(외력의 원인 물질)가 한 덩어리로 붙어 있음. **(가장 강력한 증거지만, 역시 본체를 억누른 흔적이 동반되어야 함)**
+- 단락흔(bead)이 맺힌 소선 옆에 예리한 공구에 의해 잘려나간 듯한 거칠고 뾰족하며 날카로운 절단면(Sheared/Cut surface)을 가진 소선이 섞여 있음.
+- 용융흔적(bead)과 기준 도체 사이의 경계가 서서히 가늘어지지 않고, **예리하게 짓눌린(Sheared/Crushed) 경계면**으로 급격하게 꺾여 있음.
+
+**유의사항 및 오인 방지 (Cross-Awareness)**
+- **반단선(Necking) 오인 절대 금지**: 용융흔적(bead)이 **타원형이거나 길게 퍼져 있더라도**, 그 바로 뒤 전선 본체(Shaft)에 명확한 기계적 눌림/찍힘이 없다면 이는 열에 의해 늘어진 '반단선(Necking)'입니다. 단순한 타원형 비드나 늘어짐(Tapering), 전선 엉킴을 압착/손상으로 과대 해석하지 마십시오.
+- 용융흔적(bead) 바로 뒤에 외부 물리력에 의한 명확한 '함몰(Crushed) 찌그러짐'이 없다면 절대 '압착, 손상'으로 확정하지 마십시오. 타원형 비드는 압착의 독립적 증거가 아닙니다.
+- 전선이 단순히 구부러지거나 엉켜서 좁아 보이는 것은 눌린 것이 아닙니다.
+
+</expert_knowledge>
+
+**logic_refuting**: (압착, 손상 반박 논리) 관찰된 특징 중 '압착, 손상으로 인한 단락 발생'이 아닐 가능성을 시사하는 점은 무엇인가?
+**logic_supporting**: (압착, 손상 지지 논리) 관찰된 특징 중 어떤 점들이 '압착, 손상으로 인한 단락 발생'을 강력하게 뒷받침하는가?
+
+## STEP 6: 최종 판정 (Verdict)
+- **[핵심 지침] STEP 5의 논리 대결 결과를 종합하여 최종 결론을 도출하고, 그 결론에 대한 신뢰도(Confidence)를 평가하십시오.**
+
+**1. 판정 기준**:
+- **당신은 화재 감식 수석 조사관입니다.** 위에서 작성된 logic_refuting과 logic_supporting을 저울질하여 최종 판정을 내리십시오. 기계적인 규칙(Rule)을 따르지 말고, 제시된 증거들의 **'인과관계'와 '증거의 무게(Weight of Evidence)'**를 종합적으로 판단하십시오.
+  1. 압착, 손상: 지지 논리(logic_supporting)가 압도적으로 우세하며, 반박 논리(logic_refuting)가 논리적으로 완전히 기각된 경우.
+  2. 압착, 손상 의심: 지지 논리가 강하지만, 반박 논리에서 제기한 의문점(예: 심한 2차 용융으로 인한 증거 훼손, 미세한 인장 흔적 혼재 등)을 100% 해소하지 못한 경우.
+  3. 압착, 손상 아님: 반박 논리(logic_refuting)가 더 우세하거나, 타 원인의 증거가 명확한 경우.
+  4. 판독 불가: 이미지 화질 불량, 초점 흐림, 또는 주요 식별 부위(Zone 2, 3)가 가려져 있어 논리적 판단 자체가 불가능한 경우.
+
+**2. 신뢰도(Confidence) 산정 기준 (논리의 정확도)**:
+- 이 점수는 **"당신의 판정(결론)이 정답일 확률"**입니다.
+- **100점**: 증거가 너무나 명확하여, 다른 전문가가 와도 똑같은 결론을 내릴 것임. (예: "확실히 압착, 손상 아님"도 증거가 명확하면 100점)
+- **80점**: 대부분의 증거가 결론을 지지하지만, 미세한 노이즈가 있음.
+- **50점 미만**: 증거가 상충되거나 이미지 해상도 문제로 판정이 사실상 추측에 가까움.
 </analysis_process>
 
 <output_format>
@@ -98,12 +129,15 @@ def get_deform_wire_prompt(image_path: str = None) -> str:
             "bead_scan": "이미지 전체에서 확인되는 모든 용융 흔적의 위치, 형태, 개수를 관찰 후, 사실 있는 그대로 서술"
         }}
     }},
-    "step5_extracted_evidence": [
-        {{
-            "visual_fact": "객관적으로 관찰된 핵심 특징 한 줄 요약 (예: 용융흔적 뒤쪽 본체 함몰 확인)",
-            "certainty": 0-100 (관찰 내용이 실제로 존재한다는 사실적 확신도)
-        }}
-    ]
+    "step5_logic_contrast": {{
+        "logic_refuting": "관찰된 특징 중 '압착, 손상'이 아님(단락, 기계적 파단, 외부 화재 등)을 시사하는 반박 논리 서술",
+        "logic_supporting": "관찰된 특징 중 '압착, 손상'을 지지하는 강력한 증거와 논리 서술"
+    }},
+    "step6_verdict": {{
+        "conclusion": "압착, 손상 | 압착, 손상 의심 | 압착, 손상 아님 | 판독 불가",
+        "confidence_score": 0-100 (Integer, 본인의 결론에 대한 '논리적 확신도'. 예: '압착, 손상 아님'이라도 근거가 확실하면 100점),
+        "final_reasoning": "STEP 5의 논리 대결을 종합하여 최종 결론을 내린 결정적 이유 요약"
+    }}
 }}
 </output_format>
 """
@@ -140,16 +174,10 @@ def get_deform_supervisor_prompt(reports_text: str) -> str:
 <output_format>
 JSON 포맷으로 다음 필드를 포함하여 출력하십시오:
 {{
-    "final_conclusion": "압착, 손상 유력 (High) | 압착, 손상 의심 (Medium) | 단락/외부 화재/반단선 (Low) | 판독 불가 (Indeterminate)",
+    "final_conclusion": "압착, 손상 | 압착, 손상 의심 | 압착, 손상 아님 | 판독 불가",
     "final_confidence": 0-100 (Integer),
-    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약 (예비 소견)",
-    "reasoning_process": "어떤 Worker의 증거를 채택했는지, 그리고 모순된 증거가 있다면 어떻게 해결했는지 서술",
-    "evidence_list": [
-        {{
-            "visual_fact": "취합된 결정적 사실 중 하나 (예: 단락흔 바로 뒤쪽에 확실한 기계적 눌림 관찰)",
-            "certainty": 90
-        }}
-    ]
+    "key_evidence_summary": "최종 결론을 내리게 된 결정적인 관찰 사실(Facts) 요약",
+    "reasoning_process": "어떤 Worker의 의견을 채택했는지, 그리고 그 이유는 무엇인지 등 종합 판단 과정 서술"
 }}
 </output_format>
 """
@@ -206,14 +234,37 @@ def get_analyst_reanalysis_prompt(
     focused_summary: str,
     total_hotspot_count: int,
     focused_count: int,
-    full_context: str
+    full_context: str,
+    critique_result=None,
+    debate_transcript: str = ""
 ) -> str:
     """
     Analyst 재분석 프롬프트 (Critic 지적 수용)
     - 특정 Hotspot만 집중 재검토
     - 비평 수용 또는 반박
     - 가설 수정 (Structured Output)
+    - critique_result: 구조화된 Critic 피드백 (Phase 1.2)
+    - debate_transcript: 토론 이력 (Phase 1.3)
     """
+    critic_structured = ""
+    if critique_result is not None:
+        cq = getattr(critique_result, "critical_question", None) or "없음"
+        alt = getattr(critique_result, "alternative_interpretation", None) or "없음"
+        sug = getattr(critique_result, "suggestion_for_analyst", None) or "없음"
+        flaws = ", ".join(getattr(critique_result, "flaws", []) or []) or "없음"
+        critic_structured = f"""
+<critic_structured_feedback>
+- critical_question: {cq}
+- alternative_interpretation: {alt}
+- suggestion_for_analyst: {sug}
+- flaws: {flaws}
+</critic_structured_feedback>
+"""
+    debate_block = f"""
+<debate_history>
+{debate_transcript or "(이전 토론 없음)"}
+</debate_history>
+""" if debate_transcript else ""
     return f"""
 <role>
 당신은 수석 분석관입니다. 비평가가 특정 부위에 대한 의문을 제기했습니다.
@@ -226,7 +277,8 @@ def get_analyst_reanalysis_prompt(
 <critique_received>
 {critique}
 </critique_received>
-
+{critic_structured}
+{debate_block}
 <analysis_scope>
 전체 Hotspot: {total_hotspot_count}개
 비평가가 지적한 Hotspot: {focused_count}개
@@ -261,7 +313,9 @@ Return RAW JSON only. No markdown.
       "conclusion": "압착, 손상 (Confirmed) / 압착, 손상 의심 (Suspected) / 압착, 손상 아님 (Not Deform) / 판독 불가 (Indeterminate)",
       "probability": 0-100,
       "key_evidence": ["Hotspot #3 제외 나머지 증거는 유효함"],
-      "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함."
+      "reasoning": "Critic의 지적으로 Hotspot #3의 신뢰도가 하락하여 전체 확률을 85%에서 60%로 하향 조정함.",
+      "rebuttal_to_critic": "Critic 지적에 대한 구체적 반박 또는 수용 근거 (필수)",
+      "answers_to_critical_question": "Critic의 critical_question에 대한 직접적 답변 (있을 경우)"
   }}
 }}
 </output_format>
@@ -281,7 +335,7 @@ def get_critic_prompt(
     """
     return f"""
 <role>
-당신은 회의적인 **'화재조사 검토관(Skeptic Reviewer)'**이며, 
+당신은 **Devil's Advocate(악의적 변호인)**이며, 
 **물리적 증거 직접 검증 권한**을 가진 전문가입니다.
 </role>
 

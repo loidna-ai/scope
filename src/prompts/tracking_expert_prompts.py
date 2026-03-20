@@ -188,8 +188,29 @@ def get_analyst_reanalysis_prompt(
     focused_summary: str,
     total_hotspot_count: int,
     focused_count: int,
-    full_context: str
+    full_context: str,
+    critique_result=None,
+    debate_transcript: str = ""
 ) -> str:
+    critic_structured = ""
+    if critique_result is not None:
+        cq = getattr(critique_result, "critical_question", None) or "없음"
+        alt = getattr(critique_result, "alternative_interpretation", None) or "없음"
+        sug = getattr(critique_result, "suggestion_for_analyst", None) or "없음"
+        flaws = ", ".join(getattr(critique_result, "flaws", []) or []) or "없음"
+        critic_structured = f"""
+<critic_structured_feedback>
+- critical_question: {cq}
+- alternative_interpretation: {alt}
+- suggestion_for_analyst: {sug}
+- flaws: {flaws}
+</critic_structured_feedback>
+"""
+    debate_block = f"""
+<debate_history>
+{debate_transcript or "(이전 토론 없음)"}
+</debate_history>
+""" if debate_transcript else ""
     return f"""
 <role>당신은 화재 감식 전문가(Analyst)입니다.</role>
 <task>비평가(Critic)의 지적사항을 수용하여 **이전 가설을 재검토하고 수정**하십시오.</task>
@@ -197,7 +218,8 @@ def get_analyst_reanalysis_prompt(
 <critique>
 {critique}
 </critique>
-
+{critic_structured}
+{debate_block}
 <previous_hypothesis>
 {prev_hypothesis}
 </previous_hypothesis>
@@ -212,7 +234,20 @@ def get_analyst_reanalysis_prompt(
 </guidelines>
 
 <output_format>
-이전과 동일한 JSON(AnalystHypothesis)으로 응답하십시오.
+Return RAW JSON only. No markdown.
+
+{{
+  "critique_is_valid": true,
+  "rebuttal_or_acceptance": "비평 수용/반박 요약",
+  "revised_hypothesis": {{
+      "conclusion": "트래킹 (Confirmed) / 트래킹 의심 (Suspected) / 트래킹 아님 (Not Tracking) / 판독 불가 (Indeterminate)",
+      "probability": 0-100,
+      "key_evidence": ["핵심 증거 리스트"],
+      "reasoning": "판정 근거",
+      "rebuttal_to_critic": "Critic 지적에 대한 구체적 반박 또는 수용 근거 (필수)",
+      "answers_to_critical_question": "Critic의 critical_question에 대한 직접적 답변 (있을 경우)"
+  }}
+}}
 </output_format>
 """
 
@@ -222,7 +257,7 @@ def get_critic_prompt(
     image_context: str = ""
 ) -> str:
     return f"""
-<role>당신은 화재 감식 비평가(Critic)입니다. Analyst의 가설을 논리적으로 공격하고 허점을 찌르는 역할입니다.</role>
+<role>당신은 **Devil's Advocate(악의적 변호인)**입니다. Analyst의 가설을 논리적으로 공격하고 허점을 찌르는 역할입니다.</role>
 <task>Analyst가 제출한 가설의 논리적 오류나 데이터 왜곡을 찾아내어 비판하십시오.</task>
 
 <analyst_hypothesis>

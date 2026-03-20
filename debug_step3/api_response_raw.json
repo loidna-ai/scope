@@ -1,0 +1,32 @@
+[
+  {
+    "id": 1,
+    "image_index": 1,
+    "box_2d": {
+      "ymin": 400,
+      "xmin": 550,
+      "ymax": 600,
+      "xmax": 850
+    },
+    "severity_score": 90,
+    "location_description": "Image 1 우측 중앙의 어두운 부품 및 인접한 구리선",
+    "visual_evidence": "어두운 부품은 심하게 탄화되고 녹아 형태가 변형되었으며 표면이 거칠다. 인접한 구리선 다발은 검게 변색되었고 일부는 서로 엉겨 붙어 용융 흔적을 보인다. 표면에 흰색 잔여물이 관찰된다.",
+    "reason_for_selection": null,
+    "suspected_feature": null
+  },
+  {
+    "id": 2,
+    "image_index": 2,
+    "box_2d": {
+      "ymin": 400,
+      "xmin": 400,
+      "ymax": 600,
+      "xmax": 700
+    },
+    "severity_score": 75,
+    "location_description": "Image 2 중앙의 금속 원통 표면",
+    "visual_evidence": "금속 원통 표면은 광범위하게 검게 변색되었고, 여러 부위에 걸쳐 표면이 거칠고 요철이 심하며 일부 재료 손실로 보이는 흔적이 관찰된다.",
+    "reason_for_selection": null,
+    "suspected_feature": null
+  }
+]

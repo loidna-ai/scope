@@ -9,10 +9,10 @@ from typing import Any, List, Optional
 import asyncio
 import os
 
+import config
 from src.prompts.report_generator_prompts import REPORT_SYSTEM_PROMPT
 from src.tools.experts.expert_utils import call_gemini_text
-from src.utils import async_retry_with_backoff, get_genai_client
-import config
+from src.utils import async_retry_with_backoff
 
 
 def _detect_expert_label(report: str, fallback_index: int) -> str:
@@ -184,13 +184,11 @@ def generate_report_llm(
         # Rate Limiter 적용을 위해 async_retry_with_backoff 사용
         async def _call_report_api():
             def run_sync_call():
-                client = get_genai_client()
                 return call_gemini_text(
-                    client=client,
-                    model_name=os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME),
                     prompt=full_prompt,
                     step_name="report_generator",
                     temperature=0.3,
+                    model_name=os.environ.get("GEMINI_PRO_MODEL_NAME", config.GEMINI_PRO_MODEL_NAME),
                 )
             return await async_retry_with_backoff(
                 lambda: asyncio.to_thread(run_sync_call),

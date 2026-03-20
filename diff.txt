@@ -1,0 +1,334 @@
+diff --git a/config.py b/config.py
+index c428f16..81ac648 100644
+--- a/config.py
++++ b/config.py
+@@ -76,9 +76,9 @@ GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+ # 참고: https://cloud.google.com/vertex-ai/generative-ai/docs/standard-paygo
+ #       https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash
+ # Flash 전용 (Hotspot, Preprocessor, Workers, Debater(Flash), FactChecker 등)
+-GEMINI_TIER1_RPM = 30   # 분당 요청 제한
++GEMINI_TIER1_RPM = 30   # 분당 요청 제한 (기본값)
+ GEMINI_TIER1_RPD = 5000 # 일일 요청 제한 (Vertex AI 상한)
+-GEMINI_TIER1_CONCURRENT = 2  # 동시 실행 (Semaphore 2: 429 에러 방지를 위한 최적값)
++GEMINI_TIER1_CONCURRENT = 2  # 동시 실행 (병렬 처리용 원상복구)
+ 
+ # Pro 전용 (Supervisor, Analyst, Critic, Judge, Report Generator, Debater(Pro))
+ # Pro는 Vertex AI에서 별도 할당량·더 낮은 동시성 → 분리된 Rate Limiter 필수
+@@ -100,7 +100,7 @@ HOTSPOT_OVERLAP = 200           # 패치 간 오버랩 (px)
+ HOTSPOT_NMS_IOU_THRESHOLD = 0.3 # NMS IoU 임계값 (0.0~1.0)
+ HOTSPOT_BLUR_THRESHOLD = 50.0   # OpenCV Laplacian Variance (이하 값이면 블러로 간주해 Drop)
+ HOTSPOT_EDGE_THRESHOLD = 10     # OpenCV Canny Edge 평균값 (이하 값이면 텍스처/정보가 없다고 간주해 Drop)
+-HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 개수 제한. Gemini 2.5 Flash의 Multi-Image 특성을 활용하여 여러 장을 일괄 전송함.
++HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 개수 제한 (기본값 원상복구)
+ 
+ # === Image Pre-processing ===
+ PRE_RESIZE_ENABLED = True   # True: 파이프라인 진입 시 자동 리사이즈 수행
+diff --git a/src/utils/api_concurrency.py b/src/utils/api_concurrency.py
+index f0c3529..f2e5b47 100644
+--- a/src/utils/api_concurrency.py
++++ b/src/utils/api_concurrency.py
+@@ -1,11 +1,13 @@
+ """
+-전역 Gemini API 동시성 제어
+-Hotspot Detector + 모든 Expert 노드(Contact, Deform, Necking)가 공유하는
+-단일 Rate Limiter 및 Semaphore로 429/503 에러 방지
++전역 Gemini API 동시성 제어 (Flash / Pro 분리)
++
++Flash와 Pro는 Vertex AI에서 별도 할당량을 가지므로, 단일 Rate Limiter 사용은 안티패턴.
++- Flash: 30 RPM / 2 concurrent (Hotspot, Preprocessor, Workers 등)
++- Pro: 15 RPM / 1 concurrent (Supervisor, Judge, Report Generator 등)
+ 
+ Note: asyncio.Semaphore는 event loop에 바인딩되므로, Expert 그래프가 각각
+ asyncio.run()으로 별도 루프에서 실행될 때 "bound to different event loop" 에러 발생.
+-→ threading.Semaphore 사용 (스레드/루프 무관, asyncio.to_thread로 비블로킹 acquire)
++→ asyncio.Semaphore 사용 (동일 루프 내에서만 공유되므로 LangGraph 단일 루프에서는 안전)
+ 
+ ThreadSafeRateLimiter: 여러 이벤트 루프에서 안전하게 작동하는 thread-safe rate limiter
+ - threading.Lock으로 thread-safe 보장
+@@ -14,6 +16,7 @@ ThreadSafeRateLimiter: 여러 이벤트 루프에서 안전하게 작동하는 t
+ """
+ from contextlib import asynccontextmanager
+ from collections import deque
++from typing import Literal, Any, List, Dict
+ import asyncio
+ import threading
+ import time
+@@ -22,21 +25,51 @@ import config
+ 
+ logger = logging.getLogger(__name__)
+ 
+-# 전역 인스턴스
+-# - ThreadSafeRateLimiter: thread-safe, 여러 이벤트 루프에서 안전하게 작동
+-# - threading.Semaphore: 스레드/루프 무관 → Expert의 asyncio.run() 별도 루프에서도 안전
+-_global_rate_limiter = None
++ModelType = Literal["flash", "pro"]
++
++# Flash / Pro 별도 인스턴스 (모델별 독립 할당량)
++_flash_rate_limiter: "ThreadSafeRateLimiter | None" = None
++_pro_rate_limiter: "ThreadSafeRateLimiter | None" = None
++_flash_semaphore: asyncio.Semaphore | None = None
++_pro_semaphore: asyncio.Semaphore | None = None
+ _limiter_lock = threading.Lock()
+-_global_semaphore_async = None
+ _semaphore_lock = threading.Lock()
+ 
+-def _get_global_semaphore() -> asyncio.Semaphore:
+-    global _global_semaphore_async
+-    if _global_semaphore_async is None:
+-        with _semaphore_lock:
+-            if _global_semaphore_async is None:
+-                _global_semaphore_async = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
+-    return _global_semaphore_async
++
++def _get_rate_limiter(model_type: ModelType) -> "ThreadSafeRateLimiter":
++    global _flash_rate_limiter, _pro_rate_limiter
++    with _limiter_lock:
++        if model_type == "flash":
++            if _flash_rate_limiter is None:
++                _flash_rate_limiter = ThreadSafeRateLimiter(
++                    max_rate=config.GEMINI_TIER1_RPM,
++                    time_period=60.0,
++                    label="Flash",
++                )
++            return _flash_rate_limiter
++        else:
++            if _pro_rate_limiter is None:
++                _pro_rate_limiter = ThreadSafeRateLimiter(
++                    max_rate=getattr(config, "GEMINI_PRO_RPM", 15),
++                    time_period=60.0,
++                    label="Pro",
++                )
++            return _pro_rate_limiter
++
++
++def _get_semaphore(model_type: ModelType) -> asyncio.Semaphore:
++    global _flash_semaphore, _pro_semaphore
++    with _semaphore_lock:
++        if model_type == "flash":
++            if _flash_semaphore is None:
++                _flash_semaphore = asyncio.Semaphore(config.GEMINI_TIER1_CONCURRENT)
++            return _flash_semaphore
++        else:
++            if _pro_semaphore is None:
++                _pro_semaphore = asyncio.Semaphore(
++                    getattr(config, "GEMINI_PRO_CONCURRENT", 1)
++                )
++            return _pro_semaphore
+ 
+ 
+ class ThreadSafeRateLimiter:
+@@ -50,24 +83,24 @@ class ThreadSafeRateLimiter:
+     unlike AsyncLimiter which is bound to a single event loop.
+     """
+     
+-    def __init__(self, max_rate: int, time_period: float = 60.0):
++    def __init__(self, max_rate: int, time_period: float = 60.0, label: str = ""):
+         """
+         Initialize thread-safe rate limiter.
+         
+         Args:
+             max_rate: Maximum number of requests allowed in time_period
+             time_period: Time window in seconds (default: 60.0)
++            label: 로깅용 라벨 (예: "Flash", "Pro")
+         """
+         self.max_rate = max_rate
+         self.time_period = time_period
++        self._label = label or "API"
+         self._lock = threading.Lock()
+         self._requests = deque()  # timestamps
+         # Minimum interval between requests to prevent burst (60 seconds / max_rate)
+         # This ensures requests are evenly distributed over the time window
+-        # NOTE: 최소 간격 체크는 동시 요청이 많을 때 병목을 유발하므로 비활성화
+-        # Leaky bucket 알고리즘만으로도 충분히 Rate Limit을 지킬 수 있음
+-        self._min_interval = 0.0  # 비활성화: time_period / max_rate if max_rate > 0 else 0.0
+-    
++        # Vertex AI 공식 문서 권장사항(Traffic Smoothing) 적용: 동시 요청 폭주 시 429 방지.
++        self._min_interval = (time_period / max_rate) if max_rate > 0 else 0.0    
+     def _cleanup_old_requests(self, now: float):
+         """
+         Remove requests older than time_period.
+@@ -99,10 +132,8 @@ class ThreadSafeRateLimiter:
+             current_count = len(self._requests)
+             
+             # Check minimum interval to prevent burst (if we have recent requests)
+-            # NOTE: 최소 간격 체크는 동시 요청이 많을 때 병목을 유발하므로 완화
+-            # 현재 요청 수가 제한의 80% 미만일 때만 최소 간격 체크 수행
+-            if (self._requests and self._min_interval > 0 
+-                and current_count < self.max_rate * 0.8):
++            # Vertex AI 권장사항에 따라 동시 폭주(Burst)를 방지하기 위해 상시(100%) 간격을 조절합니다.
++            if self._requests and self._min_interval > 0:
+                 time_since_last = now - self._requests[-1]
+                 if time_since_last < self._min_interval:
+                     wait_time = self._min_interval - time_since_last
+@@ -112,9 +143,9 @@ class ThreadSafeRateLimiter:
+                 # Can proceed immediately - record timestamp atomically
+                 self._requests.append(now)
+                 count_after = len(self._requests)
+-                logger.debug(f"[RateLimiter] Request recorded. Current count: {count_after}/{self.max_rate}")
++                logger.debug(f"[RateLimiter:{self._label}] Request recorded. Current count: {count_after}/{self.max_rate}")
+                 if count_after >= self.max_rate * 0.8:  # 80% 이상 사용 시 경고
+-                    logger.warning(f"[RateLimiter] Rate limit approaching: {count_after}/{self.max_rate} requests in last 60s")
++                    logger.warning(f"[RateLimiter:{self._label}] Rate limit approaching: {count_after}/{self.max_rate} requests in last 60s")
+                 return True, 0.0
+             
+             # Need to wait until oldest request expires
+@@ -127,7 +158,7 @@ class ThreadSafeRateLimiter:
+                 self._requests.popleft()
+                 self._requests.append(now)
+                 count_after = len(self._requests)
+-                logger.debug(f"[RateLimiter] Request recorded. Current count: {count_after}/{self.max_rate}")
++                logger.debug(f"[RateLimiter:{self._label}] Request recorded. Current count: {count_after}/{self.max_rate}")
+                 return True, 0.0
+     
+     @asynccontextmanager
+@@ -145,10 +176,10 @@ class ThreadSafeRateLimiter:
+             if can_proceed:
+                 # Timestamp already recorded atomically in _try_acquire_and_record()
+                 if loop_count > 0:
+-                    logger.debug(f"[RateLimiter] Acquired after {loop_count} wait cycles")
++                    logger.debug(f"[RateLimiter:{self._label}] Acquired after {loop_count} wait cycles")
+                 break
+             loop_count += 1
+-            logger.warning(f"[RateLimiter] Rate limit reached ({self.max_rate} RPM), waiting {wait_time:.2f}s (attempt {loop_count})")
++            logger.warning(f"[RateLimiter:{self._label}] Rate limit reached ({self.max_rate} RPM), waiting {wait_time:.2f}s (attempt {loop_count})")
+             await asyncio.sleep(wait_time)
+         
+         try:
+@@ -158,40 +189,108 @@ class ThreadSafeRateLimiter:
+             pass
+ 
+ 
+-def _get_rate_limiter() -> ThreadSafeRateLimiter:
+-    """
+-    Get or create global thread-safe rate limiter.
+-    
+-    Lazy initialization pattern ensures single instance across all event loops.
+-    
+-    Returns:
+-        ThreadSafeRateLimiter instance
+-    """
+-    global _global_rate_limiter
+-    if _global_rate_limiter is None:
+-        with _limiter_lock:
+-            if _global_rate_limiter is None:
+-                _global_rate_limiter = ThreadSafeRateLimiter(
+-                    max_rate=config.GEMINI_TIER1_RPM,
+-                    time_period=60.0
+-                )
+-    return _global_rate_limiter
+-
+-
+ @asynccontextmanager
+-async def acquire_api_slot():
++async def acquire_api_slot(model_type: ModelType = "flash"):
+     """
+     API 호출 전 슬롯 획득 (rate limit + concurrency)
+     
+-    Thread-safe rate limiter와 asyncio semaphore를 사용하여:
+-    - Rate limiting: 분당 요청 수 제한 (GEMINI_TIER1_RPM)
+-    - Concurrency limiting: 동시 실행 수 제한 (GEMINI_TIER1_CONCURRENT)
++    Flash와 Pro는 Vertex AI에서 별도 할당량을 가지므로 분리된 풀 사용.
++    
++    Args:
++        model_type: "flash" | "pro"
++            - flash: 30 RPM, 2 concurrent (Hotspot, Preprocessor, Workers 등)
++            - pro: 15 RPM, 1 concurrent (Supervisor, Judge, Report Generator 등)
++    
++    Usage:
++        async with acquire_api_slot("flash"):
++            await call_flash_api()
++        async with acquire_api_slot("pro"):
++            await call_pro_api()
+     """
+-    sem = _get_global_semaphore()
++    sem = _get_semaphore(model_type)
+     await sem.acquire()
+     try:
+-        limiter = _get_rate_limiter()
++        limiter = _get_rate_limiter(model_type)
+         async with limiter.acquire():
+             yield
+     finally:
+-        sem.release()
+\ No newline at end of file
++        sem.release()
++
++
++from google.genai import types
++from src.utils.retry_utils import async_retry_with_backoff
++from src.models.hotspot_models import HotspotDetectionResult
++
++async def batch_process_hotspots(
++    client: Any,
++    patch_batches: List[List[Dict[str, Any]]],
++    model_name: str,
++    prompt: str,
++    api_config: Dict[str, Any]
++) -> List[Any]:
++    """
++    여러 패치 배치를 병렬로 처리하여 Hotspot 결과를 수집합니다.
++    """
++    patch_stats = {"total": sum(len(b) for b in patch_batches), "success": 0, "failed": 0, "safety_blocked": 0}
++
++    async def _process_patch_batch(batch_idx, patches_chunk):
++        hotspots_for_batch = []
++        try:
++            contents = [prompt]
++            for idx_p, p_data in enumerate(patches_chunk):
++                contents.append(f"Image {idx_p + 1}:")
++                image_part = types.Part.from_bytes(data=p_data['image_bytes'], mime_type="image/jpeg")
++                contents.append(image_part)
++                
++            async def _call_api(**kwargs):
++                used_model = kwargs.get("model_name", model_name)
++                return await client.aio.models.generate_content(
++                    model=used_model,
++                    contents=contents,
++                    config=api_config
++                )
++                
++            response = await async_retry_with_backoff(
++                _call_api,
++                max_retries=10,  # 429 에러(1분 할당량 초과) 복구를 위해 3에서 10으로 대폭 상향
++                context_name=f"Batch {batch_idx} ({len(patches_chunk)} images)",
++                model_name=model_name
++            )
++            
++            is_safety_blocked = False
++            if not hasattr(response, "candidates") or not response.candidates:
++                hotspots_for_batch = []
++            else:
++                candidate = response.candidates[0]
++                is_safety_blocked = (
++                    hasattr(candidate, "safety_ratings") and candidate.safety_ratings
++                    and any(r.probability in ["HIGH", "MEDIUM"] for r in candidate.safety_ratings)
++                )
++                
++                if is_safety_blocked:
++                    logger.warning(f"Batch {batch_idx}: Safety block detected.")
++                else:
++                    response_text = getattr(response, "text", None)
++                    if response_text:
++                        parsed = HotspotDetectionResult.model_validate_json(response_text)
++                        hotspots_for_batch = parsed.hotspots
++            
++            if is_safety_blocked:
++                patch_stats["safety_blocked"] += len(patches_chunk)
++            else:
++                patch_stats["success"] += len(patches_chunk)
++        except Exception as e:
++            logger.warning(f"Batch {batch_idx} Analysis failed: {e}")
++            patch_stats["failed"] += len(patches_chunk)
++            
++        return (patches_chunk, hotspots_for_batch)
++
++    # 3. Task 생성 및 병렬 처리 (병렬 배치 처리 상태로 원상복구)
++    tasks = [_process_patch_batch(idx, batch) for idx, batch in enumerate(patch_batches)]
++    results = await asyncio.gather(*tasks)
++    
++    total_patches = patch_stats["total"]
++    success_rate = (patch_stats["success"] / total_patches * 100) if total_patches > 0 else 0
++    logger.info(f"Hotspot Detector Concurrency: Batch Processing stats — success: {success_rate:.1f}%")
++    
++    return results
+\ No newline at end of file

@@ -1,0 +1,18 @@
+2026-03-20 10:56:24,695 - INFO - === Stage 2 Debugging Test Started ===
+2026-03-20 10:56:24,696 - INFO - Target Test Image: Poor_Contact_001.jpg
+2026-03-20 10:56:24,696 - INFO - Config: Size=1024, Overlap=200, MaxDim=2048, BlurTH=50.0, EdgeTH=10
+2026-03-20 10:56:24,749 - INFO - Slicing Result: Total=1, PASS=0, FILTERED=1
+2026-03-20 10:56:24,771 - INFO - Saved slicing grid visualization to: v:\Projects\P_04_Scope\debug_step2\slicing_debug_grid.jpg
+2026-03-20 10:56:24,772 - INFO - === Stage 2 Debugging Test Completed ===
+2026-03-20 10:56:44,569 - INFO - === Stage 2 Debugging Test Started ===
+2026-03-20 10:56:44,569 - INFO - Target Test Image: Poor_Contact_001.jpg
+2026-03-20 10:56:44,569 - INFO - Config: Size=1024, Overlap=200, MaxDim=2048, BlurTH=50.0, EdgeTH=10
+2026-03-20 10:56:44,598 - INFO - Slicing Result: Total=1, PASS=0, FILTERED=1
+2026-03-20 10:56:44,608 - INFO - Saved slicing grid visualization to: v:\Projects\P_04_Scope\debug_step2\slicing_debug_grid.jpg
+2026-03-20 10:56:44,608 - INFO - === Stage 2 Debugging Test Completed ===
+2026-03-20 10:56:57,243 - INFO - === Stage 2 Debugging Test Started ===
+2026-03-20 10:56:57,243 - INFO - Target Test Image: IMG_1634.JPG
+2026-03-20 10:56:57,243 - INFO - Config: Size=1024, Overlap=200, MaxDim=2048, BlurTH=50.0, EdgeTH=10
+2026-03-20 10:56:57,563 - INFO - Slicing Result: Total=6, PASS=6, FILTERED=0
+2026-03-20 10:56:57,661 - INFO - Saved slicing grid visualization to: v:\Projects\P_04_Scope\debug_step2\slicing_debug_grid.jpg
+2026-03-20 10:56:57,669 - INFO - === Stage 2 Debugging Test Completed ===

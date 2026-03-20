@@ -18,7 +18,6 @@ OUTPUT_DIR = "outputs"  # 기본 출력 디렉토리
 
 # 캐시 디렉토리 (사용자 결과물과 분리하여 관리)
 CACHE_DIR = ".enhancement_cache"
-
 # 캐시 보관 기간 (일). 분석 시작 시 이 기간 초과 캐시 자동 삭제
 CACHE_MAX_AGE_DAYS = 7
 
@@ -76,9 +75,14 @@ GEMINI_FALLBACK_MODEL = "gemini-3-flash-preview"
 # 참고: https://cloud.google.com/vertex-ai/generative-ai/docs/standard-paygo
 #       https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash
 # Flash 전용 (Hotspot, Preprocessor, Workers, Debater(Flash), FactChecker 등)
-GEMINI_TIER1_RPM = 30   # 분당 요청 제한 (기본값)
+GEMINI_TIER1_RPM = 30   # 분당 요청 제한
 GEMINI_TIER1_RPD = 5000 # 일일 요청 제한 (Vertex AI 상한)
 GEMINI_TIER1_CONCURRENT = 2  # 동시 실행 (병렬 처리용 원상복구)
+
+# Pro 전용 (Supervisor, Analyst, Critic, Judge, Report Generator, Debater(Pro))
+# Pro는 Vertex AI에서 별도 할당량·더 낮은 동시성 → 분리된 Rate Limiter 필수
+GEMINI_PRO_RPM = 10         # Pro 분당 요청 (429 완화를 위해 10으로 하향)
+GEMINI_PRO_CONCURRENT = 1   # Pro 동시 실행 (burst·429 방지)
 
 # Pro 전용 (Supervisor, Analyst, Critic, Judge, Report Generator, Debater(Pro))
 # Pro는 Vertex AI에서 별도 할당량·더 낮은 동시성 → 분리된 Rate Limiter 필수
@@ -100,7 +104,7 @@ HOTSPOT_OVERLAP = 200           # 패치 간 오버랩 (px)
 HOTSPOT_NMS_IOU_THRESHOLD = 0.3 # NMS IoU 임계값 (0.0~1.0)
 HOTSPOT_BLUR_THRESHOLD = 50.0   # OpenCV Laplacian Variance (이하 값이면 블러로 간주해 Drop)
 HOTSPOT_EDGE_THRESHOLD = 10     # OpenCV Canny Edge 평균값 (이하 값이면 텍스처/정보가 없다고 간주해 Drop)
-HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 개수 제한 (기본값 원상복구)
+HOTSPOT_BATCH_SIZE = 5          # 1번의 API 호출에 태울 이미지 패치 개수 제한. Gemini 2.5 Flash의 Multi-Image 특성을 활용하여 여러 장을 일괄 전송함.
 
 # === Image Pre-processing ===
 PRE_RESIZE_ENABLED = True   # True: 파이프라인 진입 시 자동 리사이즈 수행

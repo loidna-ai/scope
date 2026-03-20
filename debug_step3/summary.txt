@@ -1,0 +1,9 @@
+=== Stage 3 API Response Debug Summary ===
+Model: gemini-2.5-flash
+Input Patches: 3
+Hotspots Detected: 2
+Response saved to: api_response_raw.json
+
+Detections:
+  #1 [ImgIdx:1] Sev:90 - 어두운 부품은 심하게 탄화되고 녹아 형태가 변형되었으며 표면이 거칠다. 인접한 구리선 다발...
+  #2 [ImgIdx:2] Sev:75 - 금속 원통 표면은 광범위하게 검게 변색되었고, 여러 부위에 걸쳐 표면이 거칠고 요철이 심하...

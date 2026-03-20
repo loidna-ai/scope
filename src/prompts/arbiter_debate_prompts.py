@@ -136,8 +136,7 @@ def build_judge_prompt(
     expert_opinions: Dict,
     debate_messages: List[Dict],
     expert_reports: List[str],
-    consensus_reached: bool,
-    spatial_summary: str = ""
+    consensus_reached: bool
 ) -> str:
     """Judge 노드용 프롬프트 (구조화된 출력용)
     
@@ -163,10 +162,7 @@ def build_judge_prompt(
 **3. 전문가 리포트:**
 {chr(10).join(f'--- {i+1}번 전문가 ---{chr(10)}{report}' for i, report in enumerate(expert_reports)) if expert_reports else '전문가 리포트 없음'}
 
-**4. 공간적 분포 (Wide Mode):**
-{spatial_summary}
-
-**5. 합의 상태:**
+**4. 합의 상태:**
 {'합의 도달' if consensus_reached else '합의 미도달'}
 
 [판정 지침]
@@ -177,10 +173,9 @@ def build_judge_prompt(
 5. Zone 정보는 분석에 사용된 Zone만 포함하세요 (Zone 1, 3, 4 등).
 6. expert_summaries에는 **활성 전문가({active_experts_str})만** 포함하세요. 비활성 전문가는 제외합니다.
 7. 합의가 이루어졌다면 합의 내용을 반영하세요.
-8. **다중 지점(Wide Mode)** 분석 시, 주어진 공간적 분포 정보를 토대로 핫스팟 간 발화 선후 또는 인과관계를 추론하여 reasoning_summary에 서술하세요 (예: "Zone 1이 최초 발화 지점으로 추정되고 Zone 3은 연소 확대 결과로 판단됨").
-9. 합의가 이루어지지 않았다면 각 전문가의 신뢰도 점수와 증거의 강도를 비교하여 **가장 높은 신뢰도를 가진 단일 판정**을 선택하세요.
-10. 판단 불가한 경우 (증거 부족, 모든 전문가 신뢰도 낮음 등) UNDETERMINED을 선언하세요.
-11. **절대 "A 및 B" 형태의 복합 판정을 하지 마세요.** 하나의 원인만 선택하세요 (예: "접촉불량(유력)", "반단선(의심)" 등).
+8. 합의가 이루어지지 않았다면 각 전문가의 신뢰도 점수와 증거의 강도를 비교하여 **가장 높은 신뢰도를 가진 단일 판정**을 선택하세요.
+9. 판단 불가한 경우 (증거 부족, 모든 전문가 신뢰도 낮음 등) UNDETERMINED을 선언하세요.
+10. **절대 "A 및 B" 형태의 복합 판정을 하지 마세요.** 하나의 원인만 선택하세요 (예: "접촉불량(유력)" 또는 "반단선(유력)" 중 하나만).
 
 [출력 형식]
 **반드시 제공된 JSON Schema에 맞춰 응답하세요.**

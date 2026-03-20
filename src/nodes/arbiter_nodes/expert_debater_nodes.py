@@ -94,6 +94,7 @@ async def _debater_node(
             client = get_genai_client()
             return await asyncio.to_thread(
                 call_gemini_text,
+<<<<<<< HEAD
                 client=client,
                 model_name=pro_model,  # model_name: Pro로 모순 해결·갈등 조율
                 prompt=prompt,
@@ -101,6 +102,14 @@ async def _debater_node(
                 verbose=False,  # verbose
                 temperature=0.7,    # temperature
                 thinking_level="medium",  # thinking_level
+=======
+                prompt,
+                f"{expert_name}_debater_{stage}",
+                False,  # verbose
+                0.7,    # temperature
+                "medium",  # thinking_level
+                pro_model,  # model_name: Pro로 모순 해결·갈등 조율
+>>>>>>> origin
             )
         response_text, _ = await async_retry_with_backoff(
             _call_debater,

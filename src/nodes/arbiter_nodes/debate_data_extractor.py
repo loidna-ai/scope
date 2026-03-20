@@ -43,7 +43,8 @@ def extract_expert_opinions(state: InvestigationState) -> Dict[ExpertName, Exper
     expert_confidence_scores = state.get("expert_confidence_scores", {})
     expert_evidence = state.get("expert_evidence", {})
     
-    for expert_name in ["contact", "deform", "necking", "aging"]:
+    # for expert_name in ["contact", "deform", "necking", "aging"]:
+    for expert_name in ["contact", "necking"]:
         expert_data = expert_analysis_results.get(expert_name, {})
         logger.debug(f"Processing {expert_name} expert data")
         
@@ -124,7 +125,7 @@ def debate_data_extractor_node(state: Dict[str, Any]) -> Dict[str, Any]:
         "current_stage": "opening",
         "current_round": 1,
         "current_speaker": None,
-        "fact_check_failures": {"contact": 0, "deform": 0, "necking": 0, "aging": 0},
+        "fact_check_failures": {"contact": 0, "necking": 0}, # "deform": 0, "aging": 0
         "final_verdict": None,
         "consensus_reached": False,
         "errors": []

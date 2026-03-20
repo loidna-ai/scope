@@ -5,7 +5,10 @@ Judge/Arbiter 노드에서 구조화된 출력으로 사용
 """
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Optional, Literal
+<<<<<<< HEAD
 from src.models.evidence_models import EvidenceItem
+=======
+>>>>>>> origin
 
 
 class ZoneInfo(BaseModel):
@@ -165,10 +168,13 @@ class ContactSupervisorVerdict(BaseModel):
     reasoning_process: str = Field(
         description="Synthesis of worker reports and conflict resolution"
     )
+<<<<<<< HEAD
     evidence_list: List[EvidenceItem] = Field(
         default_factory=list, 
         description="Worker들로부터 수집 및 취합된 최종 시각적 증거 리스트"
     )
+=======
+>>>>>>> origin
 
 class DeformSupervisorVerdict(BaseModel):
     final_conclusion: Literal[
@@ -183,10 +189,13 @@ class DeformSupervisorVerdict(BaseModel):
     reasoning_process: str = Field(
         description="Synthesis of worker reports and conflict resolution"
     )
+<<<<<<< HEAD
     evidence_list: List[EvidenceItem] = Field(
         default_factory=list, 
         description="Worker들로부터 수집 및 취합된 최종 시각적 증거 리스트"
     )
+=======
+>>>>>>> origin
 
 class NeckingSupervisorVerdict(BaseModel):
     final_conclusion: Literal[
@@ -201,10 +210,13 @@ class NeckingSupervisorVerdict(BaseModel):
     reasoning_process: str = Field(
         description="Synthesis of worker reports and conflict resolution"
     )
+<<<<<<< HEAD
     evidence_list: List[EvidenceItem] = Field(
         default_factory=list, 
         description="Worker들로부터 수집 및 취합된 최종 시각적 증거 리스트"
     )
+=======
+>>>>>>> origin
 
 class AgingSupervisorVerdict(BaseModel):
     final_conclusion: Literal[
@@ -219,10 +231,13 @@ class AgingSupervisorVerdict(BaseModel):
     reasoning_process: str = Field(
         description="Synthesis of worker reports and conflict resolution"
     )
+<<<<<<< HEAD
     evidence_list: List[EvidenceItem] = Field(
         default_factory=list, 
         description="Worker들로부터 수집 및 취합된 최종 시각적 증거 리스트"
     )
+=======
+>>>>>>> origin
 
 class TrackingSupervisorVerdict(BaseModel):
     final_conclusion: Literal[
@@ -237,7 +252,10 @@ class TrackingSupervisorVerdict(BaseModel):
     reasoning_process: str = Field(
         description="Synthesis of worker reports and conflict resolution"
     )
+<<<<<<< HEAD
     evidence_list: List[EvidenceItem] = Field(
         default_factory=list, 
         description="Worker들로부터 수집 및 취합된 최종 시각적 증거 리스트"
     )
+=======
+>>>>>>> origin
